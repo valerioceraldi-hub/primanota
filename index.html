@@ -403,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.7.2</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.7.3</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -1632,17 +1632,7 @@ function _saveCache(rows){
     // (esclude foto base64 e campi vuoti che pesano molto)
     // Cache slim: salva sempre i campi base
     // fattura_allegata e iva_breakdown salvati separatamente per ID (evita overflow localStorage)
-    const slim = rows.map(function(r){
-      var o = {};
-      var keep = ['id','tipo','fornitore','numero','fatt_num','num_ddt','data','importo',
-        'pagamento','assegno','ass_int','ass_banca','bon_iban','bon_caus','bon_data','bon_rif',
-        'riconciliata','note','stato','scadenza','rate','ts','parz_pagato','data_pagamento',
-        'fattura_allegata_name','xml_github_path','source','pec_id','pec_verificata',
-        'updated_at','incompleta','totale_imponibile','totale_imposta','iva_breakdown','iva',
-        'has_foto','has_allegata'];
-      keep.forEach(function(k){ if(r[k] !== undefined && r[k] !== null && r[k] !== '') o[k] = r[k]; });
-      return o;
-    });
+    const slim = rows.map(_slimPerCache);
     // NON salvare XML in localStorage — occupano 6.5MB e causano quota exceeded
     // Gli XML si scaricano on-demand da Supabase quando si apre la singola fattura
     const json = JSON.stringify(slim);
@@ -1673,14 +1663,31 @@ function _cacheMaxTs(){
   return parseInt(localStorage.getItem(FATTURE_TS_KEY)||'0', 10);
 }
 
+// Riduce una riga fattura ai soli campi da tenere in cache locale — esclude
+// fattura_allegata (XML/PDF interi, possono pesare 6+ MB in totale e far
+// superare la quota di localStorage). Usata sia nel caricamento completo
+// che nell'aggiornamento di una singola riga dopo un salvataggio.
+function _slimPerCache(r){
+  var o = {};
+  var keep = ['id','tipo','fornitore','numero','fatt_num','num_ddt','data','importo',
+    'pagamento','assegno','ass_int','ass_banca','bon_iban','bon_caus','bon_data','bon_rif',
+    'riconciliata','note','stato','scadenza','rate','ts','parz_pagato','data_pagamento',
+    'fattura_allegata_name','xml_github_path','source','pec_id','pec_verificata',
+    'updated_at','incompleta','totale_imponibile','totale_imposta','iva_breakdown','iva',
+    'has_foto','has_allegata'];
+  keep.forEach(function(k){ if(r[k] !== undefined && r[k] !== null && r[k] !== '') o[k] = r[k]; });
+  return o;
+}
+
 // Aggiorna una singola riga nella cache locale (evita di riscaricare tutto)
 function _updateCacheRow(dbRow){
   try{
     const cached = _loadCache();
     if(!cached) return;
-    const idx = cached.findIndex(r => r.id === dbRow.id);
-    if(idx >= 0) cached[idx] = dbRow;
-    else cached.unshift(dbRow);
+    const slimRow = _slimPerCache(dbRow); // MAI salvare la riga intera: niente XML in localStorage
+    const idx = cached.findIndex(r => r.id === slimRow.id);
+    if(idx >= 0) cached[idx] = slimRow;
+    else cached.unshift(slimRow);
     localStorage.setItem(FATTURE_CACHE_KEY, JSON.stringify(cached));
     const maxTs = cached.reduce((m,r)=>Math.max(m,r.ts||0), 0);
     localStorage.setItem(FATTURE_TS_KEY, String(maxTs));
