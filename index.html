@@ -4,6 +4,23 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Fatture Ceraldi</title>
+<script>
+// Cattura QUALSIASI errore JS non gestito e lo mostra a schermo — senza questo,
+// un errore silenzioso può bloccare l'esecuzione di tutto il codice dopo di esso
+// (incluso l'avvio del realtime) senza che nulla compaia mai a video.
+window.addEventListener('error', function(e){
+  try{
+    var box = document.getElementById('_globalErrBox');
+    if(!box){
+      box = document.createElement('div');
+      box.id = '_globalErrBox';
+      box.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#c0392b;color:#fff;font-family:monospace;font-size:12px;padding:10px;z-index:999999;white-space:pre-wrap;max-height:40vh;overflow-y:auto';
+      document.body ? document.body.prepend(box) : document.addEventListener('DOMContentLoaded', function(){document.body.prepend(box);});
+    }
+    box.textContent += '❌ ERRORE JS: '+(e.message||'')+' — '+(e.filename||'').split('/').pop()+':'+(e.lineno||'')+'\n';
+  }catch(_){}
+});
+</script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
@@ -385,7 +402,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.5.1</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.5.2</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
