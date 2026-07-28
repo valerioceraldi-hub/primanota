@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Fatture Ceraldi</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 :root{
@@ -384,6 +385,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.5.0</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -7865,8 +7867,43 @@ async function avviaSyncAutomatico(){
     // Riavvia il polling
     _avviaPollingBg();
   });
-  // 2. Polling leggero ogni 60s mentre il tab è visibile
+  // 2. Polling leggero ogni 60s mentre il tab è visibile (rete di sicurezza)
   _avviaPollingBg();
+  // 3. Sync in tempo reale: Supabase avvisa subito quando cambia qualcosa,
+  // senza aspettare il prossimo giro di polling.
+  _avviaRealtimeSync();
+}
+
+// ── SYNC IN TEMPO REALE (push, non polling) ──
+// Richiede che la Realtime replication sia attivata sulla tabella "fatture"
+// dalla dashboard Supabase (Database → Replication). Se non attiva, questa
+// sottoscrizione semplicemente non riceve eventi e il polling resta l'unico
+// meccanismo — nessun errore, nessun danno.
+let _realtimeChannel = null;
+let _realtimeDebounce = null;
+function _avviaRealtimeSync(){
+  try{
+    if(typeof supabase === 'undefined' || !supabase.createClient){
+      console.warn('[Realtime] libreria supabase-js non caricata, resto sul solo polling');
+      return;
+    }
+    if(_realtimeChannel) return; // già attivo
+    const client = supabase.createClient(SB_URL, SB_KEY);
+    _realtimeChannel = client
+      .channel('fatture-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'fatture' }, ()=>{
+        // Diverse modifiche ravvicinate (es. import in blocco) → un solo sync, non uno per riga
+        if(_realtimeDebounce) clearTimeout(_realtimeDebounce);
+        _realtimeDebounce = setTimeout(async ()=>{
+          await _eseguiSyncIncrementale();
+        }, 800);
+      })
+      .subscribe((status)=>{
+        console.log('[Realtime] stato canale fatture:', status);
+      });
+  }catch(e){
+    console.warn('[Realtime] avvio fallito, resto sul solo polling:', e);
+  }
 }
 function _avviaPollingBg(){
   if(_bgSyncTimer) return;
