@@ -403,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.7.3</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.7.5</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -1768,7 +1768,9 @@ async function loadAll(forceRefresh=false){
 
     // ── PRIMO CARICAMENTO o forceRefresh ──
     if(forceRefresh || !cached || cached.length === 0){
-      const rows = await sbFetch('fatture?select='+SLIM_COLS_FATTURE+'&order=data.desc,ts.desc');
+      // Range esplicito: senza, Supabase tronca a 1000 righe di default — con oltre
+      // 1000 fatture (superate oggi) mancherebbero fatture intere dopo un sync completo.
+      const rows = await sbFetch('fatture?select='+SLIM_COLS_FATTURE+'&order=data.desc,ts.desc', {headers:{Range:'0-9999'}});
       // Marca chi ha foto/XML su Cloud (per UI: icona camera / bottone allegato)
       await _arricchisciConFlagAllegati(rows);
       _saveCache(rows);
@@ -1783,10 +1785,10 @@ async function loadAll(forceRefresh=false){
 
     // ── APERTURE SUCCESSIVE: scarica solo righe cambiate ──
     // 1. Righe nuove o modificate (ts > maxTs locale) — solo campi leggeri
-    const changed = await sbFetch('fatture?select='+SLIM_COLS_FATTURE+'&ts=gt.'+localMaxTs+'&order=ts.asc');
+    const changed = await sbFetch('fatture?select='+SLIM_COLS_FATTURE+'&ts=gt.'+localMaxTs+'&order=ts.asc', {headers:{Range:'0-9999'}});
 
     // 2. Controlla eliminazioni: prendi tutti gli ID remoti (solo id, leggerissimo)
-    const remoteIds = await sbFetch('fatture?select=id');
+    const remoteIds = await sbFetch('fatture?select=id', {headers:{Range:'0-9999'}});
     const remoteIdSet = new Set(remoteIds.map(r=>String(r.id)));
 
     // 3. Merge: aggiorna cache locale
@@ -1855,9 +1857,13 @@ async function loadAll(forceRefresh=false){
 async function _arricchisciConFlagAllegati(rows){
   if(!rows || rows.length === 0) return;
   try{
+    // Range esplicito: senza, Supabase tronca silenziosamente a 1000 righe —
+    // con più di 1000 fatture (superate oggi con gli import in blocco), le fatture
+    // oltre la millesima perdevano il flag e quindi il bottone "Doc." spariva.
+    const rangeHeader = {Range: '0-9999'};
     const [fotoIds, allegIds] = await Promise.all([
-      sbFetch('fatture?select=id&foto=not.is.null').catch(()=>[]),
-      sbFetch('fatture?select=id&fattura_allegata=not.is.null').catch(()=>[])
+      sbFetch('fatture?select=id&foto=not.is.null', {headers: rangeHeader}).catch(()=>[]),
+      sbFetch('fatture?select=id&fattura_allegata=not.is.null', {headers: rangeHeader}).catch(()=>[])
     ]);
     const setFoto = new Set((fotoIds||[]).map(r=>String(r.id)));
     const setAlleg = new Set((allegIds||[]).map(r=>String(r.id)));
@@ -5334,18 +5340,34 @@ async function importaMassivoXml(input){
         if(!el){const all=root2.getElementsByTagName('*');for(let i=0;i<all.length;i++){if(all[i].localName===tag){el=all[i];break;}}}
         return el?el.textContent.trim():'';
       };
+      // Cerca un elemento DENTRO un genitore specifico (es. dentro <CedentePrestatore>),
+      // invece di sperare che sia il primo con quel nome in tutto il documento.
+      // Senza questo, un XML con struttura insolita (es. sezioni in ordine diverso,
+      // TerzoIntermediario con la sua Denominazione) può far leggere il fornitore
+      // sbagliato — e quel dato sbagliato può "sporcare" il confronto duplicati
+      // per gli altri file dello stesso import in blocco.
+      const findParent = (tag) => {
+        let el = doc.getElementsByTagName(tag)[0];
+        if(!el) el = doc.getElementsByTagNameNS('*', tag)[0];
+        if(!el){const all=doc.getElementsByTagName('*');for(let i=0;i<all.length;i++){if(all[i].localName===tag){el=all[i];break;}}}
+        return el;
+      };
+      const getIn = (parentTag, childTag) => {
+        const parent = findParent(parentTag);
+        return parent ? get(childTag, parent) : '';
+      };
 
       // Estrai dati FatturaPA
-      // Forza la lettura dal CedentePrestatore (sezione fornitore)
+      // Forza la lettura dal CedentePrestatore (sezione fornitore) — con scoping vero
       const fornitore = (
-        get('CedentePrestatore Denominazione')
-        || (get('CedentePrestatore Nome')+' '+get('CedentePrestatore Cognome')).trim()
+        getIn('CedentePrestatore','Denominazione')
+        || (getIn('CedentePrestatore','Nome')+' '+getIn('CedentePrestatore','Cognome')).trim()
         || get('Denominazione')
         || (get('Nome')+' '+get('Cognome'))
       ).trim();
-      const numero    = get('Numero');
-      const data      = get('Data');
-      const importoRaw= get('ImportoPagamento') || get('ImportoTotaleDocumento');
+      const numero    = getIn('DatiGeneraliDocumento','Numero') || get('Numero');
+      const data      = getIn('DatiGeneraliDocumento','Data') || get('Data');
+      const importoRaw= get('ImportoPagamento') || getIn('DatiGeneraliDocumento','ImportoTotaleDocumento') || get('ImportoTotaleDocumento');
       const importo   = parseFloat((importoRaw||'0').replace(',','.')) || 0;
       const modalita  = get('ModalitaPagamento');
       const pagamento = pagMap[modalita] || '';
@@ -5354,7 +5376,7 @@ async function importaMassivoXml(input){
       const numDdt    = get('NumeroDDT') || get('NumeroFatturePrecedenti') || '';
       const ivaInfo   = extractIvaBreakdownFromXml(xmlTesto);
       // Leggi TipoDocumento per nota credito
-      const tipoDocXml = get('TipoDocumento') || '';
+      const tipoDocXml = getIn('DatiGeneraliDocumento','TipoDocumento') || get('TipoDocumento') || '';
       const tipoFatt = tipoFromTD(tipoDocXml).tipo;
 
       if(!fornitore && !numero && !importo){ risultati.errori++; continue; }
