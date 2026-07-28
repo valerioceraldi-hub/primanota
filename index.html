@@ -1747,6 +1747,10 @@ async function loadAll(forceRefresh=false){
       _saveCache(rows);
       fatture = rows.map(dbToApp);
       console.log('Download completo: '+rows.length+' fatture (slim)');
+      if(forceRefresh){
+        const nonPagateOra = fatture.filter(f=>(f.stato||'pagata')!=='pagata').length;
+        toast('📥 Scaricate '+rows.length+' fatture dal Cloud ('+nonPagateOra+' non pagate)');
+      }
       return true;
     }
 
@@ -4301,6 +4305,8 @@ async function _applicaQuickPay(id, metodo, extra, backup, dataScelta){
   const _r4120=await dbUpdate(fatture[idx]); if(_r4120&&_r4120[0])_updateCacheRow(_r4120[0]);
   renderLista();
   aggiornaAlertBanner();
+  const _viewScad = document.getElementById('view-scadenzario');
+  if(_viewScad && _viewScad.classList.contains('active')) renderScadenzario();
   _showQuickPayUndoToast(id, backup);
 }
 
@@ -6805,6 +6811,7 @@ function renderScadenzario(){
         <div style="text-align:right;flex-shrink:0">
           <div style="font-size:17px;font-weight:700">${fmt(f.importo)}</div>
           <button style="margin-top:6px;padding:6px 12px;border:none;border-radius:8px;background:var(--blue-light);font-family:'Inter',-apple-system,sans-serif;font-size:12px;font-weight:600;cursor:pointer;color:var(--blue)" onclick="openEdit(${f.id})">✏️ Modifica</button>
+          <button style="margin-top:6px;padding:6px 12px;border:1px solid var(--green);border-radius:8px;background:var(--green-light);font-family:'Inter',-apple-system,sans-serif;font-size:12px;font-weight:700;cursor:pointer;color:#1a7a3a;display:block" onclick="event.stopPropagation();quickPay(${f.id})">✓ Paga ora</button>
         </div>
       </div>
     </div>`;
