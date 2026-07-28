@@ -385,7 +385,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.5.0</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.5.1</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -7885,24 +7885,29 @@ function _avviaRealtimeSync(){
   try{
     if(typeof supabase === 'undefined' || !supabase.createClient){
       console.warn('[Realtime] libreria supabase-js non caricata, resto sul solo polling');
+      toast('⚠️ Realtime: libreria non caricata (resto sul controllo ogni 60s)');
       return;
     }
     if(_realtimeChannel) return; // già attivo
     const client = supabase.createClient(SB_URL, SB_KEY);
     _realtimeChannel = client
       .channel('fatture-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'fatture' }, ()=>{
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'fatture' }, (payload)=>{
+        console.log('[Realtime] evento ricevuto:', payload?.eventType);
+        toast('🔄 Modifica ricevuta in tempo reale');
         // Diverse modifiche ravvicinate (es. import in blocco) → un solo sync, non uno per riga
         if(_realtimeDebounce) clearTimeout(_realtimeDebounce);
         _realtimeDebounce = setTimeout(async ()=>{
           await _eseguiSyncIncrementale();
         }, 800);
       })
-      .subscribe((status)=>{
-        console.log('[Realtime] stato canale fatture:', status);
+      .subscribe((status, err)=>{
+        console.log('[Realtime] stato canale fatture:', status, err||'');
+        toast('🔌 Realtime: '+status+(err?(' — '+err.message):''));
       });
   }catch(e){
     console.warn('[Realtime] avvio fallito, resto sul solo polling:', e);
+    toast('⚠️ Realtime errore avvio: '+(e.message||e));
   }
 }
 function _avviaPollingBg(){
