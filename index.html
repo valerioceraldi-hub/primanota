@@ -8,7 +8,7 @@
 // Cattura QUALSIASI errore JS non gestito e lo mostra a schermo — senza questo,
 // un errore silenzioso può bloccare l'esecuzione di tutto il codice dopo di esso
 // (incluso l'avvio del realtime) senza che nulla compaia mai a video.
-window.addEventListener('error', function(e){
+function _mostraErroreGlobale(testo){
   try{
     var box = document.getElementById('_globalErrBox');
     if(!box){
@@ -17,12 +17,21 @@ window.addEventListener('error', function(e){
       box.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#c0392b;color:#fff;font-family:monospace;font-size:12px;padding:10px;z-index:999999;white-space:pre-wrap;max-height:40vh;overflow-y:auto';
       document.body ? document.body.prepend(box) : document.addEventListener('DOMContentLoaded', function(){document.body.prepend(box);});
     }
-    box.textContent += '❌ ERRORE JS: '+(e.message||'')+' — '+(e.filename||'').split('/').pop()+':'+(e.lineno||'')+'\n';
+    box.textContent += testo+'\n';
   }catch(_){}
+}
+window.addEventListener('error', function(e){
+  _mostraErroreGlobale('❌ ERRORE JS: '+(e.message||'')+' — '+(e.filename||'').split('/').pop()+':'+(e.lineno||''));
+});
+window.addEventListener('unhandledrejection', function(e){
+  var r = e.reason;
+  var msg = (r && r.message) ? r.message : String(r);
+  var stack = (r && r.stack) ? r.stack.split('\n')[1] : '';
+  _mostraErroreGlobale('❌ PROMISE non gestita: '+msg+' — '+stack);
 });
 </script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js" crossorigin="anonymous"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 :root{
@@ -402,7 +411,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.5.2</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.5.3</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
