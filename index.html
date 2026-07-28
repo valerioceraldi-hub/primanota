@@ -6,19 +6,10 @@
 <title>Fatture Ceraldi</title>
 <script>
 // Cattura QUALSIASI errore JS non gestito e lo mostra a schermo — senza questo,
-// un errore silenzioso può bloccare l'esecuzione di tutto il codice dopo di esso
-// (incluso l'avvio del realtime) senza che nulla compaia mai a video.
+// un errore silenzioso può bloccare l'esecuzione di tutto il codice dopo di esso.
+// Diagnostica risolta (28/07): restava solo il log in console, niente più a schermo.
 function _mostraErroreGlobale(testo){
-  try{
-    var box = document.getElementById('_globalErrBox');
-    if(!box){
-      box = document.createElement('div');
-      box.id = '_globalErrBox';
-      box.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#c0392b;color:#fff;font-family:monospace;font-size:12px;padding:10px;z-index:999999;white-space:pre-wrap;max-height:40vh;overflow-y:auto';
-      document.body ? document.body.prepend(box) : document.addEventListener('DOMContentLoaded', function(){document.body.prepend(box);});
-    }
-    box.textContent += testo+'\n';
-  }catch(_){}
+  console.error(testo);
 }
 window.addEventListener('error', function(e){
   _mostraErroreGlobale('❌ ERRORE JS: '+(e.message||'')+' — '+(e.filename||'').split('/').pop()+':'+(e.lineno||''));
@@ -30,6 +21,7 @@ window.addEventListener('unhandledrejection', function(e){
   _mostraErroreGlobale('❌ PROMISE non gestita: '+msg+' — '+stack);
 });
 </script>
+
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js" crossorigin="anonymous"></script>
 <style>
@@ -411,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.6.1</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.6.3</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -1777,7 +1769,7 @@ async function loadAll(forceRefresh=false){
       console.log('Download completo: '+rows.length+' fatture (slim)');
       if(forceRefresh){
         const nonPagateOra = fatture.filter(f=>(f.stato||'pagata')!=='pagata').length;
-        toast('📥 Scaricate '+rows.length+' fatture dal Cloud ('+nonPagateOra+' non pagate)');
+        console.log('Sync completo: '+rows.length+' fatture ('+nonPagateOra+' non pagate)');
       }
       return true;
     }
@@ -6195,6 +6187,12 @@ async function deduplicaFatture(){
       if(giaAssegnati.has(a.id) || giaAssegnati.has(b.id)) continue;
       if(normIban(a.bonIban) !== normIban(b.bonIban)) continue;
       if(normImp(a.importo) !== normImp(b.importo)) continue;
+      // GUARDIA: se entrambe hanno un numero fattura valido e sono DIVERSI,
+      // non sono mai la stessa fattura — anche con stesso IBAN/importo/data
+      // (es. due ordini uguali fatti in giorni diversi allo stesso fornitore).
+      // Questo livello serve solo quando il numero manca o è illeggibile.
+      const numA = normNum(a.numero), numB = normNum(b.numero);
+      if(numA && numB && numA !== numB) continue;
       // Data entro 3 giorni
       const dA = normData(a.data), dB = normData(b.data);
       if(!dA || !dB) continue;
@@ -7914,7 +7912,6 @@ function _avviaRealtimeSync(){
   try{
     if(typeof supabase === 'undefined' || !supabase.createClient){
       console.warn('[Realtime] libreria supabase-js non caricata, resto sul solo polling');
-      toast('⚠️ Realtime: libreria non caricata (resto sul controllo ogni 60s)');
       return;
     }
     if(_realtimeChannel) return; // già attivo
@@ -7923,7 +7920,6 @@ function _avviaRealtimeSync(){
       .channel('fatture-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'fatture' }, (payload)=>{
         console.log('[Realtime] evento ricevuto:', payload?.eventType);
-        toast('🔄 Modifica ricevuta in tempo reale');
         // Diverse modifiche ravvicinate (es. import in blocco) → un solo sync, non uno per riga
         if(_realtimeDebounce) clearTimeout(_realtimeDebounce);
         _realtimeDebounce = setTimeout(async ()=>{
@@ -7932,11 +7928,11 @@ function _avviaRealtimeSync(){
       })
       .subscribe((status, err)=>{
         console.log('[Realtime] stato canale fatture:', status, err||'');
-        toast('🔌 Realtime: '+status+(err?(' — '+err.message):''));
+        // CHANNEL_ERROR/TIMED_OUT sono normali interruzioni temporanee (cambio rete, standby):
+        // la libreria si riconnette da sola, non serve avvisare l'utente ogni volta.
       });
   }catch(e){
     console.warn('[Realtime] avvio fallito, resto sul solo polling:', e);
-    toast('⚠️ Realtime errore avvio: '+(e.message||e));
   }
 }
 function _avviaPollingBg(){
