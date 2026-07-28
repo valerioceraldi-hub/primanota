@@ -3319,7 +3319,7 @@ function apriDropdownPagDefault(){
       row.style.cssText = 'padding:14px 20px;border-bottom:1px solid var(--sep);font-size:15px;cursor:pointer;color:var(--ink);display:flex;align-items:center;justify-content:space-between;gap:8px';
       row.innerHTML = `<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n.replace(/[<>&]/g,s=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[s]))}</span>` +
         (isXml ? '<span style="font-size:10px;color:var(--blue);background:var(--blue-light);padding:2px 7px;border-radius:99px;font-weight:600;flex-shrink:0">XML</span>' : '');
-      row.onclick = ()=>{ inp.value = n; mo.remove(); };
+      row.onclick = ()=>{ inp.value = n; _mostraStep2PagDefault(mo, sheet, n); };
       // Pulsante "segna tutte pagate" per questo fornitore, non attiva la selezione della riga
       const payBtn = document.createElement('button');
       payBtn.innerHTML = '&#10003;';
@@ -3334,7 +3334,7 @@ function apriDropdownPagDefault(){
       const addRow = document.createElement('div');
       addRow.style.cssText = 'padding:14px 20px;border-bottom:1px solid var(--sep);font-size:15px;cursor:pointer;color:var(--blue);font-weight:600;background:var(--blue-light)';
       addRow.textContent = '+ Usa "'+filtro.trim()+'"';
-      addRow.onclick = ()=>{ inp.value = filtro.trim(); mo.remove(); };
+      addRow.onclick = ()=>{ inp.value = filtro.trim(); _mostraStep2PagDefault(mo, sheet, filtro.trim()); };
       listWrap.appendChild(addRow);
     }
   };
@@ -3344,6 +3344,66 @@ function apriDropdownPagDefault(){
   mo.onclick = e=>{ if(e.target===mo) mo.remove(); };
   document.body.appendChild(mo);
   setTimeout(()=>{ try{ searchInp.focus(); }catch(e){} }, 100);
+}
+
+// Step 2 del modal "Scegli fornitore": dopo il nome, scegli subito metodo e stato,
+// senza dover tornare alla pagina Impostazioni per premere i bottoni là sotto.
+function _mostraStep2PagDefault(mo, sheet, nomeForn){
+  // Pre-compila con il default già salvato per questo fornitore, se esiste
+  const esistente = getPagDefault(nomeForn);
+  const metodoIniziale = esistente ? (typeof esistente==='string'?esistente:esistente.pagamento) : '';
+  const statoIniziale  = esistente ? (typeof esistente==='string'?'da_pagare':(esistente.stato||'pagata')) : 'pagata';
+  _pagDefaultSelezionato = metodoIniziale || '';
+  _statoDefaultSelezionato = statoIniziale;
+
+  const pagIco = {contanti:'💵',bonifico:'🏦',assegno:'📝',carta:'💳'};
+  const pagLbl = {contanti:'Contanti',bonifico:'Bonifico',assegno:'Assegno',carta:'Carta'};
+  sheet.innerHTML = `
+    <div style="padding:16px 20px 8px;border-bottom:1px solid var(--sep);display:flex;align-items:center;gap:10px;position:sticky;top:0;background:var(--bg);z-index:2">
+      <button onclick="apriDropdownPagDefault()" style="background:var(--surface2);border:none;border-radius:99px;width:30px;height:30px;font-size:15px;cursor:pointer">&#8592;</button>
+      <span style="font-size:17px;font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nomeForn.replace(/[<>&]/g,s=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[s]))}</span>
+      <button onclick="document.getElementById('pagDefDropdownMo').remove()" style="background:var(--surface2);border:none;border-radius:99px;width:30px;height:30px;font-size:17px;cursor:pointer">&#215;</button>
+    </div>
+    <div style="padding:16px 20px">
+      <div style="font-size:12px;color:var(--ink3);font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Come lo paghi di solito?</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:16px" id="pagDefaultBtns2">
+        ${['contanti','bonifico','assegno','carta'].map(t=>
+          `<button class="pag-btn${t===metodoIniziale?' sc':''}" id="pdb2-${t}" onclick="_pdStep2Metodo('${t}')"><span class="ic">${pagIco[t]}</span>${pagLbl[t]}</button>`
+        ).join('')}
+      </div>
+      <div style="font-size:12px;color:var(--ink3);font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Lo consideri sempre pagato alla consegna?</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:18px">
+        <button class="stato-btn${statoIniziale==='da_pagare'?' active-da':''}" id="pds2-da_pagare" onclick="_pdStep2Stato('da_pagare')">&#9679; No, da pagare</button>
+        <button class="stato-btn${statoIniziale==='pagata'?' active-ok':''}" id="pds2-pagata" onclick="_pdStep2Stato('pagata')">&#10003; Sì, sempre</button>
+      </div>
+      <button class="btn btn-p" onclick="_pdStep2Salva()">+ Salva</button>
+    </div>
+  `;
+}
+
+function _pdStep2Metodo(tipo){
+  _pagDefaultSelezionato = tipo;
+  const cls = {contanti:'sc', bonifico:'sb', assegno:'sa', carta:'sc'};
+  ['contanti','bonifico','assegno','carta'].forEach(t=>{
+    const btn = document.getElementById('pdb2-'+t);
+    if(btn) btn.className = 'pag-btn' + (t===tipo?' '+cls[t]:'');
+  });
+}
+
+function _pdStep2Stato(stato){
+  _statoDefaultSelezionato = stato;
+  ['da_pagare','pagata'].forEach(s=>{
+    const btn = document.getElementById('pds2-'+s);
+    if(!btn) return;
+    btn.className = 'stato-btn' + (s===stato ? (s==='pagata'?' active-ok':' active-da') : '');
+  });
+}
+
+function _pdStep2Salva(){
+  if(!_pagDefaultSelezionato){ toast('⚠️ Scegli un metodo di pagamento'); return; }
+  aggiungiPagDefault();
+  const mo2 = document.getElementById('pagDefDropdownMo');
+  if(mo2) mo2.remove();
 }
 
 // ── FUZZY MATCH FORNITORE ──
@@ -4141,25 +4201,64 @@ function _quickPayConfirmDialog(id){
   };
 
   document.getElementById('qpcClose').onclick = function(){ mo.remove(); };
-  document.getElementById('qpcConfermaBtn').onclick = async function(){
-    var backup = {stato:f.stato,pagamento:f.pagamento,dataPag:f.dataPag,assegno:f.assegno,assInt:f.assInt,parzPagato:f.parzPagato};
+  document.getElementById('qpcConfermaBtn').onclick = function(){
     if(selectedMetodo === 'assegno'){
       var numAss = (document.getElementById('qpcAssNum').value||'').trim();
       if(!numAss){ toast('\u26a0\ufe0f Inserisci il numero assegno'); return; }
-      var inte = (document.getElementById('qpcAssInt').value||'').trim();
-      mo.remove();
-      await _applicaQuickPay(id, selectedMetodo, {numAssegno:numAss, intestatario:inte}, backup);
-    } else {
-      mo.remove();
-      await _applicaQuickPay(id, selectedMetodo, {}, backup);
     }
+    _qpcMostraSceltaData(id, f, mo, selectedMetodo, backup);
+  };
+  var backup = {stato:f.stato,pagamento:f.pagamento,dataPag:f.dataPag,assegno:f.assegno,assInt:f.assInt,parzPagato:f.parzPagato};
+}
+
+// Ultimo passaggio prima di confermare: chiede quale data di pagamento usare
+function _qpcMostraSceltaData(id, f, mo, selectedMetodo, backup){
+  var sheet = mo.querySelector('div');
+  var oggiStr = new Date().toISOString().slice(0,10);
+  var dataFatt = f.data || oggiStr;
+  var oggiFmt = new Date(oggiStr+'T12:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'});
+  var fattFmt = new Date(dataFatt+'T12:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'});
+  var stessoGiorno = dataFatt === oggiStr;
+  var html = '';
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">';
+  html += '<h3 style="margin:0;font-size:17px;font-weight:700;color:var(--ink)">📅 Che data di pagamento?</h3>';
+  html += '<button id="qpcDateClose" style="background:var(--surface2);border:none;border-radius:99px;width:30px;height:30px;font-size:18px;cursor:pointer;color:var(--ink3)">×</button>';
+  html += '</div>';
+  html += '<div style="font-size:13px;color:var(--ink3);margin-bottom:16px;line-height:1.5"><b style="color:var(--ink)">' + esc(f.fornitore||'—') + '</b> — ' + fmt(f.importo||0) + '</div>';
+  html += '<div style="display:flex;flex-direction:column;gap:8px">';
+  html += '<button id="qpcDataOggi" style="width:100%;padding:14px;border:1.5px solid var(--blue);border-radius:12px;background:var(--blue-light);color:var(--blue);font-size:15px;font-weight:700;cursor:pointer;font-family:inherit">📅 Oggi (' + oggiFmt + ')</button>';
+  if(!stessoGiorno){
+    html += '<button id="qpcDataFatt" style="width:100%;padding:14px;border:1.5px solid var(--sep);border-radius:12px;background:var(--surface);color:var(--ink);font-size:15px;font-weight:700;cursor:pointer;font-family:inherit">🧾 Data fattura (' + fattFmt + ')</button>';
+  }
+  html += '</div>';
+  sheet.innerHTML = html;
+  document.getElementById('qpcDateClose').onclick = function(){ mo.remove(); };
+  document.getElementById('qpcDataOggi').onclick = async function(){
+    mo.remove();
+    await _finalizzaQuickPay(id, selectedMetodo, backup, oggiStr);
+  };
+  var btnFatt = document.getElementById('qpcDataFatt');
+  if(btnFatt) btnFatt.onclick = async function(){
+    mo.remove();
+    await _finalizzaQuickPay(id, selectedMetodo, backup, dataFatt);
   };
 }
 
-async function _applicaQuickPay(id, metodo, extra, backup){
+async function _finalizzaQuickPay(id, selectedMetodo, backup, dataScelta){
+  var extra = {};
+  if(selectedMetodo === 'assegno'){
+    extra = {
+      numAssegno: (document.getElementById('qpcAssNum')||{}).value ? document.getElementById('qpcAssNum').value.trim() : '',
+      intestatario: (document.getElementById('qpcAssInt')||{}).value ? document.getElementById('qpcAssInt').value.trim() : ''
+    };
+  }
+  await _applicaQuickPay(id, selectedMetodo, extra, backup, dataScelta);
+}
+
+async function _applicaQuickPay(id, metodo, extra, backup, dataScelta){
   const idx = fatture.findIndex(f=>f.id===id);
   if(idx < 0) return;
-  const oggiStr = new Date().toISOString().slice(0,10);
+  const oggiStr = dataScelta || new Date().toISOString().slice(0,10);
   fatture[idx].stato = 'pagata';
   fatture[idx].pagamento = metodo;
   fatture[idx].dataPag = oggiStr;
@@ -4183,7 +4282,7 @@ function _showQuickPayUndoToast(id, backup){
   const t = document.createElement('div');
   t.id = 'quickPayUndo';
   t.style.cssText = 'position:fixed;bottom:90px;left:16px;right:16px;max-width:500px;margin:0 auto;background:var(--ink);color:#fff;border-radius:12px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;z-index:700;box-shadow:0 8px 24px rgba(0,0,0,.24);animation:slideUp .25s ease-out;font-family:"Inter",-apple-system,sans-serif';
-  t.innerHTML = '<span style="font-size:14px;font-weight:500">✓ Segnata come pagata oggi</span><button id="quickPayUndoBtn" style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">Annulla</button>';
+  t.innerHTML = '<span style="font-size:14px;font-weight:500">✓ Segnata come pagata</span><button id="quickPayUndoBtn" style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">Annulla</button>';
   document.body.appendChild(t);
   document.getElementById('quickPayUndoBtn').onclick = () => {
     const idx = fatture.findIndex(f=>f.id===id);
@@ -10716,8 +10815,21 @@ function renderRiconciliazione(){
       }
     }
 
+    // ── Metodo reale di questo movimento, per confrontarlo col default del fornitore ──
+    var metodoMovimento = isAssegno ? 'assegno' : (isBonifico ? 'bonifico' : null);
+    function _defaultDiverso(fornitore){
+      if(!metodoMovimento) return null;
+      var def = getPagDefault(fornitore);
+      var metodoDef = def ? (typeof def==='string' ? def : def.pagamento) : null;
+      if(metodoDef && metodoDef !== metodoMovimento) return metodoDef;
+      return null;
+    }
+
     // Se matchCerto con verificato = già in app → spunta silenzioso
-    if(matchCerto && verificato && matchCerto.stato==='pagata'){
+    // (a meno che il metodo reale non contraddica il pagamento predefinito del fornitore:
+    // in quel caso non auto-verifichiamo, chiediamo conferma mostrando l'avviso)
+    var _defDiv1 = matchCerto ? _defaultDiverso(matchCerto.fornitore) : null;
+    if(matchCerto && verificato && matchCerto.stato==='pagata' && !_defDiv1){
       m.abbinata       = true;
       m.fatturaId      = matchCerto.id;
       m.fatturaLabel   = (matchCerto.fornitore||'') + ' N°' + (matchCerto.numero||'');
@@ -10729,7 +10841,7 @@ function renderRiconciliazione(){
         fornitore:matchCerto.fornitore||'', numero:matchCerto.numero||''
       });
 
-    } else if(matchCerto){
+    } else if(matchCerto && !_defaultDiverso(matchCerto.fornitore)){
       m.abbinata     = true;
       m.fatturaId    = matchCerto.id;
       m.fatturaLabel = (matchCerto.fornitore||'') + ' N°' + (matchCerto.numero||'');
@@ -10740,11 +10852,22 @@ function renderRiconciliazione(){
         fornitore:matchCerto.fornitore||'', numero:matchCerto.numero||''
       });
 
+    } else if(matchCerto){
+      // matchCerto c'è, ma il metodo contraddice il default del fornitore: chiedi conferma
+      var _defC = _defaultDiverso(matchCerto.fornitore);
+      m._matchProbabile = matchCerto;
+      m._matchScore     = 100;
+      daConfermare.push({mov:m, fatt:matchCerto, score:100,
+        isAssegno:isAssegno, isBonifico:isBonifico, numAssStr:numAssStr,
+        avviso:'⚠️ Di solito paghi "'+matchCerto.fornitore+'" con '+_defC+', ma questo sembra un '+metodoMovimento});
+
     } else if(matchProbabile){
+      var _defP = _defaultDiverso(matchProbabile.fornitore);
       m._matchProbabile = matchProbabile;
       m._matchScore     = matchScore;
       daConfermare.push({mov:m, fatt:matchProbabile, score:matchScore,
-        isAssegno:isAssegno, isBonifico:isBonifico, numAssStr:numAssStr});
+        isAssegno:isAssegno, isBonifico:isBonifico, numAssStr:numAssStr,
+        avviso: _defP ? ('⚠️ Di solito paghi "'+matchProbabile.fornitore+'" con '+_defP+', ma questo sembra un '+metodoMovimento) : null});
 
     } else {
       nonAbbinati.push(m);
@@ -10948,6 +11071,7 @@ function renderRiconciliazione(){
         hh += '<div style="font-size:11px;color:var(--ink3);margin-bottom:4px">'+m.data+' · <b>'+fmt(Math.abs(m.importo))+'</b></div>';
         hh += '<div style="font-size:11px;font-weight:500;line-height:1.4;margin-bottom:6px;word-break:break-word;white-space:pre-wrap;color:var(--ink)">'+esc(m.descrizione||'')+'</div>';
         hh += '<div style="font-size:11px;color:var(--blue);margin-bottom:8px">↓ <b>'+esc(f.fornitore||'')+'</b> N°'+esc(f.numero||'')+' del '+f.data+' ('+fmt(f.importo||0)+')</div>';
+        if(d.avviso) hh += '<div style="font-size:11px;color:#b36a00;background:#fff8ec;border:1px solid rgba(179,106,0,.25);border-radius:6px;padding:6px 8px;margin-bottom:8px">'+esc(d.avviso)+'</div>';
         hh += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
         hh += '<button onclick="_confermaPagamento('+idx+',true)" style="flex:1;min-width:80px;padding:7px 8px;border:1px solid var(--green);border-radius:6px;background:var(--green-light);color:#1a7a3a;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✓ Stessa</button>';
         hh += '<button onclick="_confermaPagamento('+idx+',false)" style="flex:1;min-width:80px;padding:7px 8px;border:1px solid var(--red);border-radius:6px;background:var(--red-light);color:var(--red);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✗ Diversa</button>';
