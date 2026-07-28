@@ -403,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.6.3</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.7.0</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -4476,6 +4476,10 @@ function sv(id,v){const el=document.getElementById(id);if(el)el.value=v;}
 function gv(id){const el=document.getElementById(id);return el?el.value:'';}
 let tT;
 function toast(msg){
+  // Mostra solo avvisi di errore/attenzione — le conferme di successo rallentavano
+  // la navigazione quando si lavora veloce su tante fatture di fila (richiesta 28/07).
+  const sembraErrore = /⚠️|❌|🚫|errore|non trovat|manca|impossibile|attenzione/i.test(msg);
+  if(!sembraErrore) return;
   const t=document.getElementById('toast');
   t.textContent=msg; t.classList.add('on');
   clearTimeout(tT); tT=setTimeout(()=>t.classList.remove('on'),2800);
@@ -10845,6 +10849,23 @@ function renderRiconciliazione(){
       }
     }
 
+    // ── Importo IDENTICO a una e una sola fattura, entro 20 giorni ──
+    // Stessa regola già usata nella ricerca manuale "Cerca fattura", estesa qui
+    // al giro automatico: se non c'è ambiguità (un solo candidato a quell'importo
+    // esatto), è un match sicuro anche senza nome fornitore nel testo del movimento.
+    if(!matchCerto){
+      var _esatteUniche = fattCandidati.filter(function(x){
+        if(fattIdUsate.has(x.id)) return false;
+        if(Math.abs((x.importo||0)-imp) > 0.01) return false;
+        if(!x.data) return false;
+        var dF = new Date(x.data+'T12:00:00'), dM = new Date(m.data+'T12:00:00');
+        return Math.abs(dF-dM)/86400000 <= 20;
+      });
+      if(_esatteUniche.length === 1){
+        matchCerto = _esatteUniche[0]; verificato = false;
+      }
+    }
+
     for(var i=0; i<fattCandidati.length && !matchCerto; i++){
       var f = fattCandidati[i];
       if(fattIdUsate.has(f.id)) continue;
@@ -11138,14 +11159,40 @@ function renderRiconciliazione(){
     giaBanca.forEach(function(d){
       var m=d.mov, f=d.fatt;
       var tipoIcon = /assegno/i.test(m.sottotipo||'') ? '📝' : '🏦';
+      var hasDocG = (f.fatturaAllegata&&f.fatturaAllegata.length>0)||(f.xmlGithubPath&&f.xmlGithubPath.length>0)||(f.source==='aruba')||f.hasAllegata;
       html += '<div style="padding:8px 0;border-top:1px solid var(--sep);display:flex;justify-content:space-between;align-items:flex-start;gap:8px">';
       html += '<div style="flex:1;min-width:0">';
       html += '<div style="font-size:11px;color:var(--ink3)">'+m.data+'</div>';
       html += '<div style="font-size:12px;font-weight:600">'+tipoIcon+' '+esc(f.fornitore||'')+'</div>';
       html += '<div style="font-size:11px;color:var(--ink3)">N°'+esc(f.numero||'')+' · '+fmt(f.importo||0)+'</div>';
       html += '</div>';
-      html += '<span style="font-size:11px;background:var(--green-light);color:#1a7a3a;padding:3px 8px;border-radius:99px;font-weight:700;flex-shrink:0">✓ Verificato</span>';
+      html += '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">';
+      if(hasDocG) html += '<button onclick="aprifatturaAllegata('+f.id+')" style="border:none;background:var(--blue-light);color:var(--blue);border-radius:6px;padding:5px 8px;font-size:11px;font-weight:600;cursor:pointer">📄</button>';
+      html += '<span style="font-size:11px;background:var(--green-light);color:#1a7a3a;padding:3px 8px;border-radius:99px;font-weight:700;white-space:nowrap">✓ Verificato</span>';
       html += '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  // ═══ SEZIONE 3b: Abbinati in automatico — da controllare, correggibili ═══
+  window._abbinatiAutoList = abbinatiAuto;
+  if(abbinatiAuto.length){
+    html += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid var(--blue)">';
+    html += '<div style="font-size:13px;font-weight:700;color:var(--blue);margin-bottom:4px">🤖 Abbinati in automatico ('+abbinatiAuto.length+')</div>';
+    html += '<div style="font-size:11px;color:var(--ink3);margin-bottom:10px">Importo e data corrispondono — controlla e correggi se qualcosa non torna</div>';
+    abbinatiAuto.forEach(function(d, i){
+      var m=d.mov, f=d.fatt;
+      var hasDocA = (f.fatturaAllegata&&f.fatturaAllegata.length>0)||(f.xmlGithubPath&&f.xmlGithubPath.length>0)||(f.source==='aruba')||f.hasAllegata;
+      html += '<div style="padding:10px 0;border-top:1px solid var(--sep)">';
+      html += '<div style="font-size:11px;color:var(--ink3);margin-bottom:2px">'+m.data+' · <b>'+fmt(Math.abs(m.importo))+'</b></div>';
+      html += '<div style="font-size:12px;font-weight:600;margin-bottom:2px">'+esc(f.fornitore||'')+'</div>';
+      html += '<div style="font-size:11px;color:var(--ink3);margin-bottom:8px">N°'+esc(f.numero||'')+' · '+fmt(f.importo||0)+'</div>';
+      html += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+      if(hasDocA) html += '<button onclick="aprifatturaAllegata('+f.id+')" style="padding:7px 10px;border:1px solid var(--blue);border-radius:6px;background:var(--blue-light);color:var(--blue);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">📄 Doc.</button>';
+      html += '<button onclick="_confermaAbbinatoAuto('+i+',true)" style="flex:1;min-width:80px;padding:7px 8px;border:1px solid var(--green);border-radius:6px;background:var(--green-light);color:#1a7a3a;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✓ Giusto</button>';
+      html += '<button onclick="_confermaAbbinatoAuto('+i+',false)" style="flex:1;min-width:80px;padding:7px 8px;border:1px solid var(--red);border-radius:6px;background:var(--red-light);color:var(--red);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✗ Sbagliato</button>';
+      html += '</div></div>';
     });
     html += '</div>';
   }
@@ -12068,6 +12115,44 @@ function _confermaPagamento(idx, conferma){
   var _sy = window.pageYOffset || document.documentElement.scrollTop || 0;
   renderRiconciliazione();
   setTimeout(function(){ window.scrollTo(0, _sy); }, 30);
+}
+
+// Conferma o corregge un abbinamento fatto in automatico (sezione "🤖 Abbinati in automatico")
+function _confermaAbbinatoAuto(idx, giusto){
+  var d = (window._abbinatiAutoList||[])[idx];
+  if(!d) return;
+
+  if(giusto){
+    // Persiste per davvero: stessa logica del match manuale confermato
+    _aggiungiNoteEstrato(d.fatt, d.mov, false);
+    d.fatt.riconciliata = true;
+    if(d.fatt.stato!=='pagata'){
+      d.fatt.stato = 'pagata';
+      d.fatt.dataPagamento = d.mov.data;
+      if(!d.fatt.pagamento) d.fatt.pagamento = /assegno/i.test(d.mov.sottotipo||'')?'assegno':'bonifico';
+    }
+    if(typeof dbUpdate==='function') dbUpdate(d.fatt);
+    d.mov.abbinata = true;
+    d.mov.fatturaId = d.fatt.id;
+    d.mov.fatturaLabel = (d.fatt.fornitore||'') + ' N°' + (d.fatt.numero||'');
+    salvaMovimentoBanca(d.mov);
+    toast('✓ Confermato: '+(d.fatt.fornitore||''));
+  } else {
+    // Sbagliato: non tocca né la fattura né il movimento — torna disponibile
+    // per la ricerca manuale, e impariamo a non riproporre più questa coppia
+    try{
+      var appR = {};
+      try{ appR = JSON.parse(localStorage.getItem('ceraldi_recon_appreso')||'{}'); }catch(e){}
+      var chiaveDesc = (d.mov.descrizione||'').toLowerCase().replace(/\s+/g,'').slice(0,40);
+      appR[chiaveDesc] = 'NO:'+d.fatt.id;
+      localStorage.setItem('ceraldi_recon_appreso', JSON.stringify(appR));
+    }catch(e){}
+    toast('✗ Segnato come sbagliato — riprova a cercare la fattura giusta');
+  }
+
+  var _sy2 = window.pageYOffset || document.documentElement.scrollTop || 0;
+  renderRiconciliazione();
+  setTimeout(function(){ window.scrollTo(0, _sy2); }, 30);
 }
 
 // ── REPORT FINALE DI RICONCILIAZIONE ──
