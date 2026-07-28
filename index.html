@@ -1264,6 +1264,21 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
           <button class="btn btn-p" onclick="aggiungiPagDefault()">+ Salva</button>
         </div>
       </details></div>
+      <div id="fornSec-rate"><details style="border-top:1px solid var(--sep);padding-top:14px;margin-top:2px">
+        <summary style="cursor:pointer;font-size:14px;font-weight:600;padding:6px 0;list-style:none;display:flex;align-items:center;justify-content:space-between">
+          <span>&#129513; Fornitori a rate <span id="rsub-fornrate" style="font-size:11px;color:var(--ink3);font-weight:400;margin-left:4px"></span></span>
+          <span style="color:var(--ink3)">&#8250;</span>
+        </summary>
+        <div style="padding-top:10px">
+          <p style="font-size:12px;color:var(--ink3);margin-bottom:10px;line-height:1.5;background:var(--surface2);border-radius:8px;padding:10px">Per questi fornitori, quando un assegno o bonifico non corrisponde a una singola fattura, l&#39;app cerca automaticamente se corrisponde alla somma di più fatture insieme (pagamento a tranche).</p>
+          <div id="fornRateList" style="margin-bottom:10px"></div>
+          <div style="position:relative;margin-bottom:8px">
+            <input type="text" id="fornRateInput" placeholder="Scegli fornitore..." style="width:100%;padding:11px 40px 11px 12px;border:1.5px solid var(--sep);border-radius:var(--radius-sm);font-family:inherit;font-size:14px;background:var(--surface);color:var(--ink);box-sizing:border-box" readonly onclick="apriDropdownFornRate()" onfocus="apriDropdownFornRate()">
+            <span style="position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--ink3);font-size:14px;pointer-events:none">&#9660;</span>
+          </div>
+          <button class="btn btn-p" onclick="aggiungiFornRate()">+ Aggiungi alla lista</button>
+        </div>
+      </details></div>
     </div>
   </div>
 
@@ -2149,6 +2164,7 @@ async function saveCorrezioni(c){
 // ── MEMORIA LAYOUT FORNITORI ──
 const KL = 'ceraldi_layout_v1';
 const KDP = 'ceraldi_pag_default_v1'; // pagamento default per fornitore
+const KFORN_RATE = 'ceraldi_forn_rate_v1'; // fornitori che pagano a rate/tranche — usato per il match combinato
 // Chiavi cache localStorage — definite qui per essere disponibili ovunque
 const KINCASSI    = 'ceraldi_incassi_v1';
 const KCHIUSURE   = 'ceraldi_chiusure_v1';
@@ -2561,6 +2577,7 @@ function apriImpostazioni(){
     document.getElementById('syncNewCount').textContent=lastNew;
   }
   m.style.display='flex';
+  try{ renderFornRateList(); }catch(e){}
 }
 function chiudiImpostazioni(){
   document.getElementById('modalApiKey').style.display='none';
@@ -3185,6 +3202,35 @@ function apriDropdownForn(px){
   document.body.appendChild(mo);
 }
 
+// Segna in blocco tutte le fatture non pagate di un fornitore come pagate
+async function segnaTutteFattureFornitorePagate(nomeFornitore){
+  const target = (nomeFornitore||'').trim().toLowerCase();
+  if(!target) return;
+  const daPagare = (fatture||[]).filter(f =>
+    (f.fornitore||'').trim().toLowerCase() === target && f.stato !== 'pagata'
+  );
+  if(!daPagare.length){ toast('✓ Nessuna fattura da pagare per questo fornitore'); return; }
+  const ok = confirm(`Segnare come pagate ${daPagare.length} fattur${daPagare.length>1?'e':'a'} di "${nomeFornitore}"?`);
+  if(!ok) return;
+  const oggiStr = new Date().toISOString().slice(0,10);
+  let fatte = 0, errori = 0;
+  for(const f of daPagare){
+    const idx = fatture.findIndex(x=>x.id===f.id);
+    if(idx<0) continue;
+    fatture[idx].stato = 'pagata';
+    fatture[idx].dataPag = fatture[idx].dataPag || oggiStr;
+    if(fatture[idx].parzPagato) fatture[idx].parzPagato = 0;
+    try{
+      const r = await dbUpdate(fatture[idx]);
+      if(r && r[0]) _updateCacheRow(r[0]);
+      fatte++;
+    }catch(e){ errori++; }
+  }
+  save(fatture);
+  try{ renderLista(); aggiornaAlertBanner(); }catch(e){}
+  toast(errori ? `✓ ${fatte} pagate, ${errori} errori` : `✓ ${fatte} fattur${fatte>1?'e segnate':'a segnata'} come pagate`);
+}
+
 // Dropdown fornitori per il campo Pagamento Default (apertura al click ovunque nel campo)
 function apriDropdownPagDefault(){
   const inp = document.getElementById('pagDefaultForn');
@@ -3231,10 +3277,16 @@ function apriDropdownPagDefault(){
   );
 
   // Renderizza voci filtrate (XML prioritari in cima, ordinati alfabeticamente)
+  const nomiDaFatture = new Set(
+    (fatture||[])
+      .map(ft=>(ft.fornitore||'').trim())
+      .filter(n=>n && n!=='—')
+  );
+  const tuttiNomi = new Set([...(fornitori||[]), ...nomiDaFatture]);
   const renderVoci = (filtro='') => {
     listWrap.innerHTML = '';
     const f = (filtro||'').trim().toLowerCase();
-    const voci = (fornitori||[]).filter(n=>!f || n.toLowerCase().includes(f));
+    const voci = [...tuttiNomi].filter(n=>!f || n.toLowerCase().includes(f));
     // Separa XML e manuali, ordina alfabetico dentro ciascun gruppo
     const collator = new Intl.Collator('it', {sensitivity:'base'});
     const vociXml = voci.filter(n=>xmlNomi.has(n)).sort(collator.compare);
@@ -3268,6 +3320,13 @@ function apriDropdownPagDefault(){
       row.innerHTML = `<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n.replace(/[<>&]/g,s=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[s]))}</span>` +
         (isXml ? '<span style="font-size:10px;color:var(--blue);background:var(--blue-light);padding:2px 7px;border-radius:99px;font-weight:600;flex-shrink:0">XML</span>' : '');
       row.onclick = ()=>{ inp.value = n; mo.remove(); };
+      // Pulsante "segna tutte pagate" per questo fornitore, non attiva la selezione della riga
+      const payBtn = document.createElement('button');
+      payBtn.innerHTML = '&#10003;';
+      payBtn.title = 'Segna tutte le fatture di questo fornitore come pagate';
+      payBtn.style.cssText = 'flex-shrink:0;width:28px;height:28px;border:none;border-radius:99px;background:var(--green-light,#e3f7e8);color:#1a7a3a;font-size:14px;font-weight:700;cursor:pointer';
+      payBtn.onclick = (ev)=>{ ev.stopPropagation(); segnaTutteFattureFornitorePagate(n); };
+      row.appendChild(payBtn);
       listWrap.appendChild(row);
     });
     // Opzione "Usa questo nome" se il testo digitato non corrisponde a una voce esatta
@@ -5343,6 +5402,115 @@ function renderPagDefault(){
       <button onclick="eliminaPagDefault('${esc(k)}')" style="border:none;background:var(--red-light);color:var(--red);border-radius:8px;padding:6px 10px;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0">✕</button>
     </div>`;
   }).join('');
+}
+
+// ── FORNITORI A RATE (per il match combinato nella riconciliazione bancaria) ──
+function apriDropdownFornRate(){
+  const inp = document.getElementById('fornRateInput');
+  if(!inp) return;
+  const nomiDaFatture = new Set((fatture||[]).map(f=>(f.fornitore||'').trim()).filter(n=>n && n!=='—'));
+  const collator = new Intl.Collator('it', {sensitivity:'base'});
+  const nomi = [...nomiDaFatture].sort(collator.compare);
+  if(!nomi.length){ toast('Nessun fornitore trovato nelle fatture'); return; }
+  const existing = document.getElementById('fornRateDropdownMo');
+  if(existing) existing.remove();
+  const mo = document.createElement('div');
+  mo.id = 'fornRateDropdownMo';
+  mo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:800;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)';
+  const sheet = document.createElement('div');
+  sheet.style.cssText = 'background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:75vh;overflow-y:auto;animation:slideUp .3s cubic-bezier(.32,.72,0,1)';
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'padding:16px 20px 8px;border-bottom:1px solid var(--sep);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg)';
+  hdr.innerHTML = '<span style="font-size:17px;font-weight:700">Scegli fornitore</span>';
+  const closeBtn = document.createElement('button');
+  closeBtn.innerHTML = '&#215;';
+  closeBtn.style.cssText = 'background:var(--surface2);border:none;border-radius:99px;width:30px;height:30px;font-size:17px;cursor:pointer';
+  closeBtn.onclick = ()=>mo.remove();
+  hdr.appendChild(closeBtn);
+  sheet.appendChild(hdr);
+  nomi.forEach(n=>{
+    const row = document.createElement('div');
+    row.style.cssText = 'padding:14px 20px;border-bottom:1px solid var(--sep);font-size:15px;cursor:pointer';
+    row.textContent = n;
+    row.onclick = ()=>{ inp.value = n; mo.remove(); };
+    sheet.appendChild(row);
+  });
+  mo.appendChild(sheet);
+  mo.onclick = e=>{ if(e.target===mo) mo.remove(); };
+  document.body.appendChild(mo);
+}
+
+async function aggiungiFornRate(){
+  const inp = document.getElementById('fornRateInput');
+  const nome = (inp.value||'').trim();
+  if(!nome){ toast('⚠️ Scegli un fornitore'); return; }
+  const lista = cacheGet(KFORN_RATE, []);
+  if(lista.some(n=>n.toLowerCase()===nome.toLowerCase())){ toast('Già presente in lista'); inp.value=''; return; }
+  lista.push(nome);
+  await sbSaveImpostazione(KFORN_RATE, lista);
+  inp.value = '';
+  renderFornRateList();
+  toast('✓ Aggiunto: '+nome);
+}
+
+async function rimuoviFornRate(nome){
+  const lista = cacheGet(KFORN_RATE, []).filter(n=>n!==nome);
+  await sbSaveImpostazione(KFORN_RATE, lista);
+  renderFornRateList();
+}
+
+function renderFornRateList(){
+  const el = document.getElementById('fornRateList');
+  const sub = document.getElementById('rsub-fornrate');
+  if(!el) return;
+  const lista = cacheGet(KFORN_RATE, []);
+  if(sub) sub.textContent = lista.length ? '('+lista.length+')' : '';
+  if(!lista.length){
+    el.innerHTML = '<p style="font-size:13px;color:var(--ink3);text-align:center;padding:8px 0">Nessun fornitore in lista</p>';
+    return;
+  }
+  el.innerHTML = lista.map(n=>`
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:10px 12px;background:var(--surface2);border-radius:var(--radius-sm);margin-bottom:6px">
+      <div style="font-size:14px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(n)}</div>
+      <button onclick="rimuoviFornRate('${esc(n).replace(/'/g,"\\'")}')" style="border:none;background:var(--red-light);color:var(--red);border-radius:8px;padding:6px 10px;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0">✕</button>
+    </div>`).join('');
+}
+
+// Cerca, tra i fornitori marcati "a rate", una combinazione di fatture non pagate
+// la cui somma corrisponde all'importo del movimento bancario (±0,50€).
+// Ricerca esaustiva ma limitata (max 12 fatture candidate per fornitore = max 4096 combinazioni),
+// più che sufficiente per un caso reale di pagamento a tranche.
+function _trovaCombinazioneRate(imp){
+  const listaRate = cacheGet(KFORN_RATE, []);
+  if(!listaRate.length) return null;
+  for(const nomeForn of listaRate){
+    const target = nomeForn.trim().toLowerCase();
+    const outstanding = (fatture||[]).filter(f=>{
+      if(f.tipo==='ddt' || f.stato==='annullata' || f.stato==='pagata') return false;
+      return (f.fornitore||'').trim().toLowerCase() === target;
+    }).map(f=>{
+      const impF = f.importo||0;
+      const resto = f.stato==='parziale' ? Math.max(0, impF-(f.parzPagato||0)) : impF;
+      return {f, resto};
+    }).filter(x=>x.resto>0.01);
+    if(outstanding.length < 2 || outstanding.length > 12) continue;
+    const n = outstanding.length;
+    let migliore = null;
+    for(let mask=1; mask < (1<<n); mask++){
+      let somma=0, count=0;
+      for(let i=0;i<n;i++){ if(mask & (1<<i)){ somma+=outstanding[i].resto; count++; } }
+      if(count<2) continue;
+      if(Math.abs(somma-imp)<=0.50 && (!migliore || count<migliore.count)){
+        migliore = {count, mask, somma};
+      }
+    }
+    if(migliore){
+      const fatt = [];
+      for(let i=0;i<n;i++){ if(migliore.mask & (1<<i)) fatt.push(outstanding[i].f); }
+      return {fornitore:nomeForn, fatture:fatt, somma:migliore.somma};
+    }
+  }
+  return null;
 }
 
 async function applicaPagDefaultFornitore(forn){
@@ -7510,7 +7678,7 @@ async function sincronizzaOra(){
   toast('Sincronizzazione in corso...');
   const ok=await loadAll(true); // forceRefresh: ignora cache
   aggiornaDL(); renderLista(); aggiornaAlertBanner(); updRiep();
-  renderDizForn(); renderPagDefault(); aggiornaMenuAI();
+  renderDizForn(); renderPagDefault(); renderFornRateList(); aggiornaMenuAI();
   if(ok) toast('✓ Dati aggiornati dal Cloud!');
   else toast('&#9888; Offline - dati dalla cache');
 }
@@ -10527,7 +10695,11 @@ function renderRiconciliazione(){
       var descC = dLow.replace(/[^a-z]/g,'');
 
       if(forn.length>=4 && descC.indexOf(forn.substring(0,Math.min(forn.length,8)))>=0) score += 60;
-      if(isAssegno  && f.pagamento==='assegno')  score += 25;
+      // Gli assegni non riportano MAI il nome del fornitore nel testo del movimento
+      // bancario (es. "VOSTRO ASSEGNO N. 1234567 DEL..."), quindi senza questo bonus
+      // più alto non raggiungevano mai la soglia di 50 per comparire in "da confermare"
+      // (restavano bloccati a 25+15=40 anche con data e metodo corretti).
+      if(isAssegno  && f.pagamento==='assegno')  score += 45;
       if(isBonifico && f.pagamento==='bonifico') score += 25;
 
       var dF   = new Date((f.dataPagamento||f.data)+'T12:00:00');
@@ -10578,6 +10750,27 @@ function renderRiconciliazione(){
       nonAbbinati.push(m);
     }
   });
+
+  // ── AUTO-CONTANTI: fatture di fornitori con pagamento predefinito "contanti" ──
+  // Un pagamento in contanti non compare mai nell'estratto conto, quindi se dopo il giro
+  // di abbinamento sopra la fattura resta "libera" (nessun movimento bancario le è stato
+  // assegnato) e il fornitore ha default contanti, la segniamo pagata subito, invece di
+  // lasciarla in attesa di un movimento che non arriverà mai.
+  var autoContantiCount = 0;
+  fattCandidati.forEach(function(f){
+    if(fattIdUsate.has(f.id)) return;      // già abbinata a un movimento bancario
+    if(f.stato==='pagata') return;         // già segnata pagata (da altra via)
+    var def = getPagDefault(f.fornitore);
+    var metodoDef = def ? (typeof def==='string' ? def : def.pagamento) : null;
+    if(metodoDef!=='contanti') return;
+    f.stato = 'pagata';
+    f.pagamento = 'contanti';
+    f.dataPagamento = f.dataPagamento || f.data || new Date().toISOString().slice(0,10);
+    f.riconciliata = true; // un pagamento in contanti è "definitivo", non serve attendere l'estratto
+    if(typeof dbUpdate==='function') dbUpdate(f);
+    autoContantiCount++;
+  });
+  if(autoContantiCount>0) toast('💵 '+autoContantiCount+' fattur'+(autoContantiCount>1?'e segnate':'a segnata')+' pagate in contanti (default fornitore)');
 
   // Fix versamenti: dedup per data+importo con conteggio multipli
   // (stesso giorno, stesso importo → contiamo entrambi)
@@ -10873,6 +11066,25 @@ function _cercaFatturaPerMovimento(idx){
   var m = (window._nonAbbinati||[])[idx];
   if(!m) return;
   var imp = Math.abs(m.importo);
+
+  // Prova prima a trovare una combinazione di più fatture (fornitori "a rate")
+  var combo = _trovaCombinazioneRate(imp);
+  if(combo){
+    var elenco = combo.fatture.map(function(f){
+      return '· N°'+(f.numero||'—')+' del '+f.data+' ('+fmt(f.importo||0)+')';
+    }).join('\n');
+    var msg = '🧩 Trovata una possibile combinazione:\n\n'+combo.fatture.length+' fatture di '+combo.fornitore+'\n'+elenco+
+      '\n\nTotale: '+fmt(combo.somma)+' — Banca: '+fmt(imp)+' del '+m.data+
+      '\n\nAprire la selezione già pronta da confermare?';
+    if(confirm(msg)){
+      window._cfaIdx=idx; window._cfaImp=imp; window._cfaMov=m;
+      _cfMultiplo();
+      combo.fatture.forEach(function(f){ if(typeof window._cfMultiAdd==='function') window._cfMultiAdd(f.id); });
+      return;
+    }
+    // Se rifiuta la combinazione, prosegue con la ricerca normale sotto
+  }
+
   if(!document.getElementById('_cfOv')){
     var ov=document.createElement('div');
     ov.id='_cfOv';
