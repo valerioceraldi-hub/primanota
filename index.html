@@ -2032,7 +2032,7 @@ async function dbUpdate(f){
       stato:f.stato||'pagata',
       scadenza:f.scadenza||null,
       rate:f.rate||[],
-      ts:f.ts||0,
+      ts:Date.now(), // sempre un valore NUOVO: è il segnale che il sync automatico (su altri dispositivi) usa per capire che questa riga è cambiata — rimandare il vecchio ts la rendeva invisibile al sync incrementale
       parz_pagato:f.parzPagato||0,
       data_pagamento:f.dataPagamento||null,
       fattura_allegata_name:f.fatturaAllegataName||'',
@@ -2049,6 +2049,8 @@ async function dbUpdate(f){
     }
     if(f.totaleImponibile) safe.totale_imponibile = f.totaleImponibile;
     if(f.totaleImposta) safe.totale_imposta = f.totaleImposta;
+    // Allinea anche l'oggetto in memoria al nuovo ts appena generato
+    f.ts = safe.ts;
     // Aggiungi fattura_allegata (XML grezzo) se presente e non troppo grande
     if(f.fatturaAllegata && f.fatturaAllegata.length > 0 && f.fatturaAllegata !== '__github__'){
       safe.fattura_allegata = f.fatturaAllegata;
