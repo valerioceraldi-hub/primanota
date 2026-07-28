@@ -403,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.7.0</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.7.2</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -5359,6 +5359,19 @@ async function importaMassivoXml(input){
         numero.length > 0
       );
       if(dup){
+        // Diagnostica: logga SEMPRE il dettaglio del conflitto, per capire
+        // con certezza quale fattura esistente ha causato il "duplicato"
+        // invece di doverlo indovinare (richiesto 28/07 su Enel/Cilatte).
+        console.warn('[Import XML] Duplicato rilevato:', {
+          file: file.name,
+          nuovo: {fornitore, numero, data, importo},
+          esistente: {id:dup.id, fornitore:dup.fornitore, numero:dup.numero, data:dup.data, importo:dup.importo, source:dup.source}
+        });
+        risultati.duplicateInfo = risultati.duplicateInfo || [];
+        risultati.duplicateInfo.push({
+          file: file.name, fornitore, numero,
+          esistenteId: dup.id, esistenteNumero: dup.numero, esistenteData: dup.data
+        });
         // Aggiorna con XML se: non ha XML, oppure ha solo fatturaAllegata vuota/placeholder
         const haXml = (dup.xmlGithubPath && dup.xmlGithubPath.length > 0) ||
                       (dup.fatturaAllegata && dup.fatturaAllegata.length > 10 && dup.fatturaAllegata !== '__github__');
@@ -5440,12 +5453,26 @@ async function importaMassivoXml(input){
   progMsg.textContent = `✅ Import completato`;
   progSub.textContent = `${risultati.salvate} salvate · ${risultati.duplicate} già presenti · ${risultati.errori} errori`;
 
+  // Se ci sono duplicati, mostra QUALE fattura esistente ha causato il conflitto —
+  // visibile a schermo, senza bisogno di aprire la console per sviluppatori.
+  const dupInfo = risultati.duplicateInfo || [];
+  if(dupInfo.length){
+    const righe = dupInfo.slice(0,5).map(d =>
+      `${d.file} → già presente: ${d.fornitore} N°${d.esistenteNumero} del ${d.esistenteData}`
+    ).join('\n');
+    const extra = dupInfo.length>5 ? `\n…e altri ${dupInfo.length-5}` : '';
+    const detBox = document.createElement('div');
+    detBox.style.cssText = 'margin-top:8px;padding:8px;background:var(--surface2);border-radius:8px;font-size:11px;color:var(--ink3);white-space:pre-wrap';
+    detBox.textContent = righe + extra;
+    progSub.parentNode.appendChild(detBox);
+  }
+
   save(fatture);
   renderLista();
   aggiornaAlertBanner();
   updateHero();
 
-  setTimeout(()=>{ progBox.style.display='none'; }, 5000);
+  setTimeout(()=>{ progBox.style.display='none'; }, dupInfo.length ? 20000 : 5000);
 
   toast(`✅ ${risultati.salvate} fatture importate${risultati.duplicate?' · '+risultati.duplicate+' già presenti':''}${risultati.errori?' · '+risultati.errori+' errori':''}`);
 }
@@ -7327,7 +7354,16 @@ async function autoEstraiPrezzi(xmlText,fattObj){
     toast('⏳ Invio '+toInsert.length+' righe per '+fornitore+'...');
     var resp=await fetch(SB_URL+'/rest/v1/prezzi_da_fatture',{method:'POST',headers:{...SB_H,'Prefer':'resolution=ignore-duplicates,return=minimal'},body:JSON.stringify(toInsert)});
     if(resp.ok||resp.status===201){toast('✅ '+toInsert.length+' prezzi salvati per '+fornitore);}
-    else{var et=await resp.text().catch(function(){return'';});toast('❌ HTTP '+resp.status+': '+et.slice(0,80));}
+    else{
+      var et=await resp.text().catch(function(){return'';});
+      if(/23505|duplicate/i.test(et)){
+        // Righe già salvate (es. documento riaperto in fretta, o già presenti per un'altra via) —
+        // è un conflitto innocuo, non un vero errore: non allarmare l'utente per questo.
+        console.log('[autoEstraiPrezzi] prezzi già presenti (conflitto benigno):', et.slice(0,120));
+      } else {
+        toast('❌ HTTP '+resp.status+': '+et.slice(0,80));
+      }
+    }
   }catch(e){console.warn('[autoEstraiPrezzi]',e.message);}
 }
 // Renderizza un XML FatturaPA come card HTML leggibili
