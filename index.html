@@ -3150,8 +3150,8 @@ function aggiornaHeroCard(){
   const fattureMese = fatture.filter(f=>f.data&&f.data.startsWith(meseStr)&&f.tipo!=='ddt');
   const totaleMese = fattureMese.reduce((s,f)=>s+(f.importo||0),0);
   const oggi = ora.toISOString().slice(0,10);
-  const daPagare = fatture.filter(f=>f.stato==='da_pagare'&&f.tipo!=='ddt').length;
-  const scadute = fatture.filter(f=>f.stato==='da_pagare'&&f.tipo!=='ddt'&&f.scadenza&&f.scadenza<oggi).length;
+  const daPagare = fatture.filter(f=>(f.stato==='da_pagare'||f.stato==='parziale')&&f.tipo!=='ddt').length;
+  const scadute = fatture.filter(f=>(f.stato==='da_pagare'||f.stato==='parziale')&&f.tipo!=='ddt'&&f.scadenza&&f.scadenza<oggi).length;
   const set = (id,val) => { const el=document.getElementById(id); if(el) el.textContent=val; };
   set('heroTotaleMese', fmt(totaleMese));
   set('heroMeseLabel', meseLbl+' · '+fattureMese.length+' fatture');
