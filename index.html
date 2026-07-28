@@ -6786,6 +6786,10 @@ function renderScadenzario(){
     } else if(f.fatturaAllegata && f.fatturaAllegata !== '__github__' && f.fatturaAllegata.length > 100){
       // XML/PDF allegato localmente (base64 o testo XML)
       xmlBtn = `<button onclick="event.stopPropagation();aprifatturaAllegata(${f.id})" style="padding:6px 12px;border:none;border-radius:8px;background:var(--blue-light);font-family:'Inter',-apple-system,sans-serif;font-size:12px;font-weight:600;cursor:pointer;color:var(--blue)">📄 Doc.</button>`;
+    } else if(f.hasAllegata || f.source==='aruba'){
+      // Il documento esiste su Supabase (flag leggero) ma non è ancora in cache locale —
+      // stesso segnale già usato dal Registro: aprifatturaAllegata lo scarica al volo al tap
+      xmlBtn = `<button onclick="event.stopPropagation();aprifatturaAllegata(${f.id})" style="padding:6px 12px;border:none;border-radius:8px;background:var(--blue-light);font-family:'Inter',-apple-system,sans-serif;font-size:12px;font-weight:600;cursor:pointer;color:var(--blue)">📄 Doc.</button>`;
     }
     const fotoBtn = (f.foto||f.hasFoto) ? `<button onclick="event.stopPropagation();apriXmlFoto('${f.id}')" style="padding:6px 12px;border:none;border-radius:8px;background:var(--surface2);font-family:'Inter',-apple-system,sans-serif;font-size:12px;font-weight:600;cursor:pointer;color:var(--ink2)">📷 Foto</button>` : '';
     const noXml = !xmlBtn && f.tipo !== 'ddt';
