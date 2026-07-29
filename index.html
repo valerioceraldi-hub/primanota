@@ -403,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.10.2</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.10.3</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -2136,6 +2136,27 @@ async function dbUpdate(f){
     } else {
       toast('⚠️ Errore salvataggio: '+msg.slice(0,60));
     }
+  }
+}
+
+// Salvataggio PARZIALE: scrive solo i campi passati in campiParziali, mai l'oggetto
+// intero — usata dove serve aggiornare solo alcuni dati (es. merge deduplica) senza
+// rischiare di rispedire a Supabase un campo come 'tipo' rimasto vecchio in cache locale.
+async function dbUpdatePartial(id, campiParziali){
+  try{
+    const nuovoTs = Date.now();
+    const body = {...campiParziali, ts: nuovoTs};
+    const updated = await sbFetch('fatture?id=eq.'+id, {
+      method:'PATCH',
+      headers:{...SB_H,'Prefer':'return=representation'},
+      body:JSON.stringify(body)
+    });
+    if(updated && updated[0]) _updateCacheRow(updated[0]);
+    return nuovoTs;
+  }catch(e){
+    console.error('UpdatePartial error', e);
+    toast('⚠️ Errore salvataggio parziale: '+(e.message||'').slice(0,60));
+    return null;
   }
 }
 
@@ -6631,33 +6652,41 @@ async function _confermaDedup(){
     // Se il record mantenuto è XML/PEC, il pagamento inserito manualmente vince sempre
     // (perché l'utente spesso paga in modo diverso da quello dichiarato in fattura)
     const mantEPec = (fatture[idxM].source === 'pec');
+    const campiCambiati = {}; // solo questi verranno scritti su Supabase — MAI l'oggetto intero
     for(const f of daEliminare){
       const eManuale = (f.source !== 'pec');
-      if(!fatture[idxM].foto && f.foto) fatture[idxM].foto = f.foto;
+      if(!fatture[idxM].foto && f.foto){ fatture[idxM].foto = f.foto; }
       if(!fatture[idxM].xmlGithubPath && f.xmlGithubPath){
         fatture[idxM].xmlGithubPath = f.xmlGithubPath;
         fatture[idxM].fatturaAllegataName = f.fatturaAllegataName||'';
         fatture[idxM].fatturaAllegata = '__github__';
+        campiCambiati.xml_github_path = f.xmlGithubPath;
+        campiCambiati.fattura_allegata_name = f.fatturaAllegataName||'';
       }
       // PAGAMENTO: manuale vince sempre su XML (anche se XML ce l'aveva)
       if(f.pagamento && mantEPec && eManuale){
         fatture[idxM].pagamento = f.pagamento;
+        campiCambiati.pagamento = f.pagamento;
       } else if(!fatture[idxM].pagamento && f.pagamento){
         fatture[idxM].pagamento = f.pagamento;
+        campiCambiati.pagamento = f.pagamento;
       }
       // ASSEGNO / IBAN / CAUSALE: stessi criteri — manuale vince
-      if(f.assegno && mantEPec && eManuale) fatture[idxM].assegno = f.assegno;
-      else if(!fatture[idxM].assegno && f.assegno) fatture[idxM].assegno = f.assegno;
-      if(f.assInt && mantEPec && eManuale) fatture[idxM].assInt = f.assInt;
-      else if(!fatture[idxM].assInt && f.assInt) fatture[idxM].assInt = f.assInt;
-      if(!fatture[idxM].bonIban && f.bonIban) fatture[idxM].bonIban = f.bonIban;
-      if(!fatture[idxM].bonCaus && f.bonCaus) fatture[idxM].bonCaus = f.bonCaus;
-      if(!fatture[idxM].scadenza && f.scadenza) fatture[idxM].scadenza = f.scadenza;
-      if(!(fatture[idxM].note&&fatture[idxM].note.length>2) && f.note&&f.note.length>2) fatture[idxM].note = f.note;
+      if(f.assegno && mantEPec && eManuale){ fatture[idxM].assegno = f.assegno; campiCambiati.assegno = f.assegno; }
+      else if(!fatture[idxM].assegno && f.assegno){ fatture[idxM].assegno = f.assegno; campiCambiati.assegno = f.assegno; }
+      if(f.assInt && mantEPec && eManuale){ fatture[idxM].assInt = f.assInt; campiCambiati.ass_int = f.assInt; }
+      else if(!fatture[idxM].assInt && f.assInt){ fatture[idxM].assInt = f.assInt; campiCambiati.ass_int = f.assInt; }
+      if(!fatture[idxM].bonIban && f.bonIban){ fatture[idxM].bonIban = f.bonIban; campiCambiati.bon_iban = f.bonIban; }
+      if(!fatture[idxM].bonCaus && f.bonCaus){ fatture[idxM].bonCaus = f.bonCaus; campiCambiati.bon_caus = f.bonCaus; }
+      if(!fatture[idxM].scadenza && f.scadenza){ fatture[idxM].scadenza = f.scadenza; campiCambiati.scadenza = f.scadenza; }
+      if(!(fatture[idxM].note&&fatture[idxM].note.length>2) && f.note&&f.note.length>2){ fatture[idxM].note = f.note; campiCambiati.note = f.note; }
       // STATO: manuale "pagata"/"parziale" vince su XML "da_pagare"
-      if(fatture[idxM].stato==='da_pagare' && f.stato && f.stato!=='da_pagare') fatture[idxM].stato = f.stato;
+      if(fatture[idxM].stato==='da_pagare' && f.stato && f.stato!=='da_pagare'){ fatture[idxM].stato = f.stato; campiCambiati.stato = f.stato; }
     }
-    await dbUpdate(fatture[idxM]);
+    if(Object.keys(campiCambiati).length > 0){
+      const nuovoTs = await dbUpdatePartial(daMantenere.id, campiCambiati);
+      if(nuovoTs) fatture[idxM].ts = nuovoTs;
+    }
   }
   for(const f of daEliminare){
     const i=fatture.findIndex(x=>x.id===f.id);
