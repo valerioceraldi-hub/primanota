@@ -403,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.11.0</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.11.1</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -3811,7 +3811,7 @@ function renderLista(){
         <div class="fi-body">
           <div class="fi-top">
             <div class="fi-nome">${esc(f.fornitore)}${pagBadge}${origineBadge}</div>
-            <div class="fi-imp">${isNotaCredito?'-':''}${fmt(f.importo)}</div>
+            <div class="fi-imp">${isNotaCredito?'-':''}${fmt(Math.abs(f.importo||0))}</div>
           </div>
           <div class="fi-meta">${metaStr}${dataPagStr?'<span class="fi-meta-sep">·</span>'+dataPagStr:''}</div>
           <div class="fi-badges">
@@ -4859,7 +4859,7 @@ function apriAgganciaNC(ncId){
 
   const hdr = document.createElement('div');
   hdr.style.cssText = 'padding:16px 20px 10px;border-bottom:1px solid var(--sep);display:flex;align-items:center;justify-content:space-between;flex-shrink:0';
-  hdr.innerHTML = '<div><div style="font-size:17px;font-weight:700">🔗 Aggancia nota di credito</div><div style="font-size:12px;color:var(--ink3)">'+esc(nc.fornitore||'')+' · N°'+esc(nc.numero||'')+' · -'+fmt(nc.importo||0)+'</div></div>';
+  hdr.innerHTML = '<div><div style="font-size:17px;font-weight:700">🔗 Aggancia nota di credito</div><div style="font-size:12px;color:var(--ink3)">'+esc(nc.fornitore||'')+' · N°'+esc(nc.numero||'')+' · -'+fmt(Math.abs(nc.importo||0))+'</div></div>';
   const closeBtn = document.createElement('button');
   closeBtn.innerHTML = '&#215;';
   closeBtn.style.cssText = 'background:var(--surface2);border:none;border-radius:99px;width:32px;height:32px;font-size:18px;cursor:pointer';
@@ -4937,7 +4937,7 @@ async function _eseguiAggancioNC(ncId, fatturaId){
   const nc = fatture[idxNc];
   const f  = fatture[idxF];
   const residuo = Math.max(0, (f.importo||0) - (f.parzPagato||0));
-  const daApplicare = Math.round(Math.min(nc.importo||0, residuo) * 100) / 100;
+  const daApplicare = Math.round(Math.min(Math.abs(nc.importo||0), residuo) * 100) / 100;
 
   f.parzPagato = Math.round(((f.parzPagato||0) + daApplicare) * 100) / 100;
   f.stato = (f.parzPagato >= (f.importo||0) - 0.01) ? 'pagata' : 'parziale';
