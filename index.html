@@ -403,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.7.7</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.9.0</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -1055,9 +1055,12 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
   <!-- SEZIONE: MESE -->
   <div id="inc-mese" class="inc-sec" style="display:none">
     <div style="background:var(--surface);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);margin-bottom:12px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <div style="font-size:16px;font-weight:700">Riepilogo mensile</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:8px">
+        <div style="font-size:16px;font-weight:700" id="incMeseTitolo">Riepilogo mensile</div>
         <input type="month" id="incMese" onchange="renderIncMese()" style="padding:8px 10px;border:1.5px solid var(--sep);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface);-webkit-appearance:none">
+      </div>
+      <div style="margin-bottom:12px">
+        <button id="btnIncVistaAnno" onclick="toggleIncVistaAnno()" style="padding:7px 12px;border:1.5px solid var(--blue);border-radius:99px;background:var(--surface);color:var(--blue);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">📅 Da inizio anno</button>
       </div>
       <div id="incMeseEl"></div>
     </div>
@@ -8962,25 +8965,58 @@ function toggleChiusuraDetail(id){
   if(arr) arr.style.transform = aperto ? '' : 'rotate(90deg)';
 }
 
-// ── VISTA MENSILE INCASSI ──
+// ── VISTA MENSILE / DA INIZIO ANNO INCASSI ──
+let _incVistaAnno = false;
+function toggleIncVistaAnno(){
+  _incVistaAnno = !_incVistaAnno;
+  var btn = document.getElementById('btnIncVistaAnno');
+  var meseInp = document.getElementById('incMese');
+  if(btn){
+    btn.textContent = _incVistaAnno ? '📅 Torna al mese' : '📅 Da inizio anno';
+    btn.style.background = _incVistaAnno ? 'var(--blue)' : 'var(--surface)';
+    btn.style.color = _incVistaAnno ? '#fff' : 'var(--blue)';
+  }
+  if(meseInp) meseInp.style.display = _incVistaAnno ? 'none' : '';
+  renderIncMese();
+}
 function renderIncMese(){
   const el = document.getElementById('incMeseEl');
-  const mese = gv('incMese');
-  if(!el || !mese) return;
-  const inMese = chiusure.filter(c=>c.data && c.data.startsWith(mese));
-  if(!inMese.length){ el.innerHTML = '<p style="text-align:center;color:var(--ink3);padding:20px">Nessuna chiusura nel mese selezionato</p>'; return; }
+  const titolo = document.getElementById('incMeseTitolo');
+  if(!el) return;
+
+  let inMese, labelPeriodo, nomeFileMese;
+  if(_incVistaAnno){
+    const oggi = new Date();
+    const anno = String(oggi.getFullYear());
+    inMese = chiusure.filter(c=>c.data && c.data.startsWith(anno));
+    labelPeriodo = 'dal 1° gennaio '+anno+' a oggi';
+    nomeFileMese = anno+'_YTD';
+    if(titolo) titolo.textContent = 'Riepilogo da inizio anno';
+  } else {
+    const mese = gv('incMese');
+    if(!mese) return;
+    inMese = chiusure.filter(c=>c.data && c.data.startsWith(mese));
+    labelPeriodo = '';
+    nomeFileMese = mese;
+    if(titolo) titolo.textContent = 'Riepilogo mensile';
+  }
+  if(!inMese.length){ el.innerHTML = '<p style="text-align:center;color:var(--ink3);padding:20px">Nessuna chiusura nel periodo selezionato</p>'; return; }
+
   // Per retrocompatibilità: se c'è totaleCorrispettivi usa quello, altrimenti somma i campi legacy
   const totCorr = inMese.reduce((s,c)=>s+(c.totale_corrispettivi || c.totaleCorrispettivi || ((c.iva22||0)+(c.iva10||0)+(c.iva4||0))), 0);
   const totCassa = inMese.reduce((s,c)=>s+(c.cassa||0), 0);
   const totPos = inMese.reduce((s,c)=>s+(c.pos_banca||c.pos||0), 0); // banca vince su fiscale
   const totInc = totCassa + totPos;
+  // "Scostamento POS": nella pratica isola quasi sempre lo scarto tra il POS
+  // dichiarato nei corrispettivi e quello poi accreditato in banca, perché i
+  // contanti contati di solito coincidono già col dichiarato.
   const diff = Math.round((totInc - totCorr) * 100) / 100;
   // Scorporo IVA 10% (unica aliquota del bar)
   const imponibile = totCorr / 1.10;
   const ivaDebito = totCorr - imponibile;
   const giorniAperti = inMese.length;
   el.innerHTML = `
-    <div style="font-size:12px;color:var(--ink3);margin-bottom:10px">${giorniAperti} giorni registrati</div>
+    <div style="font-size:12px;color:var(--ink3);margin-bottom:10px">${giorniAperti} giorni registrati${labelPeriodo?' · '+labelPeriodo:''}</div>
     <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px">
       <tr><td style="padding:6px 4px;color:var(--ink3)">Totale corrispettivi</td><td style="padding:6px 4px;text-align:right;font-weight:700">${fmt(totCorr)}</td></tr>
       <tr><td style="padding:6px 4px;padding-left:16px;color:var(--ink3);font-size:12px">· Imponibile</td><td style="padding:6px 4px;text-align:right">${fmt(imponibile)}</td></tr>
@@ -8991,19 +9027,22 @@ function renderIncMese(){
       <tr><td style="padding:6px 4px;font-weight:700">Totale incassato</td><td style="padding:6px 4px;text-align:right;font-weight:700">${fmt(totInc)}</td></tr>
     </table>
     <div style="padding:10px;border-radius:8px;text-align:center;font-weight:600;background:${Math.abs(diff)<=0.50?'var(--green-light)':'var(--red-light)'};color:${Math.abs(diff)<=0.50?'#1a7a3a':'var(--red)'}">
-      ${Math.abs(diff)<=0.50 ? '✓ Quadratura mensile OK' : `⚠️ Differenza ${fmt(Math.abs(diff))}`}
+      ${Math.abs(diff)<=0.50 ? '✓ Quadratura OK' : `⚠️ Scostamento POS ${fmt(Math.abs(diff))}`}
     </div>
-    <button onclick="esportaMeseIncassi('${mese}')" style="width:100%;margin-top:10px;padding:12px;border:none;border-radius:10px;background:var(--blue);color:#fff;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer">📥 Esporta XLSX per commercialista</button>`;
+    <button onclick="esportaMeseIncassi('${nomeFileMese}')" style="width:100%;margin-top:10px;padding:12px;border:none;border-radius:10px;background:var(--blue);color:#fff;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer">📥 Esporta XLSX per commercialista</button>`;
 }
 
 async function esportaMeseIncassi(mese){
-  const inMese = chiusure.filter(c=>c.data && c.data.startsWith(mese)).sort((a,b)=>a.data.localeCompare(b.data));
+  const isYtd = /_YTD$/.test(mese);
+  const filtroData = isYtd ? mese.replace('_YTD','') : mese;
+  const inMese = chiusure.filter(c=>c.data && c.data.startsWith(filtroData)).sort((a,b)=>a.data.localeCompare(b.data));
   if(!inMese.length){ toast('Nessuna chiusura da esportare'); return; }
   // Funzione per calcolare il totale anche da record legacy
   const getTot = c => c.totale_corrispettivi || c.totaleCorrispettivi || ((c.iva22||0)+(c.iva10||0)+(c.iva4||0));
   const r1_10 = 1.10;
+  const nomeFile = isYtd ? filtroData+'_da-inizio-anno' : mese;
   if(typeof XLSX === 'undefined'){
-    const header = 'Data;Totale corrispettivi;Imponibile 10%;IVA 10% a debito;Cassa contanti;POS Numia;Totale incassato;Differenza;Note\n';
+    const header = 'Data;Totale corrispettivi;Imponibile 10%;IVA 10% a debito;Cassa contanti;POS Numia;Totale incassato;Scostamento POS;Note\n';
     const rows = inMese.map(c=>{
       const t = getTot(c), imp = t/r1_10, iva = t-imp;
       return [
@@ -9013,10 +9052,10 @@ async function esportaMeseIncassi(mese){
         (c.note||'').replace(/[\r\n;]/g,' ')
       ].join(';');
     }).join('\n');
-    condividi(header+rows, `corrispettivi_${mese}.csv`, 'text/csv');
+    condividi(header+rows, `corrispettivi_${nomeFile}.csv`, 'text/csv');
     return;
   }
-  const headers = ['Data','Totale corrispettivi','Imponibile 10%','IVA 10% a debito','Cassa contanti','POS Numia','Totale incassato','Differenza','Note'];
+  const headers = ['Data','Totale corrispettivi','Imponibile 10%','IVA 10% a debito','Cassa contanti','POS Numia','Totale incassato','Scostamento POS','Note'];
   const data = [headers, ...inMese.map(c=>{
     const t = getTot(c), imp = Math.round((t/r1_10)*100)/100, iva = Math.round((t-imp)*100)/100;
     return [c.data, t, imp, iva, c.cassa||0, c.pos||0, c.incassato||0, c.differenza||0, c.note||''];
@@ -9029,10 +9068,10 @@ async function esportaMeseIncassi(mese){
   data.push(['TOTALE', totT, totImp, totIva, totCassa, totPos, totCassa+totPos, Math.round((totCassa+totPos-totT)*100)/100, '']);
   const ws = XLSX.utils.aoa_to_sheet(data);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Corrispettivi '+mese);
+  XLSX.utils.book_append_sheet(wb, ws, isYtd ? 'Corrispettivi '+filtroData : 'Corrispettivi '+mese);
   const blob = new Blob([XLSX.write(wb,{type:'array',bookType:'xlsx'})], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = `corrispettivi_${mese}.xlsx`;
+  const a = document.createElement('a'); a.href = url; a.download = `corrispettivi_${nomeFile}.xlsx`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(()=>URL.revokeObjectURL(url), 1000);
   toast('✓ Esportato');
@@ -10833,6 +10872,13 @@ function renderRiconciliazione(){
     if(_appresoRaw) _appreso = JSON.parse(_appresoRaw);
   }catch(e){}
 
+  // Coppie movimento-fattura segnate "Sbagliato" in passato — da non riproporre
+  var _rifiutatiSet = new Set();
+  try{
+    var _rifRaw = JSON.parse(localStorage.getItem('ceraldi_recon_rifiutati')||'[]');
+    _rifRaw.forEach(function(s){ _rifiutatiSet.add(s); });
+  }catch(e){}
+
   // Tutte le fatture non annullate (filtro mese allargato ±2 mesi)
   var meseD = mese ? new Date(mese+'-15') : null;
   var fattCandidati = fatture.filter(function(f){
@@ -10928,7 +10974,8 @@ function renderRiconciliazione(){
     if(_appreso[_chiaveDesc]){
       var idAppreso = _appreso[_chiaveDesc];
       var fAppresa  = fattCandidati.find(function(x){ return x.id===idAppreso; });
-      if(fAppresa && !fattIdUsate.has(fAppresa.id) && Math.abs((fAppresa.importo||0)-imp)<=0.50){
+      if(fAppresa && !fattIdUsate.has(fAppresa.id) && Math.abs((fAppresa.importo||0)-imp)<=0.50
+         && (m._rifiutati||[]).indexOf(fAppresa.id)===-1 && !_rifiutatiSet.has(_chiaveDesc+'|'+fAppresa.id)){
         matchCerto = fAppresa; verificato = false;
       }
     }
@@ -10938,8 +10985,11 @@ function renderRiconciliazione(){
     // al giro automatico: se non c'è ambiguità (un solo candidato a quell'importo
     // esatto), è un match sicuro anche senza nome fornitore nel testo del movimento.
     if(!matchCerto){
+      var _chiaveDescEsatte = dLow.replace(/\s+/g,'').slice(0,40);
       var _esatteUniche = fattCandidati.filter(function(x){
         if(fattIdUsate.has(x.id)) return false;
+        if((m._rifiutati||[]).indexOf(x.id) !== -1) return false;
+        if(_rifiutatiSet.has(_chiaveDescEsatte+'|'+x.id)) return false;
         if(Math.abs((x.importo||0)-imp) > 0.01) return false;
         if(!x.data) return false;
         var dF = new Date(x.data+'T12:00:00'), dM = new Date(m.data+'T12:00:00');
@@ -11366,6 +11416,27 @@ function renderRiconciliazione(){
     });
     html += '</div></div>';
   }
+
+  // ═══ SEZIONE 5c: Ignorati — ripristinabili ═══
+  var ignorati = movMese.filter(function(m){ return m.ignorata; });
+  window._movimentiIgnorati = ignorati;
+  if(ignorati.length){
+    html += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid var(--ink3)">';
+    html += '<div onclick="var d=document.getElementById(\'_ignoratiBox\');d.style.display=d.style.display===\'none\'?\'block\':\'none\'" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer">';
+    html += '<div><span style="font-size:13px;font-weight:700;color:var(--ink3)">🙈 Ignorati ('+ignorati.length+')</span></div>';
+    html += '<span style="font-size:11px;color:var(--ink3)">▼ mostra</span>';
+    html += '</div>';
+    html += '<div id="_ignoratiBox" style="display:none;margin-top:10px">';
+    ignorati.forEach(function(m, i){
+      html += '<div style="padding:10px 0;border-top:1px solid var(--sep)">';
+      html += '<div style="font-size:11px;color:var(--ink3);margin-bottom:2px">'+m.data+' · <b>'+fmt(Math.abs(m.importo))+'</b>'+(m.sottotipo?' · '+m.sottotipo:'')+'</div>';
+      html += '<div style="font-size:11px;color:var(--ink2);word-break:break-word;line-height:1.3;margin-bottom:8px">'+esc(m.descrizione||'')+'</div>';
+      html += '<button onclick="_ripristinaIgnorato('+i+')" style="padding:7px 10px;border:1px solid var(--blue);border-radius:6px;background:var(--blue-light);color:var(--blue);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">↩️ Ripristina</button>';
+      html += '</div>';
+    });
+    html += '</div></div>';
+  }
+
   // ═══ SEZIONE 6: Riepilogo ═══
   var totPag = pagamentiFatture.length;
   if(totPag){
@@ -11874,14 +11945,27 @@ function _segnaIgnora(idx){
   var nonAbb = window._nonAbbinati||[];
   var m = nonAbb[idx];
   if(!m) return;
-  var cat = prompt('Categoria (es. Stipendio, Mutuo, Tasse, Altro):', m.sottotipo||'Altro');
-  if(cat===null) return;
+  // Niente più prompt() nativo: su iOS/PWA può essere bloccato o non comparire
+  // affatto, dando l'impressione che il bottone non faccia nulla.
   m.abbinata     = true;
   m.ignorata     = true;
-  m.fatturaLabel = cat || 'Ignorato';
+  m.fatturaLabel = 'Ignorato';
   salvaMovimentoBanca(m); // persiste su Supabase
   nonAbb.splice(idx, 1);
-  toast('✓ Classificato: '+(cat||'Ignorato'));
+  toast('✓ Movimento ignorato — lo trovi in "Ignorati", ripristinabile in ogni momento');
+  var _sy = window.pageYOffset || document.documentElement.scrollTop || 0;
+  renderRiconciliazione();
+  setTimeout(function(){ window.scrollTo(0, _sy); }, 30);
+}
+function _ripristinaIgnorato(idx){
+  var lista = window._movimentiIgnorati||[];
+  var m = lista[idx];
+  if(!m) return;
+  m.abbinata = false;
+  m.ignorata = false;
+  m.fatturaLabel = '';
+  salvaMovimentoBanca(m);
+  toast('↩️ Movimento ripristinato in "Da classificare"');
   var _sy = window.pageYOffset || document.documentElement.scrollTop || 0;
   renderRiconciliazione();
   setTimeout(function(){ window.scrollTo(0, _sy); }, 30);
@@ -12222,14 +12306,18 @@ function _confermaAbbinatoAuto(idx, giusto){
     salvaMovimentoBanca(d.mov);
     toast('✓ Confermato: '+(d.fatt.fornitore||''));
   } else {
-    // Sbagliato: non tocca né la fattura né il movimento — torna disponibile
-    // per la ricerca manuale, e impariamo a non riproporre più questa coppia
+    // Sbagliato: esclude DAVVERO questa coppia dai prossimi ricalcoli —
+    // prima non bastava, la stessa fattura veniva riproposta identica al render successivo.
+    // 1) Esclusione immediata per la sessione corrente (stesso oggetto movimento in memoria)
+    d.mov._rifiutati = d.mov._rifiutati || [];
+    d.mov._rifiutati.push(d.fatt.id);
+    // 2) Esclusione permanente (sopravvive a un ricaricamento della pagina)
     try{
-      var appR = {};
-      try{ appR = JSON.parse(localStorage.getItem('ceraldi_recon_appreso')||'{}'); }catch(e){}
+      var rif = [];
+      try{ rif = JSON.parse(localStorage.getItem('ceraldi_recon_rifiutati')||'[]'); }catch(e){}
       var chiaveDesc = (d.mov.descrizione||'').toLowerCase().replace(/\s+/g,'').slice(0,40);
-      appR[chiaveDesc] = 'NO:'+d.fatt.id;
-      localStorage.setItem('ceraldi_recon_appreso', JSON.stringify(appR));
+      rif.push(chiaveDesc+'|'+d.fatt.id);
+      localStorage.setItem('ceraldi_recon_rifiutati', JSON.stringify(rif.slice(-500)));
     }catch(e){}
     toast('✗ Segnato come sbagliato — riprova a cercare la fattura giusta');
   }
