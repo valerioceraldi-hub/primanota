@@ -403,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.10.4</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.11.0</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -4884,10 +4884,17 @@ function apriAgganciaNC(ncId){
   function renderLista_(filter){
     const s=(filter||'').toLowerCase();
     const normS=x=>String(x||'').trim().toLowerCase();
+    // Riferimento salvato all'import (fattura collegata indicata nell'XML della nota) —
+    // se presente, quella fattura va proposta per prima e messa in evidenza.
+    const rifMatch = (nc.note||'').match(/\[RIF-NC:([^·\]]+)/);
+    const numRif = rifMatch ? normS(rifMatch[1]) : '';
     const candidati = fatture.filter(f=>
       f.tipo==='fattura' && (f.stato==='da_pagare'||f.stato==='parziale') &&
       (!s || f.fornitore.toLowerCase().includes(s) || (f.numero||'').toLowerCase().includes(s))
     ).sort((a,b)=>{
+      const aRif = numRif && normS(a.numero)===numRif ? 0 : 1;
+      const bRif = numRif && normS(b.numero)===numRif ? 0 : 1;
+      if(aRif!==bRif) return aRif-bRif;
       const aMatch = normS(a.fornitore)===normS(nc.fornitore)?0:1;
       const bMatch = normS(b.fornitore)===normS(nc.fornitore)?0:1;
       if(aMatch!==bMatch) return aMatch-bMatch;
@@ -4900,11 +4907,13 @@ function apriAgganciaNC(ncId){
       candidati.forEach(f=>{
         const df=f.data?new Date(f.data).toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'numeric'}):'';
         const residuo = Math.max(0,(f.importo||0)-(f.parzPagato||0));
+        const eSuggerita = numRif && normS(f.numero)===numRif;
         const sameForn = normS(f.fornitore)===normS(nc.fornitore);
-        const bg = sameForn?'var(--green-light)':'var(--surface2)';
+        const bg = eSuggerita?'var(--blue-light)':(sameForn?'var(--green-light)':'var(--surface2)');
         const row = document.createElement('div');
-        row.style.cssText = 'padding:11px 12px;border-radius:10px;margin-bottom:5px;background:'+bg+';cursor:pointer;display:flex;justify-content:space-between;align-items:center';
+        row.style.cssText = 'padding:11px 12px;border-radius:10px;margin-bottom:5px;background:'+bg+';cursor:pointer;display:flex;justify-content:space-between;align-items:center'+(eSuggerita?';border:1.5px solid var(--blue)':'');
         row.innerHTML = '<div style="flex:1;min-width:0">'
+          +(eSuggerita?'<div style="font-size:10px;font-weight:700;color:var(--blue);margin-bottom:2px">🎯 SUGGERITA DALL\'XML</div>':'')
           +'<div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(f.fornitore)+'</div>'
           +'<div style="font-size:12px;color:var(--ink3)">N° '+esc(f.numero||'—')+' · '+df+' · residuo '+fmt(residuo)+'</div>'
           +'</div>'
@@ -5572,6 +5581,11 @@ async function importaMassivoXml(input){
       // Leggi TipoDocumento per nota credito
       const tipoDocXml = getIn('DatiGeneraliDocumento','TipoDocumento') || get('TipoDocumento') || '';
       const tipoFatt = tipoFromTD(tipoDocXml).tipo;
+      // Per le note di credito: la fattura collegata (a cui si riferisce lo storno) è
+      // scritta nell'XML in DatiFattureCollegate — finora mai letta dall'app, obbligando
+      // sempre a cercare a mano la fattura giusta anche quando l'XML la indica già.
+      const fattCollegataNum = tipoFatt==='nota_credito' ? getIn('DatiFattureCollegate','IdDocumento') : '';
+      const fattCollegataData = tipoFatt==='nota_credito' ? getIn('DatiFattureCollegate','Data') : '';
 
       if(!fornitore && !numero && !importo){ risultati.errori++; continue; }
 
@@ -5655,6 +5669,25 @@ async function importaMassivoXml(input){
 
       fatture.unshift(nuova);
       await dbInsert(nuova);
+
+      // Nota di credito con fattura collegata indicata nell'XML: se quella fattura
+      // è già tra quelle presenti, agganciala subito da sola invece di lasciare
+      // che l'utente la cerchi a mano — l'XML lo dice già.
+      if(tipoFatt==='nota_credito' && fattCollegataNum){
+        const nCollegata = normS(fattCollegataNum);
+        const fattTrovata = fatture.find(f =>
+          f.id!==nuova.id && f.tipo==='fattura' && normS(f.numero)===nCollegata &&
+          normS(f.fornitore)===normS(fornitore)
+        );
+        if(fattTrovata && typeof _eseguiAggancioNC==='function'){
+          await _eseguiAggancioNC(nuova.id, fattTrovata.id);
+        } else {
+          // Non ancora presente: salva il riferimento nelle note così il picker
+          // manuale "Aggancia a fattura" può suggerirla quando arriverà.
+          nuova.note = '[RIF-NC:'+fattCollegataNum+(fattCollegataData?'·'+fattCollegataData:'')+']';
+          await dbUpdatePartial(nuova.id, {note: nuova.note});
+        }
+      }
 
       // Aggiungi fornitore se nuovo
       if(fornitore && !fornitori.includes(fornitore)){
