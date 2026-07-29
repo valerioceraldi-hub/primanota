@@ -403,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.12.0</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.12.1</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -479,6 +479,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
     <button onclick="if(confirm('Verificare i fornitori delle fatture intestate erroneamente a Ceraldi? L\'app ricontrolla l\'XML e corregge automaticamente.')){bonificaFornitoriErrati(false);chiudiImpostazioni();}" style="width:100%;padding:12px;border:1.5px solid var(--blue);border-radius:var(--radius-sm);background:var(--blue-light);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:var(--blue);text-align:left;margin-bottom:10px">&#128269; Verifica fornitori (correggi intestazioni Ceraldi errate)</button>
 <button onclick="if(confirm('Svuotare solo la cache Cassa locale (chiusure, versamenti, incassi)? I dati su Supabase restano intatti.')){localStorage.removeItem(KCHIUSURE);localStorage.removeItem(KVERSAMENTI);localStorage.removeItem(KINCASSI);chiusure=[];versamenti=[];incassi=[];aggiornaSaldoCassa();chiudiImpostazioni();toast('✓ Cache cassa svuotata — ricarica dal Cloud al prossimo avvio');}" style="width:100%;padding:12px;border:1.5px solid var(--orange,#f90);border-radius:var(--radius-sm);background:#fff8ee;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:#c06000;text-align:left;margin-bottom:10px">&#129529; Svuota cache Cassa locale</button>
     <button onclick="if(confirm('Svuotare tutta la cache locale (fatture + cassa + banca)? I dati su Supabase restano intatti. Al prossimo avvio riscarica tutto.')){['cf_fatture_cache','cf_fatture_maxts','ceraldi_chiusure_v1','ceraldi_versamenti_v1','ceraldi_incassi_v1','ceraldi_banca_v1'].forEach(k=>localStorage.removeItem(k));Object.keys(localStorage).filter(k=>k.startsWith('cf_xml_')||k.startsWith('cf_ivabk_')).forEach(k=>localStorage.removeItem(k));chiudiImpostazioni();toast('✓ Cache svuotata — riavvio in corso');setTimeout(()=>location.reload(),1500);}" style="width:100%;padding:12px;border:1.5px solid var(--orange,#f90);border-radius:var(--radius-sm);background:#fff8ee;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:#c06000;text-align:left">&#128257; Reset cache locale completa</button>
+    <button onclick="apriPuliziaFornitori()" style="width:100%;padding:12px;margin-top:8px;border:1.5px solid var(--orange,#f90);border-radius:var(--radius-sm);background:#fff8ee;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:#c06000;text-align:left">&#129529; Pulisci fornitori duplicati</button>
   </div>
 </div>
 
@@ -6045,6 +6046,111 @@ function _normForn(s){
 //  - Se entrambi hanno 1 token → match esatto (startsWith o contiene) oppure Levenshtein ≤ 2
 //  - Se entrambi ≥ 2 token → Jaccard ≥ 0.5 E il token "core" più lungo deve coincidere
 //  - Evita falsi positivi su stop words (già filtrate da _tokensForn)
+// ── PULIZIA FORNITORI DUPLICATI ──
+// Raggruppa nomi fornitore simili (es. "KIMBO S.P.A." / "Kimbo Spa" / "KIMBO SPA")
+// e tiene solo quello che corrisponde a un nome usato davvero in una fattura (fonte
+// di verità), preferendo quelli arrivati da XML. Mostra sempre un riepilogo prima di
+// applicare — nessun automatismo silenzioso, dato quanto successo oggi con funzioni
+// automatiche dimenticate nel codice.
+function _calcolaGruppiFornitoriDuplicati(){
+  const nomiFatture = new Set((fatture||[]).map(f=>(f.fornitore||'').trim()).filter(Boolean));
+  const nomiXml = new Set((fatture||[]).filter(f=>f.source==='xml_import'||f.source==='aruba').map(f=>(f.fornitore||'').trim()).filter(Boolean));
+  const lista = [...(fornitori||[])];
+  const usati = new Set();
+  const gruppi = [];
+  for(let i=0; i<lista.length; i++){
+    if(usati.has(lista[i])) continue;
+    const gruppo = [lista[i]];
+    usati.add(lista[i]);
+    for(let j=i+1; j<lista.length; j++){
+      if(usati.has(lista[j])) continue;
+      if(_fornitori_simili(lista[i], lista[j])){
+        gruppo.push(lista[j]);
+        usati.add(lista[j]);
+      }
+    }
+    if(gruppo.length > 1) gruppi.push(gruppo);
+  }
+  return gruppi.map(gruppo=>{
+    const tenere = gruppo.find(n=>nomiXml.has(n)) || gruppo.find(n=>nomiFatture.has(n)) || gruppo.slice().sort((a,b)=>b.length-a.length)[0];
+    return { gruppo, tenere, daRimuovere: gruppo.filter(n=>n!==tenere) };
+  });
+}
+
+async function dbDeleteForn(nome){
+  try{ await sbFetch('fornitori?nome=eq.'+encodeURIComponent(nome), {method:'DELETE'}); }
+  catch(e){ console.warn('Forn delete warn', e); }
+}
+
+function apriPuliziaFornitori(){
+  const gruppi = _calcolaGruppiFornitoriDuplicati();
+  window._gruppiFornDaPulire = gruppi;
+  const existing = document.getElementById('puliziaFornMo');
+  if(existing) existing.remove();
+  const mo = document.createElement('div');
+  mo.id = 'puliziaFornMo';
+  mo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:900;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)';
+  const sheet = document.createElement('div');
+  sheet.id = 'puliziaFornSheet';
+  sheet.style.cssText = 'background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:80vh;overflow-y:auto;animation:slideUp .3s cubic-bezier(.32,.72,0,1)';
+  sheet.innerHTML = _renderPuliziaFornitoriHtml(gruppi);
+  mo.appendChild(sheet);
+  mo.onclick = e=>{ if(e.target===mo) mo.remove(); };
+  document.body.appendChild(mo);
+}
+
+function _renderPuliziaFornitoriHtml(gruppi){
+  let html = '<div style="padding:16px 20px 8px;border-bottom:1px solid var(--sep);display:flex;justify-content:space-between;align-items:center">'
+    + '<span style="font-size:17px;font-weight:700">🧹 Pulisci fornitori duplicati</span>'
+    + '<button onclick="document.getElementById(\'puliziaFornMo\').remove()" style="background:var(--surface2);border:none;border-radius:99px;width:30px;height:30px;font-size:17px;cursor:pointer">&times;</button>'
+    + '</div><div style="padding:16px 20px">';
+  if(!gruppi.length){
+    html += '<div style="text-align:center;padding:20px;color:var(--ink3)">Nessun duplicato trovato — l\'elenco fornitori è già pulito.</div>';
+  } else {
+    html += '<div style="font-size:13px;color:var(--ink3);margin-bottom:14px">Trovati '+gruppi.length+' gruppi di nomi simili. Verrà tenuto solo quello in verde (come censito nelle fatture), gli altri saranno rimossi dall\'elenco.</div>';
+    gruppi.forEach(g=>{
+      html += '<div style="margin-bottom:10px;padding:10px 12px;background:var(--surface);border-radius:10px">';
+      g.gruppo.forEach(n=>{
+        const tenuto = n===g.tenere;
+        html += '<div style="padding:4px 0;font-size:14px;'+(tenuto?'color:#1a7a3a;font-weight:700':'color:var(--red);text-decoration:line-through')+'">'+(tenuto?'✓ ':'✗ ')+esc(n)+'</div>';
+      });
+      html += '</div>';
+    });
+  }
+  html += '</div>';
+  if(gruppi.length){
+    const nDaRimuovere = gruppi.reduce((s,g)=>s+g.daRimuovere.length,0);
+    html += '<div style="padding:12px 20px 20px">'
+      + '<button onclick="_confermaPuliziaFornitori()" style="width:100%;padding:14px;border:none;border-radius:10px;background:var(--red);color:#fff;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer">Rimuovi i '+nDaRimuovere+' duplicati</button>'
+      + '</div>';
+  }
+  return html;
+}
+
+async function _confermaPuliziaFornitori(){
+  const gruppi = window._gruppiFornDaPulire || [];
+  let rimossi = 0;
+  for(const g of gruppi){
+    for(const nome of g.daRimuovere){
+      await dbDeleteForn(nome);
+      const idx = fornitori.indexOf(nome);
+      if(idx>=0) fornitori.splice(idx,1);
+      rimossi++;
+    }
+  }
+  aggiornaDL();
+  // Esito mostrato dentro il foglio stesso (il toast ora mostra solo errori,
+  // qui serve una conferma visibile di un'azione esplicitamente richiesta).
+  const sheet = document.getElementById('puliziaFornSheet');
+  if(sheet){
+    sheet.innerHTML = '<div style="padding:30px 20px;text-align:center">'
+      + '<div style="font-size:32px;margin-bottom:10px">✅</div>'
+      + '<div style="font-size:16px;font-weight:700;margin-bottom:6px">Rimossi '+rimossi+' fornitori duplicati</div>'
+      + '<button onclick="document.getElementById(\'puliziaFornMo\').remove()" style="margin-top:14px;padding:10px 24px;border:none;border-radius:10px;background:var(--blue);color:#fff;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer">Chiudi</button>'
+      + '</div>';
+  }
+}
+
 function _fornitori_simili(a, b){
   const tokA = _tokensForn(a);
   const tokB = _tokensForn(b);
