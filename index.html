@@ -403,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.12.2</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.13.1</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -4429,7 +4429,9 @@ async function _applicaQuickPay(id, metodo, extra, backup, dataScelta){
   aggiornaAlertBanner();
   const _viewScad = document.getElementById('view-scadenzario');
   if(_viewScad && _viewScad.classList.contains('active')) renderScadenzario();
-  _showQuickPayUndoToast(id, backup);
+  // Barra "Annulla" rimossa su richiesta (28/07): restava 8 secondi sullo schermo,
+  // coprendo altri bottoni "Paga ora" sotto e costringendo ad aspettare prima del
+  // salvataggio successivo. Per annullare un pagamento, usa "Modifica" sulla fattura.
 }
 
 function _showQuickPayUndoToast(id, backup){
@@ -5418,17 +5420,21 @@ async function analizzaXML(file){
       const parser=new DOMParser();
       const doc=parser.parseFromString(xmlTesto,'text/xml');
       const get=(tag,ctx)=>{const root2=ctx||doc;let el=root2.getElementsByTagName(tag)[0];if(!el)el=root2.getElementsByTagNameNS('*',tag)[0];if(!el){const all=root2.getElementsByTagName('*');for(let i=0;i<all.length;i++){if(all[i].localName===tag){el=all[i];break;}}}return el?el.textContent.trim():'';}
+      const findParent=(tag)=>{let el=doc.getElementsByTagName(tag)[0];if(!el)el=doc.getElementsByTagNameNS('*',tag)[0];if(!el){const all=doc.getElementsByTagName('*');for(let i=0;i<all.length;i++){if(all[i].localName===tag){el=all[i];break;}}}return el;}
+      const getIn=(p,c)=>{const parent=findParent(p);return parent?get(c,parent):'';}
       // Campi standard FatturaPA
-      // Forza la lettura dal CedentePrestatore (mai dal CessionarioCommittente).
-      // querySelector('Denominazione') generico pesca il primo nodo della pagina,
-      // che a volte è il cliente o un terzo intermediario.
-      const fornitore = get('CedentePrestatore Denominazione')
-        || (get('CedentePrestatore Nome')+' '+get('CedentePrestatore Cognome')).trim()
+      // Forza la lettura dal CedentePrestatore (mai dal CessionarioCommittente), con
+      // scoping vero (getIn) — non affidarsi all'ordine degli elementi nel documento.
+      const fornitore = getIn('CedentePrestatore','Denominazione')
+        || (getIn('CedentePrestatore','Nome')+' '+getIn('CedentePrestatore','Cognome')).trim()
         || get('Denominazione')
         || (get('Nome')+' '+get('Cognome'));
-      const numero=get('Numero');
-      const dataRaw=get('Data'); // formato YYYY-MM-DD già
-      const importoRaw=get('ImportoPagamento')||get('ImportoTotaleDocumento');
+      const numero=getIn('DatiGeneraliDocumento','Numero')||get('Numero');
+      const dataRaw=getIn('DatiGeneraliDocumento','Data')||get('Data'); // formato YYYY-MM-DD già
+      // IL TOTALE DELLA FATTURA VIENE SEMPRE PRIMA: con pagamenti a rate ci sono PIÙ
+      // <ImportoPagamento> (uno per rata) — prendere il primo che capita registrava
+      // solo l'importo di UNA rata invece del totale reale della fattura.
+      const importoRaw=getIn('DatiGeneraliDocumento','ImportoTotaleDocumento')||get('ImportoTotaleDocumento')||get('ImportoPagamento');
       const iban=get('IBAN');
       const modalita=get('ModalitaPagamento'); // MP01=contanti, MP05=bonifico, ecc.
       const pagMap={'MP01':'contanti','MP05':'bonifico','MP02':'assegno','MP12':'assegno','MP19':'bonifico'};
@@ -5593,7 +5599,12 @@ async function importaMassivoXml(input){
       ).trim();
       const numero    = getIn('DatiGeneraliDocumento','Numero') || get('Numero');
       const data      = getIn('DatiGeneraliDocumento','Data') || get('Data');
-      const importoRaw= get('ImportoPagamento') || getIn('DatiGeneraliDocumento','ImportoTotaleDocumento') || get('ImportoTotaleDocumento');
+      // IL TOTALE DELLA FATTURA VIENE SEMPRE PRIMA: con pagamenti a rate ci sono PIÙ
+      // <ImportoPagamento> (uno per rata) — prendere il primo che capita registrava
+      // solo l'importo di UNA rata invece del totale reale della fattura (bug trovato
+      // il 29/07 su fatture con pagamento rateale, es. DI MASSA N°20: 3000€ invece di
+      // 12000,01€ reali).
+      const importoRaw= getIn('DatiGeneraliDocumento','ImportoTotaleDocumento') || get('ImportoTotaleDocumento') || get('ImportoPagamento');
       const importo   = parseFloat((importoRaw||'0').replace(',','.')) || 0;
       const modalita  = get('ModalitaPagamento');
       const pagamento = pagMap[modalita] || '';
@@ -11456,6 +11467,11 @@ function renderRiconciliazione(){
       var diffGG = Math.abs(dF-dM)/86400000;
       if(diffGG<=3)  score += 15;
       else if(diffGG<=14) score += 5;
+      // Penalità se la fattura risulta emessa DOPO il pagamento di più di 2 giorni —
+      // logicamente insolito (di norma si paga una fattura già emessa, non il
+      // contrario). Non esclude il match (a volte l'ordine reale è ambiguo), ma lo
+      // rende meno probabile a favore di un'altra fattura con data coerente.
+      if(dF - dM > 2*86400000) score -= 20;
 
       if(f.stato==='pagata' && f.dataPagamento && diffGG<=7){ score += 40; verificato = true; }
 
@@ -11715,8 +11731,9 @@ function renderRiconciliazione(){
       html += '<div style="font-size:11px;color:var(--ink3);margin-bottom:8px">N°'+esc(f.numero||'')+' · '+fmt(f.importo||0)+'</div>';
       html += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
       if(hasDocA) html += '<button onclick="aprifatturaAllegata('+f.id+')" style="padding:7px 10px;border:1px solid var(--blue);border-radius:6px;background:var(--blue-light);color:var(--blue);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">📄 Doc.</button>';
-      html += '<button onclick="_confermaAbbinatoAuto('+i+',true)" style="flex:1;min-width:80px;padding:7px 8px;border:1px solid var(--green);border-radius:6px;background:var(--green-light);color:#1a7a3a;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✓ Giusto</button>';
-      html += '<button onclick="_confermaAbbinatoAuto('+i+',false)" style="flex:1;min-width:80px;padding:7px 8px;border:1px solid var(--red);border-radius:6px;background:var(--red-light);color:var(--red);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✗ Sbagliato</button>';
+      html += '<button onclick="_confermaAbbinatoAuto('+i+',true)" style="flex:1;min-width:70px;padding:7px 8px;border:1px solid var(--green);border-radius:6px;background:var(--green-light);color:#1a7a3a;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✓ Giusto</button>';
+      html += '<button onclick="apriCambioAbbinamento('+i+')" style="flex:1;min-width:70px;padding:7px 8px;border:1px solid var(--orange,#f90);border-radius:6px;background:#fff8ee;color:#c06000;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✏️ Cambia</button>';
+      html += '<button onclick="_confermaAbbinatoAuto('+i+',false)" style="flex:1;min-width:70px;padding:7px 8px;border:1px solid var(--red);border-radius:6px;background:var(--red-light);color:var(--red);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✗ Sbagliato</button>';
       html += '</div></div>';
     });
     html += '</div>';
@@ -11857,7 +11874,7 @@ function renderRiconciliazione(){
     if(m.verificataBanca){
       stato = '<span style="font-size:10px;background:var(--green-light);color:#1a7a3a;padding:2px 6px;border-radius:99px;font-weight:600">✅ Verificato banca</span>';
     } else if(m.abbinata){
-      stato = '<span style="font-size:10px;background:var(--blue-light);color:var(--blue);padding:2px 6px;border-radius:99px;font-weight:600">✓ '+esc(m.fatturaLabel||'Abbinata')+'</span>';
+      stato = '<span onclick="apriCambioAbbinamentoMov('+m.id+')" style="font-size:10px;background:var(--blue-light);color:var(--blue);padding:2px 6px;border-radius:99px;font-weight:600;cursor:pointer;text-decoration:underline">✓ '+esc(m.fatturaLabel||'Abbinata')+'</span>';
     } else if(m.tipo==='uscita'){
       stato = '<span style="font-size:10px;background:var(--red-light);color:var(--red);padding:2px 6px;border-radius:99px;font-weight:600">⚠️ '+(m.sottotipo||'Non abbinata')+'</span>';
     } else {
@@ -12671,6 +12688,142 @@ function _confermaPagamento(idx, conferma){
   // Rimuovi il movimento dalla lista e MANTIENI la posizione di scroll
   // (prima saliva in cima, scomodo per chi sta lavorando in fondo alla lista)
   if(window._pagDaConfermare) window._pagDaConfermare.splice(idx, 1);
+  var _sy = window.pageYOffset || document.documentElement.scrollTop || 0;
+  renderRiconciliazione();
+  setTimeout(function(){ window.scrollTo(0, _sy); }, 30);
+}
+
+// Apre un selettore per cambiare a mano l'abbinamento automatico — utile quando ci
+// sono più fatture ricorrenti dello stesso importo ma di date diverse (es. canoni
+// mensili), e l'abbinamento automatico ha scelto quella sbagliata tra le candidate.
+function apriCambioAbbinamento(idx){
+  const d = (window._abbinatiAutoList||[])[idx];
+  if(!d) return;
+  _apriPickerCambioAbbinamento(d.mov, d.fatt);
+}
+// Richiamabile anche da una fattura già abbinata in qualunque altra lista (es.
+// "Tutti i movimenti"), passando l'id del movimento invece dell'indice del gruppo.
+function apriCambioAbbinamentoMov(movId){
+  const m = (_bancaMovimenti||[]).find(x=>x.id===movId);
+  if(!m) return;
+  const fAttuale = fatture.find(f=>f.id===m.fatturaId) || {fornitore:m.fatturaLabel||'', numero:'', id:m.fatturaId, importo:m.importo};
+  _apriPickerCambioAbbinamento(m, fAttuale);
+}
+function _apriPickerCambioAbbinamento(m, fAttuale){
+  const existing = document.getElementById('cambioAbbMo');
+  if(existing) existing.remove();
+
+  const mo = document.createElement('div');
+  mo.id = 'cambioAbbMo';
+  mo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:900;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)';
+  const sheet = document.createElement('div');
+  sheet.style.cssText = 'background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:80vh;display:flex;flex-direction:column;animation:slideUp .3s cubic-bezier(.32,.72,0,1)';
+
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'padding:16px 20px 10px;border-bottom:1px solid var(--sep);display:flex;align-items:center;justify-content:space-between;flex-shrink:0';
+  hdr.innerHTML = '<div><div style="font-size:17px;font-weight:700">✏️ Cambia abbinamento</div><div style="font-size:12px;color:var(--ink3)">'+m.data+' · '+fmt(Math.abs(m.importo))+'</div></div>';
+  const closeBtn = document.createElement('button');
+  closeBtn.innerHTML = '&#215;';
+  closeBtn.style.cssText = 'background:var(--surface2);border:none;border-radius:99px;width:32px;height:32px;font-size:18px;cursor:pointer';
+  closeBtn.onclick = ()=>mo.remove();
+  hdr.appendChild(closeBtn);
+  sheet.appendChild(hdr);
+
+  const sw = document.createElement('div');
+  sw.style.cssText = 'padding:10px 16px;flex-shrink:0';
+  sw.innerHTML = '<input type="text" id="cambioAbbSearch" placeholder="🔍 Cerca fornitore o numero..." value="'+esc(fAttuale.fornitore||'')+'" style="width:100%;padding:10px 14px;border:1.5px solid var(--sep);border-radius:99px;font-size:14px;font-family:Inter,-apple-system,sans-serif;background:var(--surface)">';
+  sheet.appendChild(sw);
+
+  const lista = document.createElement('div');
+  lista.id = 'cambioAbbLista';
+  lista.style.cssText = 'overflow-y:auto;flex:1;padding:0 16px 20px';
+  sheet.appendChild(lista);
+
+  mo.appendChild(sheet);
+  mo.onclick = e=>{ if(e.target===mo) mo.remove(); };
+  document.body.appendChild(mo);
+
+  const normS = x=>String(x||'').trim().toLowerCase();
+
+  function renderLista_(filtro){
+    const s = (filtro||'').toLowerCase();
+    const candidati = fatture.filter(f=>
+      f.tipo==='fattura' && (f.stato==='da_pagare'||f.stato==='parziale') &&
+      (!s || f.fornitore.toLowerCase().includes(s) || (f.numero||'').toLowerCase().includes(s))
+    ).sort((a,b)=>{
+      // Stesso fornitore dell'abbinamento attuale prima di tutto, poi per data (più vicina al movimento prima)
+      const aSame = normS(a.fornitore)===normS(fAttuale.fornitore)?0:1;
+      const bSame = normS(b.fornitore)===normS(fAttuale.fornitore)?0:1;
+      if(aSame!==bSame) return aSame-bSame;
+      const diffA = Math.abs(new Date(a.data+'T12:00:00') - new Date(m.data+'T12:00:00'));
+      const diffB = Math.abs(new Date(b.data+'T12:00:00') - new Date(m.data+'T12:00:00'));
+      return diffA-diffB;
+    });
+    lista.innerHTML = '';
+    if(!candidati.length){
+      lista.innerHTML = '<div style="text-align:center;padding:20px;color:var(--ink3);font-size:14px">Nessuna fattura da pagare trovata</div>';
+      return;
+    }
+    candidati.slice(0,50).forEach(f=>{
+      const df = f.data?new Date(f.data).toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'numeric'}):'';
+      const eAttuale = f.id===fAttuale.id;
+      const eStessoImporto = Math.abs((f.importo||0)-Math.abs(m.importo))<0.02;
+      const bg = eAttuale?'var(--surface2)':(eStessoImporto?'var(--green-light)':'var(--surface2)');
+      const row = document.createElement('div');
+      row.style.cssText = 'padding:11px 12px;border-radius:10px;margin-bottom:5px;background:'+bg+';cursor:'+(eAttuale?'default':'pointer')+';display:flex;justify-content:space-between;align-items:center;opacity:'+(eAttuale?'0.5':'1');
+      row.innerHTML = '<div style="flex:1;min-width:0">'
+        +(eAttuale?'<div style="font-size:10px;font-weight:700;color:var(--ink3);margin-bottom:2px">ATTUALE</div>':'')
+        +'<div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(f.fornitore)+'</div>'
+        +'<div style="font-size:12px;color:var(--ink3)">N° '+esc(f.numero||'—')+' · '+df+'</div>'
+        +'</div>'
+        +'<div style="font-weight:700;font-size:14px;margin-left:8px;flex-shrink:0">'+fmt(f.importo||0)+'</div>';
+      if(!eAttuale) row.onclick = ()=>{ _applicaCambioAbbinamento(m, fAttuale, f); mo.remove(); };
+      lista.appendChild(row);
+    });
+  }
+  renderLista_(fAttuale.fornitore||'');
+  setTimeout(()=>{
+    const inp = document.getElementById('cambioAbbSearch');
+    if(inp) inp.oninput = e=>renderLista_(e.target.value);
+  }, 100);
+}
+
+async function _applicaCambioAbbinamento(mov, vecchiaFattura, nuovaFattura){
+  // La vecchia fattura non viene più proposta per questo movimento (stesso
+  // meccanismo di esclusione usato da "Sbagliato")
+  if(vecchiaFattura && vecchiaFattura.id){
+    mov._rifiutati = mov._rifiutati || [];
+    mov._rifiutati.push(vecchiaFattura.id);
+    try{
+      var rif = [];
+      try{ rif = JSON.parse(localStorage.getItem('ceraldi_recon_rifiutati')||'[]'); }catch(e){}
+      var chiaveDesc = (mov.descrizione||'').toLowerCase().replace(/\s+/g,'').slice(0,40);
+      rif.push(chiaveDesc+'|'+vecchiaFattura.id);
+      localStorage.setItem('ceraldi_recon_rifiutati', JSON.stringify(rif.slice(-500)));
+    }catch(e){}
+    // Se la vecchia fattura era stata segnata "pagata" proprio da questo movimento,
+    // ripristinala a "da pagare" — non è più lei ad essere stata saldata.
+    if(vecchiaFattura.stato==='pagata' && vecchiaFattura.dataPagamento===mov.data){
+      vecchiaFattura.stato = 'da_pagare';
+      vecchiaFattura.dataPagamento = '';
+      if(typeof dbUpdate==='function') dbUpdate(vecchiaFattura);
+    }
+  }
+
+  // Applica il nuovo abbinamento scelto a mano
+  _aggiungiNoteEstrato(nuovaFattura, mov, false);
+  nuovaFattura.riconciliata = true;
+  if(nuovaFattura.stato!=='pagata'){
+    nuovaFattura.stato = 'pagata';
+    nuovaFattura.dataPagamento = mov.data;
+    if(!nuovaFattura.pagamento) nuovaFattura.pagamento = /assegno/i.test(mov.sottotipo||'')?'assegno':'bonifico';
+  }
+  if(typeof dbUpdate==='function') dbUpdate(nuovaFattura);
+  mov.abbinata = true;
+  mov.fatturaId = nuovaFattura.id;
+  mov.fatturaLabel = (nuovaFattura.fornitore||'') + ' N°' + (nuovaFattura.numero||'');
+  salvaMovimentoBanca(mov);
+
   var _sy = window.pageYOffset || document.documentElement.scrollTop || 0;
   renderRiconciliazione();
   setTimeout(function(){ window.scrollTo(0, _sy); }, 30);
