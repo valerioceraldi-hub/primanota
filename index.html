@@ -403,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.10.3</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.10.4</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -2069,8 +2069,13 @@ async function dbInsert(f){
 async function dbUpdate(f){
   try{
     // Invia solo i campi testuali/numerici sicuri — niente base64 o colonne opzionali
+    // NOTA: 'tipo' (fattura/nota_credito/ddt/...) NON viene mai incluso qui di proposito —
+    // nessuna schermata dell'app lo rende modificabile dall'utente, si decide solo
+    // all'importazione. Includerlo qui rischiava di sovrascriverlo con un valore vecchio
+    // rimasto in cache locale ad ogni salvataggio "normale" (successo con le note di
+    // credito, riportate a "fattura" da salvataggi che non c'entravano nulla col tipo).
+    // Per cambiare davvero il tipo di un documento, usa dbUpdatePartial(id,{tipo:...}).
     const safe = {
-      tipo:f.tipo||'fattura',
       fornitore:f.fornitore||'',
       numero:f.numero||'',
       fatt_num:f.fattNum||'',
@@ -8079,7 +8084,13 @@ async function init(){
   // All'avvio: solo ricerca fatture duplicate (riconciliazione DDT↔fatture disabilitata)
   // setTimeout(()=>{ try{ const c=trovaCoppie(); if(c.length) _riconciliaStep(c,0,0); }catch(e){} }, 6000);
   setTimeout(()=>deduplicaFatture(), 12000);
-  setTimeout(()=>bonificaNoteCreditoErrate(), 5000);
+  // DISATTIVATA (29/07): bonificaNoteCreditoErrate si basava sul presupposto che le note
+  // di credito avessero sempre "TD04" scritto nel campo note — l'import attuale non lo
+  // scrive mai lì, quindi questa "bonifica" automatica riportava indietro a "fattura"
+  // qualunque nota di credito corretta manualmente o importata normalmente. Era la vera
+  // causa delle 28 note di credito che continuavano a tornare indietro nonostante le
+  // correzioni dirette sul database.
+  // setTimeout(()=>bonificaNoteCreditoErrate(), 5000);
 
   // Badge IA
   const corr = await loadCorrezioni();
