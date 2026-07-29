@@ -403,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.11.1</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.12.0</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -1651,16 +1651,25 @@ const FATTURE_TS_KEY    = 'cf_fatture_maxts';
 function _saveCache(rows){
   if(!rows || rows.length === 0){ console.warn('_saveCache: tentativo di salvare cache vuota — ignorato'); return; }
   try{
+    // Limite alle righe più RECENTI (per data) salvate su disco — con centinaia di
+    // fatture anche la versione "slim" può saturare lo spazio disponibile su alcuni
+    // telefoni. Tutte le fatture restano comunque disponibili IN MEMORIA durante la
+    // sessione (vedi loadAll: se la cache è incompleta rispetto al totale reale,
+    // scarica tutto in background) — solo il salvataggio su disco resta limitato.
+    const CACHE_MAX_ROWS = 250;
+    const daSalvare = rows.length > CACHE_MAX_ROWS
+      ? rows.slice().sort((a,b)=>(b.data||'').localeCompare(a.data||'')).slice(0, CACHE_MAX_ROWS)
+      : rows;
     // Salva solo i campi necessari — riduce dimensione cache del 40-50%
     // (esclude foto base64 e campi vuoti che pesano molto)
-    // Cache slim: salva sempre i campi base
-    // fattura_allegata e iva_breakdown salvati separatamente per ID (evita overflow localStorage)
-    const slim = rows.map(_slimPerCache);
+    const slim = daSalvare.map(_slimPerCache);
     // NON salvare XML in localStorage — occupano 6.5MB e causano quota exceeded
     // Gli XML si scaricano on-demand da Supabase quando si apre la singola fattura
     const json = JSON.stringify(slim);
     const kb = Math.round(json.length/1024);
     localStorage.setItem(FATTURE_CACHE_KEY, json);
+    // maxTs calcolato su TUTTE le righe (non solo quelle salvate), altrimenti il
+    // sync incrementale penserebbe che manchino modifiche già viste.
     const maxTs = rows.reduce((m,r)=>Math.max(m, r.ts||0), 0);
     localStorage.setItem(FATTURE_TS_KEY, String(maxTs));
     // Verifica che sia stato scritto davvero (silenzioso: niente toast su ogni sync)
@@ -1813,6 +1822,19 @@ async function loadAll(forceRefresh=false){
     // 2. Controlla eliminazioni: prendi tutti gli ID remoti (solo id, leggerissimo)
     const remoteIds = await sbFetchAll('fatture?select=id&order=id.asc');
     const remoteIdSet = new Set(remoteIds.map(r=>String(r.id)));
+
+    // La cache su disco è limitata alle più recenti (vedi _saveCache) — se il totale
+    // reale su Supabase è molto più grande di quello che abbiamo in locale, questa
+    // sessione ha bisogno di TUTTO in memoria (per ricerche, scorrimento registro,
+    // ecc.), non solo delle righe recenti. Scarico tutto in un colpo solo, silenzioso.
+    if(remoteIdSet.size > cached.length + 50){
+      const rowsComplete = await sbFetchAll('fatture?select='+SLIM_COLS_FATTURE+'&order=data.desc,ts.desc,id.asc');
+      await _arricchisciConFlagAllegati(rowsComplete);
+      _saveCache(rowsComplete); // salva comunque solo le più recenti su disco
+      fatture = rowsComplete.map(dbToApp);
+      console.log('Cache locale incompleta ('+cached.length+'/'+remoteIdSet.size+') — scaricato tutto in memoria: '+rowsComplete.length);
+      return true;
+    }
 
     // 3. Merge: aggiorna cache locale
     let cacheMap = {};
@@ -7679,6 +7701,11 @@ function renderFatturaXML(xmlText, ddt){
   const tipoDocV  = g('TipoDocumento') || '';
   const _tdInfoV=tipoFromTD(tipoDocV);const isNcV=_tdInfoV.tipo==='nota_credito'||_tdInfoV.tipo==='nota_debito';
   const tipoDocLabel=isNcV?'📋 '+_tdInfoV.label.toUpperCase()+' ('+tipoDocV+')':_tdInfoV.tipo==='autofattura'?'🔄 '+_tdInfoV.label.toUpperCase()+' ('+tipoDocV+')':_tdInfoV.tipo==='fattura_differita'?'📦 '+_tdInfoV.label+' ('+tipoDocV+')':tipoDocV&&tipoDocV!=='TD01'?'ℹ️ '+_tdInfoV.label+' ('+tipoDocV+')':'';
+  // Per le note di credito: la fattura a cui si riferisce lo storno, scritta nell'XML
+  // in DatiFattureCollegate — prima mai letta qui, obbligando a controllarla a mano
+  // nella sezione "Documenti correlati" del gestionale del fornitore.
+  const fattCollegataNum  = isNcV ? g('DatiFattureCollegate IdDocumento') : '';
+  const fattCollegataData = isNcV ? g('DatiFattureCollegate Data') : '';
   const dataFatt  = g('Data') || '';
   const dataFmtd  = dataFatt ? new Date(dataFatt+'T12:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'long',year:'numeric'}) : '—';
   const totale    = g('ImportoTotaleDocumento') || g('ImportoPagamento');
@@ -7766,9 +7793,10 @@ function renderFatturaXML(xmlText, ddt){
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:rgba(255,255,255,.35);margin-bottom:12px">Dati documento</div>
       ${tipoDocLabel?`<div style="background:rgba(255,180,0,.2);border:1px solid rgba(255,180,0,.4);border-radius:8px;padding:6px 12px;margin-bottom:12px;font-size:12px;font-weight:700;color:#FFB800">${tipoDocLabel}</div>`:''}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div><div style="font-size:10px;color:rgba(255,255,255,.4);margin-bottom:3px">N° Fattura</div><div style="font-size:15px;font-weight:600;color:#fff">${numFatt||'—'}</div></div>
+        <div><div style="font-size:10px;color:rgba(255,255,255,.4);margin-bottom:3px">${isNcV?'N° Nota di credito':'N° Fattura'}</div><div style="font-size:15px;font-weight:600;color:#fff">${numFatt||'—'}</div></div>
         <div><div style="font-size:10px;color:rgba(255,255,255,.4);margin-bottom:3px">Data emissione</div><div style="font-size:15px;font-weight:600;color:#fff">${dataFmtd}</div></div>
-        ${ddt&&ddt.numero?`<div><div style="font-size:10px;color:rgba(255,255,255,.4);margin-bottom:3px">DDT di riferimento</div><div style="font-size:15px;font-weight:600;color:#FF9500">${ddt.numero}</div></div>`:''}
+        ${ddt&&ddt.numDdt?`<div><div style="font-size:10px;color:rgba(255,255,255,.4);margin-bottom:3px">DDT di riferimento</div><div style="font-size:15px;font-weight:600;color:#FF9500">${ddt.numDdt}</div></div>`:''}
+        ${fattCollegataNum?`<div><div style="font-size:10px;color:rgba(255,255,255,.4);margin-bottom:3px">Fattura collegata</div><div style="font-size:15px;font-weight:600;color:#FF9500">${fattCollegataNum}${fattCollegataData?' del '+new Date(fattCollegataData+'T12:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'numeric'}):''}</div></div>`:''}
       </div>
     </div>
 
