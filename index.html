@@ -403,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.12.1</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.12.2</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -6107,12 +6107,16 @@ function _renderPuliziaFornitoriHtml(gruppi){
   if(!gruppi.length){
     html += '<div style="text-align:center;padding:20px;color:var(--ink3)">Nessun duplicato trovato — l\'elenco fornitori è già pulito.</div>';
   } else {
-    html += '<div style="font-size:13px;color:var(--ink3);margin-bottom:14px">Trovati '+gruppi.length+' gruppi di nomi simili. Verrà tenuto solo quello in verde (come censito nelle fatture), gli altri saranno rimossi dall\'elenco.</div>';
-    gruppi.forEach(g=>{
+    html += '<div style="font-size:13px;color:var(--ink3);margin-bottom:8px">Trovati '+gruppi.length+' gruppi di nomi simili. Tutte le caselle sono già spuntate — togli la spunta a quelli che vuoi TENERE, poi conferma.</div>';
+    html += '<button onclick="_toggleTutteSpunteFornitori()" style="background:none;border:none;color:var(--blue);font-size:13px;font-weight:600;cursor:pointer;padding:0 0 12px;text-align:left">Seleziona/deseleziona tutti</button>';
+    gruppi.forEach((g,gi)=>{
       html += '<div style="margin-bottom:10px;padding:10px 12px;background:var(--surface);border-radius:10px">';
-      g.gruppo.forEach(n=>{
-        const tenuto = n===g.tenere;
-        html += '<div style="padding:4px 0;font-size:14px;'+(tenuto?'color:#1a7a3a;font-weight:700':'color:var(--red);text-decoration:line-through')+'">'+(tenuto?'✓ ':'✗ ')+esc(n)+'</div>';
+      html += '<div style="padding:4px 0;font-size:14px;color:#1a7a3a;font-weight:700">✓ '+esc(g.tenere)+' <span style="font-weight:400;color:var(--ink3);font-size:12px">(resta)</span></div>';
+      g.daRimuovere.forEach((n,ni)=>{
+        const cid = 'chkForn_'+gi+'_'+ni;
+        html += '<label for="'+cid+'" style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:14px;color:var(--red);cursor:pointer">'
+          + '<input type="checkbox" id="'+cid+'" data-gi="'+gi+'" data-ni="'+ni+'" checked onchange="_aggiornaContatorePulizia()" style="width:18px;height:18px;flex-shrink:0">'
+          + '<span style="text-decoration:line-through">'+esc(n)+'</span></label>';
       });
       html += '</div>';
     });
@@ -6121,22 +6125,44 @@ function _renderPuliziaFornitoriHtml(gruppi){
   if(gruppi.length){
     const nDaRimuovere = gruppi.reduce((s,g)=>s+g.daRimuovere.length,0);
     html += '<div style="padding:12px 20px 20px">'
-      + '<button onclick="_confermaPuliziaFornitori()" style="width:100%;padding:14px;border:none;border-radius:10px;background:var(--red);color:#fff;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer">Rimuovi i '+nDaRimuovere+' duplicati</button>'
+      + '<button id="btnConfermaPuliziaForn" onclick="_confermaPuliziaFornitori()" style="width:100%;padding:14px;border:none;border-radius:10px;background:var(--red);color:#fff;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer">Rimuovi i '+nDaRimuovere+' selezionati</button>'
       + '</div>';
   }
   return html;
 }
 
+function _aggiornaContatorePulizia(){
+  const n = document.querySelectorAll('#puliziaFornSheet input[type=checkbox]:checked').length;
+  const btn = document.getElementById('btnConfermaPuliziaForn');
+  if(btn){
+    btn.textContent = n>0 ? 'Rimuovi i '+n+' selezionati' : 'Nessuno selezionato';
+    btn.disabled = n===0;
+    btn.style.opacity = n===0 ? '0.5' : '1';
+  }
+}
+
+function _toggleTutteSpunteFornitori(){
+  const box = document.querySelectorAll('#puliziaFornSheet input[type=checkbox]');
+  const tutteSpuntate = [...box].every(c=>c.checked);
+  box.forEach(c=>{ c.checked = !tutteSpuntate; });
+  _aggiornaContatorePulizia();
+}
+
 async function _confermaPuliziaFornitori(){
   const gruppi = window._gruppiFornDaPulire || [];
+  const checkbox = [...document.querySelectorAll('#puliziaFornSheet input[type=checkbox]:checked')];
   let rimossi = 0;
-  for(const g of gruppi){
-    for(const nome of g.daRimuovere){
-      await dbDeleteForn(nome);
-      const idx = fornitori.indexOf(nome);
-      if(idx>=0) fornitori.splice(idx,1);
-      rimossi++;
-    }
+  for(const c of checkbox){
+    const gi = parseInt(c.getAttribute('data-gi'),10);
+    const ni = parseInt(c.getAttribute('data-ni'),10);
+    const g = gruppi[gi];
+    if(!g) continue;
+    const nome = g.daRimuovere[ni];
+    if(!nome) continue;
+    await dbDeleteForn(nome);
+    const idx = fornitori.indexOf(nome);
+    if(idx>=0) fornitori.splice(idx,1);
+    rimossi++;
   }
   aggiornaDL();
   // Esito mostrato dentro il foglio stesso (il toast ora mostra solo errori,
