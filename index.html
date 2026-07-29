@@ -403,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.9.0</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.10.0</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -3689,6 +3689,11 @@ function renderLista(){
     const isDdt=f.tipo==='ddt';
     const ddtOpen=isDdt&&!f.fattNum;
     var isNotaCredito=f.tipo==='nota_credito';var isNotaDebito=f.tipo==='nota_debito';var isAutofattura=f.tipo==='autofattura';var isFattDiff=f.tipo==='fattura_differita';
+    // Aggancio nota di credito → fattura: marcatore incorporato nelle note, stesso pattern già usato per la riconciliazione bancaria
+    var _ncAggMatch = isNotaCredito ? (f.note||'').match(/\[NC→(\d+)·([\d.]+)·([^\]]*)\]/) : null;
+    var ncAgganciata = !!_ncAggMatch;
+    var ncAgganciataLabel = _ncAggMatch ? _ncAggMatch[3] : '';
+    var ncAgganciataImporto = _ncAggMatch ? parseFloat(_ncAggMatch[2]) : 0;
     var ncBadge=isNotaCredito?'<span style="display:inline-flex;align-items:center;gap:3px;background:var(--red-light);color:var(--red);border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700;margin-right:2px">📋 N/C</span>':isNotaDebito?'<span style="display:inline-flex;align-items:center;gap:3px;background:#FFF4E0;color:#b36a00;border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700;margin-right:2px">📋 N/D</span>':isAutofattura?'<span style="display:inline-flex;align-items:center;gap:3px;background:#F0F0FF;color:#5856d6;border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700;margin-right:2px">🔄 Auto</span>':isFattDiff?'<span style="display:inline-flex;align-items:center;gap:3px;background:#EAF4FF;color:var(--blue);border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700;margin-right:2px">📦 Differita</span>':'';
     const ddtBadge=isDdt?`<span class="ddt-badge ${ddtOpen?'ddt-open':''}">&#128230; ${ddtOpen?'DDT ⚠️ fattura mancante':'DDT ↔ Fatt. '+esc(f.fattNum)}</span> `:'';
     // badge collegamento fattura→DDT
@@ -3698,10 +3703,14 @@ function renderLista(){
     const statoMap={pagata:'stato-ok',da_pagare:'stato-da',parziale:'stato-parz'};
     const statoLbl={pagata:'✓ Pagata',da_pagare:'● Da pagare',parziale:'◆ Parziale'};
     const st=f.stato||'pagata';
-    const statoBadge=`<span class="stato-badge ${statoMap[st]||'stato-ok'}">${statoLbl[st]||st}</span>`;
+    const statoBadge = isNotaCredito
+      ? (ncAgganciata
+          ? `<span class="stato-badge stato-ok">🔗 Agganciata: ${esc(ncAgganciataLabel)}</span>`
+          : `<span class="stato-badge stato-da">⚠️ Da agganciare</span>`)
+      : `<span class="stato-badge ${statoMap[st]||'stato-ok'}">${statoLbl[st]||st}</span>`;
     // scadenza
     let scadInfo='';
-    if(f.scadenza&&(st==='da_pagare'||st==='parziale')){
+    if(!isNotaCredito && f.scadenza&&(st==='da_pagare'||st==='parziale')){
       const scD=new Date(f.scadenza+'T12:00:00');
       const diff=Math.round((scD-oggi2)/(1000*60*60*24));
       if(diff<0) scadInfo=`<span style="font-size:11px;color:var(--accent);font-weight:600"> · Scad. ${Math.abs(diff)}gg fa</span>`;
@@ -3709,7 +3718,7 @@ function renderLista(){
     }
     // parziale info
     let parzInfo='';
-    if(st==='parziale'&&f.parzPagato>0){
+    if(!isNotaCredito && st==='parziale'&&f.parzPagato>0){
       const resto=Math.max(0,f.importo-f.parzPagato);
       const pct=Math.min(100,Math.round(f.parzPagato/f.importo*100));
       parzInfo=`<div style="margin-top:6px"><div style="background:var(--surface3);border-radius:99px;height:5px;overflow:hidden"><div style="width:${pct}%;height:100%;background:var(--orange);border-radius:99px"></div></div><div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ink3);margin-top:3px"><span>Pagato ${fmt(f.parzPagato)}</span><span>Resta ${fmt(resto)}</span></div></div>`;
@@ -3755,10 +3764,14 @@ function renderLista(){
     if(hasFattAllegata) extraBtns.push(`<button class="fi-act-btn success" onclick="aprifatturaAllegata(${f.id})">📄 Doc.</button>`);
     else if(isDdt&&ddtOpen) extraBtns.push(`<button class="fi-act-btn" onclick="allegaFatturaDdt(${f.id})">📎 Allega</button>`);
     if(haFotoQualsiasi) extraBtns.push(`<button class="fi-act-btn" onclick="apriF('${f.id}')">📷 Foto</button>`);
-    // Quick-pay: bottone verde visibile solo se "Da pagare" o "Parziale"
-    const quickPayBtn = (st==='da_pagare' || st==='parziale')
+    // Quick-pay: bottone verde visibile solo se "Da pagare" o "Parziale" — MAI per note di credito
+    const quickPayBtn = (!isNotaCredito && (st==='da_pagare' || st==='parziale'))
       ? `<button class="fi-act-btn" onclick="quickPay(${f.id})" style="background:var(--green-light);color:#1a7a3a;border:1px solid var(--green);font-weight:700">✓ Paga ora</button>`
-      : '';
+      : (isNotaCredito
+          ? (ncAgganciata
+              ? `<button class="fi-act-btn" onclick="_sganciaNC(${f.id})" style="background:var(--surface2);color:var(--ink3);border:1px solid var(--sep);font-weight:700">↩️ Sgancia</button>`
+              : `<button class="fi-act-btn" onclick="apriAgganciaNC(${f.id})" style="background:var(--red-light);color:var(--red);border:1px solid var(--red);font-weight:700">🔗 Aggancia a fattura</button>`)
+          : '');
     return `<div class="fi${_selIds.has(f.id)?' fi-selected':''}" id="fi-${f.id}" ontouchstart="_onFiTouchStart(event,${f.id})" ontouchend="_onFiTouchEnd()" ontouchmove="_onFiTouchEnd()" oncontextmenu="event.preventDefault();_toggleSelezione(${f.id});return false" onclick="_onFiClick(event,${f.id})">
       <div class="fi-stripe ${stripeClass}"></div>
       ${_selModalita ? `<div class="fi-checkbox" style="display:flex;align-items:center;flex-shrink:0;padding:0 8px 0 14px"><div style="width:22px;height:22px;border-radius:50%;border:2px solid ${_selIds.has(f.id)?'var(--blue)':'var(--sep)'};background:${_selIds.has(f.id)?'var(--blue)':'transparent'};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px;line-height:1">${_selIds.has(f.id)?'✓':''}</div></div>` : ''}
@@ -3769,7 +3782,7 @@ function renderLista(){
         <div class="fi-body">
           <div class="fi-top">
             <div class="fi-nome">${esc(f.fornitore)}${pagBadge}${origineBadge}</div>
-            <div class="fi-imp">${fmt(f.importo)}</div>
+            <div class="fi-imp">${isNotaCredito?'-':''}${fmt(f.importo)}</div>
           </div>
           <div class="fi-meta">${metaStr}${dataPagStr?'<span class="fi-meta-sep">·</span>'+dataPagStr:''}</div>
           <div class="fi-badges">
@@ -4793,6 +4806,136 @@ function _openEditDdtManuale(id){
     const fn=document.getElementById('eFattNum2');
     if(fn) fn.focus();
   },300);
+}
+
+// ═══ AGGANCIO NOTA DI CREDITO → FATTURA ═══
+// La nota di credito non si "paga": va agganciata a una fattura del fornitore
+// per pareggiarla (anche solo parzialmente, se l'importo della nota è minore
+// del totale fattura). L'aggancio è salvato come marcatore nelle note — stesso
+// meccanismo già usato per la riconciliazione bancaria — senza bisogno di
+// nuove colonne sul database.
+function apriAgganciaNC(ncId){
+  const nc = fatture.find(x=>x.id===ncId);
+  if(!nc) return;
+
+  const existing = document.getElementById('agganciaNcMo');
+  if(existing) existing.remove();
+
+  const mo = document.createElement('div');
+  mo.id = 'agganciaNcMo';
+  mo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:500;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)';
+
+  const sheet = document.createElement('div');
+  sheet.style.cssText = 'background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:85vh;display:flex;flex-direction:column;animation:slideUp .3s cubic-bezier(.32,.72,0,1)';
+
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'padding:16px 20px 10px;border-bottom:1px solid var(--sep);display:flex;align-items:center;justify-content:space-between;flex-shrink:0';
+  hdr.innerHTML = '<div><div style="font-size:17px;font-weight:700">🔗 Aggancia nota di credito</div><div style="font-size:12px;color:var(--ink3)">'+esc(nc.fornitore||'')+' · N°'+esc(nc.numero||'')+' · -'+fmt(nc.importo||0)+'</div></div>';
+  const closeBtn = document.createElement('button');
+  closeBtn.innerHTML = '&#215;';
+  closeBtn.style.cssText = 'background:var(--surface2);border:none;border-radius:99px;width:32px;height:32px;font-size:18px;cursor:pointer';
+  closeBtn.onclick = ()=>mo.remove();
+  hdr.appendChild(closeBtn);
+  sheet.appendChild(hdr);
+
+  const sw = document.createElement('div');
+  sw.style.cssText = 'padding:10px 16px;flex-shrink:0';
+  sw.innerHTML = '<input type="text" id="agganciaNcSearch" placeholder="🔍 Cerca fornitore o numero..." style="width:100%;padding:10px 14px;border:1.5px solid var(--sep);border-radius:99px;font-size:14px;font-family:Inter,-apple-system,sans-serif;background:var(--surface)">';
+  sheet.appendChild(sw);
+
+  const lista = document.createElement('div');
+  lista.id = 'agganciaNcLista';
+  lista.style.cssText = 'overflow-y:auto;flex:1;padding:0 16px 20px';
+  sheet.appendChild(lista);
+
+  mo.appendChild(sheet);
+  mo.onclick = e=>{ if(e.target===mo) mo.remove(); };
+  document.body.appendChild(mo);
+
+  function renderLista_(filter){
+    const s=(filter||'').toLowerCase();
+    const normS=x=>String(x||'').trim().toLowerCase();
+    const candidati = fatture.filter(f=>
+      f.tipo==='fattura' && (f.stato==='da_pagare'||f.stato==='parziale') &&
+      (!s || f.fornitore.toLowerCase().includes(s) || (f.numero||'').toLowerCase().includes(s))
+    ).sort((a,b)=>{
+      const aMatch = normS(a.fornitore)===normS(nc.fornitore)?0:1;
+      const bMatch = normS(b.fornitore)===normS(nc.fornitore)?0:1;
+      if(aMatch!==bMatch) return aMatch-bMatch;
+      return (b.data||'').localeCompare(a.data||'');
+    });
+    lista.innerHTML = '';
+    if(!candidati.length){
+      lista.innerHTML = '<div style="text-align:center;padding:20px;color:var(--ink3);font-size:14px">Nessuna fattura da pagare trovata</div>';
+    } else {
+      candidati.forEach(f=>{
+        const df=f.data?new Date(f.data).toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'numeric'}):'';
+        const residuo = Math.max(0,(f.importo||0)-(f.parzPagato||0));
+        const sameForn = normS(f.fornitore)===normS(nc.fornitore);
+        const bg = sameForn?'var(--green-light)':'var(--surface2)';
+        const row = document.createElement('div');
+        row.style.cssText = 'padding:11px 12px;border-radius:10px;margin-bottom:5px;background:'+bg+';cursor:pointer;display:flex;justify-content:space-between;align-items:center';
+        row.innerHTML = '<div style="flex:1;min-width:0">'
+          +'<div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(f.fornitore)+'</div>'
+          +'<div style="font-size:12px;color:var(--ink3)">N° '+esc(f.numero||'—')+' · '+df+' · residuo '+fmt(residuo)+'</div>'
+          +'</div>'
+          +'<div style="font-weight:700;font-size:14px;margin-left:8px;flex-shrink:0">'+fmt(f.importo||0)+'</div>';
+        row.onclick = ()=>{ _eseguiAggancioNC(ncId, f.id); mo.remove(); };
+        lista.appendChild(row);
+      });
+    }
+  }
+  renderLista_('');
+  setTimeout(()=>{
+    const inp=document.getElementById('agganciaNcSearch');
+    if(inp) inp.oninput=e=>renderLista_(e.target.value);
+  },100);
+}
+
+async function _eseguiAggancioNC(ncId, fatturaId){
+  const idxNc = fatture.findIndex(x=>x.id===ncId);
+  const idxF  = fatture.findIndex(x=>x.id===fatturaId);
+  if(idxNc<0 || idxF<0) return;
+  const nc = fatture[idxNc];
+  const f  = fatture[idxF];
+  const residuo = Math.max(0, (f.importo||0) - (f.parzPagato||0));
+  const daApplicare = Math.round(Math.min(nc.importo||0, residuo) * 100) / 100;
+
+  f.parzPagato = Math.round(((f.parzPagato||0) + daApplicare) * 100) / 100;
+  f.stato = (f.parzPagato >= (f.importo||0) - 0.01) ? 'pagata' : 'parziale';
+  if(f.stato==='pagata' && !f.dataPagamento) f.dataPagamento = nc.data;
+  f.note = (f.note?f.note+' · ':'')+'Nota di credito N°'+(nc.numero||'')+' applicata: -'+fmt(daApplicare);
+
+  const labelForn = (f.fornitore||'')+' N°'+(f.numero||'');
+  // Rimuovi un eventuale marcatore precedente prima di aggiungerne uno nuovo
+  nc.note = (nc.note||'').replace(/\[NC→\d+·[\d.]+·[^\]]*\]\s*/,'').trim();
+  nc.note = ('[NC→'+f.id+'·'+daApplicare.toFixed(2)+'·'+labelForn.replace(/[\[\]]/g,'')+'] '+nc.note).trim();
+
+  await dbUpdate(f);
+  await dbUpdate(nc);
+  renderLista(); aggiornaAlertBanner(); updateHero();
+  toast('🔗 Nota di credito agganciata: -'+fmt(daApplicare)+' su '+(f.fornitore||''));
+}
+
+async function _sganciaNC(ncId){
+  const idxNc = fatture.findIndex(x=>x.id===ncId);
+  if(idxNc<0) return;
+  const nc = fatture[idxNc];
+  const m = (nc.note||'').match(/\[NC→(\d+)·([\d.]+)·([^\]]*)\]/);
+  if(!m) return;
+  const fatturaId = parseInt(m[1],10);
+  const importoApplicato = parseFloat(m[2]);
+  const idxF = fatture.findIndex(x=>x.id===fatturaId);
+  if(idxF>=0){
+    const f = fatture[idxF];
+    f.parzPagato = Math.max(0, Math.round(((f.parzPagato||0) - importoApplicato) * 100) / 100);
+    f.stato = f.parzPagato>0.01 ? 'parziale' : 'da_pagare';
+    await dbUpdate(f);
+  }
+  nc.note = (nc.note||'').replace(/\[NC→\d+·[\d.]+·[^\]]*\]\s*/,'').trim();
+  await dbUpdate(nc);
+  renderLista(); aggiornaAlertBanner(); updateHero();
+  toast('↩️ Nota di credito sganciata');
 }
 
 function closeEdit(){
@@ -10924,6 +11067,16 @@ function renderRiconciliazione(){
   pagamentiFatture.forEach(function(m){
     var imp    = Math.abs(m.importo);
     var dLow   = (m.descrizione||'').toLowerCase();
+    // Candidati per QUESTO movimento, esclusa qualunque fattura già segnata
+    // "Sbagliato" per lui — controllato PRIMA di ogni regola di abbinamento,
+    // non solo in una regola specifica (prima il "Sbagliato" ricompariva
+    // identico se il match veniva dal punteggio invece che dalla regola importo).
+    var _chiaveDescMov = dLow.replace(/\s+/g,'').slice(0,40);
+    var fattCandidatiMov = fattCandidati.filter(function(x){
+      if((m._rifiutati||[]).indexOf(x.id) !== -1) return false;
+      if(_rifiutatiSet.has(_chiaveDescMov+'|'+x.id)) return false;
+      return true;
+    });
 
     // ── Movimento con fatturaId: usa ID come fonte di verità ──
     if(m.fatturaId){
@@ -10973,7 +11126,7 @@ function renderRiconciliazione(){
     var _chiaveDesc = dLow.replace(/\s+/g,'').slice(0,40);
     if(_appreso[_chiaveDesc]){
       var idAppreso = _appreso[_chiaveDesc];
-      var fAppresa  = fattCandidati.find(function(x){ return x.id===idAppreso; });
+      var fAppresa  = fattCandidatiMov.find(function(x){ return x.id===idAppreso; });
       if(fAppresa && !fattIdUsate.has(fAppresa.id) && Math.abs((fAppresa.importo||0)-imp)<=0.50
          && (m._rifiutati||[]).indexOf(fAppresa.id)===-1 && !_rifiutatiSet.has(_chiaveDesc+'|'+fAppresa.id)){
         matchCerto = fAppresa; verificato = false;
@@ -10986,7 +11139,7 @@ function renderRiconciliazione(){
     // esatto), è un match sicuro anche senza nome fornitore nel testo del movimento.
     if(!matchCerto){
       var _chiaveDescEsatte = dLow.replace(/\s+/g,'').slice(0,40);
-      var _esatteUniche = fattCandidati.filter(function(x){
+      var _esatteUniche = fattCandidatiMov.filter(function(x){
         if(fattIdUsate.has(x.id)) return false;
         if((m._rifiutati||[]).indexOf(x.id) !== -1) return false;
         if(_rifiutatiSet.has(_chiaveDescEsatte+'|'+x.id)) return false;
@@ -11000,8 +11153,8 @@ function renderRiconciliazione(){
       }
     }
 
-    for(var i=0; i<fattCandidati.length && !matchCerto; i++){
-      var f = fattCandidati[i];
+    for(var i=0; i<fattCandidatiMov.length && !matchCerto; i++){
+      var f = fattCandidatiMov[i];
       if(fattIdUsate.has(f.id)) continue;
       var diffImp = Math.abs((f.importo||0) - imp);
 
@@ -11297,6 +11450,7 @@ function renderRiconciliazione(){
       html += '<div style="padding:8px 0;border-top:1px solid var(--sep);display:flex;justify-content:space-between;align-items:flex-start;gap:8px">';
       html += '<div style="flex:1;min-width:0">';
       html += '<div style="font-size:11px;color:var(--ink3)">'+m.data+'</div>';
+      html += '<div style="font-size:11px;color:var(--ink2);word-break:break-word;line-height:1.3;margin:2px 0">'+esc(m.descrizione||'')+'</div>';
       html += '<div style="font-size:12px;font-weight:600">'+tipoIcon+' '+esc(f.fornitore||'')+'</div>';
       html += '<div style="font-size:11px;color:var(--ink3)">N°'+esc(f.numero||'')+' · '+fmt(f.importo||0)+'</div>';
       html += '</div>';
@@ -11320,6 +11474,7 @@ function renderRiconciliazione(){
       var hasDocA = (f.fatturaAllegata&&f.fatturaAllegata.length>0)||(f.xmlGithubPath&&f.xmlGithubPath.length>0)||(f.source==='aruba')||f.hasAllegata;
       html += '<div style="padding:10px 0;border-top:1px solid var(--sep)">';
       html += '<div style="font-size:11px;color:var(--ink3);margin-bottom:2px">'+m.data+' · <b>'+fmt(Math.abs(m.importo))+'</b></div>';
+      html += '<div style="font-size:11px;color:var(--ink2);word-break:break-word;line-height:1.3;margin-bottom:6px">'+esc(m.descrizione||'')+'</div>';
       html += '<div style="font-size:12px;font-weight:600;margin-bottom:2px">'+esc(f.fornitore||'')+'</div>';
       html += '<div style="font-size:11px;color:var(--ink3);margin-bottom:8px">N°'+esc(f.numero||'')+' · '+fmt(f.importo||0)+'</div>';
       html += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
