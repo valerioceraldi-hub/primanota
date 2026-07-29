@@ -403,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.13.1</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.14.0</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -2517,16 +2517,18 @@ async function _bulkAzione(action){
   if(!count) return;
 
   if(action === 'elimina'){
-    openMo('Elimina selezionate', `Eliminare ${count} fattur${count>1?'e':'a'}? Azione irreversibile.`, async ()=>{
+    openMo('Elimina selezionate', `Eliminare ${count} fattur${count>1?'e':'a'}? Puoi comunque annullare subito dopo.`, async ()=>{
       closeMo();
+      const cancellate = [];
       for(const id of ids){
         const i = fatture.findIndex(f=>f.id===id);
-        if(i>=0){ fatture.splice(i,1); try{ await dbDelete(id); }catch(e){} }
+        if(i>=0){ cancellate.push(Object.assign({}, fatture[i])); fatture.splice(i,1); try{ await dbDelete(id); }catch(e){} }
       }
       save(fatture);
       _uscitaSelezione();
       aggiornaAlertBanner();
       toast(`✓ ${count} fattur${count>1?'e eliminate':'a eliminata'}`);
+      if(cancellate.length) _showUndoToastMultiplo(cancellate);
     }, 'user');
     return;
   }
@@ -4250,6 +4252,27 @@ function checkBackup(){
 
 // ── DELETE ──
 // Undo eliminazione (10s)
+let _lastDeletedMultipli = null, _undoTimerMulti = null;
+async function _showUndoToastMultiplo(lista){
+  const ex=document.getElementById('undoToastMulti'); if(ex) ex.remove();
+  _lastDeletedMultipli = lista;
+  const t=document.createElement('div');
+  t.id='undoToastMulti';
+  t.style.cssText='position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:99px;font-size:14px;font-weight:600;z-index:10000;box-shadow:0 4px 16px rgba(0,0,0,.3);display:flex;align-items:center;gap:14px;animation:fadeIn .25s ease;white-space:nowrap';
+  t.innerHTML='🗑 '+lista.length+' eliminate <button style="background:var(--blue);color:#fff;border:none;border-radius:99px;padding:6px 14px;font-weight:700;cursor:pointer;font-family:inherit;font-size:13px">ANNULLA</button>';
+  t.querySelector('button').onclick=async()=>{
+    if(!_lastDeletedMultipli) return;
+    try{
+      for(const f of _lastDeletedMultipli){ await dbInsert(f); fatture.unshift(f); }
+      _lastDeletedMultipli=null; renderLista(); aggiornaAlertBanner(); toast('Ripristinate ✓');
+    }catch(e){ toast('Errore ripristino'); }
+    t.remove(); clearTimeout(_undoTimerMulti);
+  };
+  document.body.appendChild(t);
+  clearTimeout(_undoTimerMulti);
+  _undoTimerMulti=setTimeout(()=>{ _lastDeletedMultipli=null; t.remove(); },10000);
+}
+
 let _lastDeleted=null,_undoTimer=null;
 async function _showUndoToast(f){
   const ex=document.getElementById('undoToast'); if(ex) ex.remove();
@@ -4272,6 +4295,7 @@ function askDel(id){
   delId=id;
   const f=fatture.find(x=>x.id===id);
   openMo('Elimina pagamento','Eliminare la fattura di '+(f?f.fornitore:'')+'?',()=>{
+    _lastDeleted = f ? Object.assign({}, f) : null; // salva una copia PRIMA di cancellare — senza questa riga l'Annulla non compariva mai
     fatture=fatture.filter(f=>f.id!==delId); save(fatture); dbDelete(delId);
     closeMo(); renderLista(); if(_lastDeleted) _showUndoToast(_lastDeleted); aggiornaAlertBanner(); toast('Eliminata');
   }, 'user');
@@ -6891,12 +6915,14 @@ async function _confermaDedup(){
       if(nuovoTs) fatture[idxM].ts = nuovoTs;
     }
   }
+  const _dedupCancellate = [];
   for(const f of daEliminare){
     const i=fatture.findIndex(x=>x.id===f.id);
-    if(i>=0){ fatture.splice(i,1); await dbDelete(f.id); }
+    if(i>=0){ _dedupCancellate.push(Object.assign({}, fatture[i])); fatture.splice(i,1); await dbDelete(f.id); }
   }
   save(fatture); renderLista(); aggiornaAlertBanner();
   toast('✅ '+daEliminare.length+' duplicato'+(daEliminare.length>1?'i':'')+' eliminato'+(daEliminare.length>1?'i':'')+'!');
+  if(_dedupCancellate.length) _showUndoToastMultiplo(_dedupCancellate);
   _dedupStato.idMantenere = null;
   setTimeout(()=>_proponiDeduplicaStep(_dedupStato.gruppi, _dedupStato.idx+1, _dedupStato.ignorati), 300);
 }
@@ -8715,9 +8741,30 @@ function renderVersamenti(){
   }).join('');
 }
 
+// Annullamento GENERICO riutilizzabile: passa un'etichetta e una funzione che,
+// se richiamata, ripristina il dato appena cancellato. Filosofia dell'app: ogni
+// cancellazione deve poter tornare indietro, non solo quelle delle fatture.
+let _undoTimerGenerico = null;
+function _showUndoToastGenerico(etichetta, ripristinaFn){
+  const ex=document.getElementById('undoToastGen'); if(ex) ex.remove();
+  const t=document.createElement('div');
+  t.id='undoToastGen';
+  t.style.cssText='position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:99px;font-size:14px;font-weight:600;z-index:10000;box-shadow:0 4px 16px rgba(0,0,0,.3);display:flex;align-items:center;gap:14px;animation:fadeIn .25s ease;white-space:nowrap';
+  t.innerHTML='🗑 '+etichetta+' <button style="background:var(--blue);color:#fff;border:none;border-radius:99px;padding:6px 14px;font-weight:700;cursor:pointer;font-family:inherit;font-size:13px">ANNULLA</button>';
+  t.querySelector('button').onclick=async()=>{
+    try{ await ripristinaFn(); toast('Ripristinato ✓'); }
+    catch(e){ toast('Errore ripristino'); }
+    t.remove(); clearTimeout(_undoTimerGenerico);
+  };
+  document.body.appendChild(t);
+  clearTimeout(_undoTimerGenerico);
+  _undoTimerGenerico=setTimeout(()=>{ t.remove(); },10000);
+}
+
 async function eliminaChiusura(idOrData, data){
   openMo('Elimina chiusura', 'Eliminare la chiusura del '+new Date(data+'T12:00:00').toLocaleDateString('it-IT',{weekday:'long',day:'2-digit',month:'long'})+'?', async ()=>{
     closeMo();
+    const _copiaChiusura = chiusure.find(c=>c.data===data);
     // Rimuovi da RAM
     chiusure = chiusure.filter(c=>c.data!==data);
     salvaChiusureLocale();
@@ -8732,18 +8779,35 @@ async function eliminaChiusura(idOrData, data){
     aggiornaSaldoCassa();
     renderIncLista();
     toast('✓ Chiusura eliminata');
+    if(_copiaChiusura){
+      _showUndoToastGenerico('Chiusura del '+data, async ()=>{
+        chiusure.push(_copiaChiusura);
+        salvaChiusureLocale();
+        await sbFetch('chiusure_giornaliere', {method:'POST', headers:{...SB_H,'Prefer':'return=minimal'}, body:JSON.stringify(_copiaChiusura)}).catch(()=>{});
+        aggiornaSaldoCassa(); renderIncLista();
+      });
+    }
   }, 'user');
 }
 
 async function eliminaVersamento(id){
   openMo('Elimina versamento', 'Eliminare questo versamento?', async ()=>{
     closeMo();
+    const _copiaVers = versamenti.find(v=>v.id===id);
     versamenti = versamenti.filter(v=>v.id!==id);
     salvaVersamentiLocale();
     try{ await sbFetch('versamenti?id=eq.'+id, {method:'DELETE', headers:{...SB_H,'Prefer':'return=minimal'}}); }catch(e){}
     aggiornaSaldoCassa();
     renderVersamenti();
     toast('✓ Eliminato');
+    if(_copiaVers){
+      _showUndoToastGenerico('Versamento', async ()=>{
+        versamenti.push(_copiaVers);
+        salvaVersamentiLocale();
+        await sbFetch('versamenti', {method:'POST', headers:{...SB_H,'Prefer':'return=minimal'}, body:JSON.stringify(_copiaVers)}).catch(()=>{});
+        aggiornaSaldoCassa(); renderVersamenti();
+      });
+    }
   }, 'user');
 }
 
@@ -11708,6 +11772,7 @@ function renderRiconciliazione(){
       html += '</div>';
       html += '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">';
       if(hasDocG) html += '<button onclick="aprifatturaAllegata('+f.id+')" style="border:none;background:var(--blue-light);color:var(--blue);border-radius:6px;padding:5px 8px;font-size:11px;font-weight:600;cursor:pointer">📄</button>';
+      html += '<button onclick="apriCambioAbbinamentoMov('+m.id+')" style="border:none;background:#fff8ee;color:#c06000;border-radius:6px;padding:5px 8px;font-size:11px;font-weight:600;cursor:pointer">✏️</button>';
       html += '<span style="font-size:11px;background:var(--green-light);color:#1a7a3a;padding:3px 8px;border-radius:99px;font-weight:700;white-space:nowrap">✓ Verificato</span>';
       html += '</div>';
       html += '</div>';
@@ -11768,8 +11833,9 @@ function renderRiconciliazione(){
         hh += '<div style="font-size:11px;color:var(--blue);margin-bottom:8px">↓ <b>'+esc(f.fornitore||'')+'</b> N°'+esc(f.numero||'')+' del '+f.data+' ('+fmt(f.importo||0)+')</div>';
         if(d.avviso) hh += '<div style="font-size:11px;color:#b36a00;background:#fff8ec;border:1px solid rgba(179,106,0,.25);border-radius:6px;padding:6px 8px;margin-bottom:8px">'+esc(d.avviso)+'</div>';
         hh += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
-        hh += '<button onclick="_confermaPagamento('+idx+',true)" style="flex:1;min-width:80px;padding:7px 8px;border:1px solid var(--green);border-radius:6px;background:var(--green-light);color:#1a7a3a;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✓ Stessa</button>';
-        hh += '<button onclick="_confermaPagamento('+idx+',false)" style="flex:1;min-width:80px;padding:7px 8px;border:1px solid var(--red);border-radius:6px;background:var(--red-light);color:var(--red);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✗ Diversa</button>';
+        hh += '<button onclick="_confermaPagamento('+idx+',true)" style="flex:1;min-width:70px;padding:7px 8px;border:1px solid var(--green);border-radius:6px;background:var(--green-light);color:#1a7a3a;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✓ Stessa</button>';
+        hh += '<button onclick="apriCambioAbbinamentoConferma('+idx+')" style="flex:1;min-width:70px;padding:7px 8px;border:1px solid var(--orange,#f90);border-radius:6px;background:#fff8ee;color:#c06000;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✏️ Cambia</button>';
+        hh += '<button onclick="_confermaPagamento('+idx+',false)" style="flex:1;min-width:70px;padding:7px 8px;border:1px solid var(--red);border-radius:6px;background:var(--red-light);color:var(--red);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✗ Diversa</button>';
         if(hasDoc) hh += '<button onclick="aprifatturaAllegata('+f.id+')" style="padding:7px 10px;border:1px solid var(--blue);border-radius:6px;background:var(--blue-light);color:var(--blue);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">📄</button>';
         hh += '</div></div>';
       });
@@ -12708,6 +12774,13 @@ function apriCambioAbbinamentoMov(movId){
   if(!m) return;
   const fAttuale = fatture.find(f=>f.id===m.fatturaId) || {fornitore:m.fatturaLabel||'', numero:'', id:m.fatturaId, importo:m.importo};
   _apriPickerCambioAbbinamento(m, fAttuale);
+}
+// Come sopra, ma per una proposta ancora "da confermare" (non ancora salvata):
+// la fattura attuale è quella proposta, non quella già scritta sul movimento.
+function apriCambioAbbinamentoConferma(idx){
+  const d = (window._pagDaConfermare||[])[idx];
+  if(!d) return;
+  _apriPickerCambioAbbinamento(d.mov, d.fatt);
 }
 function _apriPickerCambioAbbinamento(m, fAttuale){
   const existing = document.getElementById('cambioAbbMo');
