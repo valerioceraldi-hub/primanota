@@ -403,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.19.1</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.19.3</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -1018,7 +1018,7 @@ details[open] summary span:first-child{transform:rotate(90deg);display:inline-bl
         <div><div style="font-size:10px;color:var(--ink3);margin-bottom:3px">💳 Pagamenti elettronici (fiscale)</div><input type="text" id="chgPos" inputmode="decimal" placeholder="0,00" oninput="_chgRecalc()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right"></div>
       </div>
       <div style="margin-bottom:10px">
-        <div style="font-size:10px;color:#0066cc;margin-bottom:3px">🏦 Totale estratto POS</div>
+        <div style="font-size:10px;color:#0066cc;margin-bottom:3px">🏦 Estratto conto banca</div>
         <input type="text" id="chgPosBanca" inputmode="decimal" placeholder="0,00 (se diverso dal POS fiscale)" oninput="_chgRecalc()" style="width:100%;padding:10px;border:1.5px solid #b3d7f5;border-radius:8px;font-size:14px;background:#f0f7ff;box-sizing:border-box;text-align:right">
         <div id="chgPosScostamento" style="font-size:11px;margin-top:4px;display:none"></div>
       </div>
@@ -1145,10 +1145,8 @@ details[open] summary span:first-child{transform:rotate(90deg);display:inline-bl
       <div style="font-size:16px;font-weight:700;margin-bottom:2px">🏦 Riconciliazione bancaria</div>
       <div style="font-size:12px;color:var(--ink3);margin-bottom:12px">Importa estratto conto e abbina alle fatture pagate</div>
       <div style="display:flex;gap:8px;flex-direction:column;margin-bottom:12px">
-        <button onclick="document.getElementById('inputBancaEC').click()" class="btn btn-s" style="width:100%;padding:12px">📥 Carica CSV/XLSX</button>
         <button onclick="document.getElementById('inputBancaPDF').click()" class="btn btn-s" style="width:100%;padding:12px;color:var(--red)">📄 Carica PDF Banco BPM</button>
       </div>
-      <input type="file" id="inputBancaEC" accept=".csv,.xlsx,.xls" style="display:none" onchange="onBancaECSelected(this)">
       <input type="file" id="inputBancaPDF" accept=".pdf" style="display:none" onchange="onBancaPDFSelected(this)">
       <div id="bancaImportInfo" style="font-size:12px;color:var(--ink3);text-align:center;margin-bottom:8px"></div>
       <input type="month" id="bancaMese" onchange="renderRiconciliazione()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:10px;font-size:14px;font-family:inherit;background:var(--surface2);margin-bottom:12px;-webkit-appearance:none">
@@ -9244,13 +9242,52 @@ async function onCsvNumiaSelected(input){
       toast('⚠️ Formato non supportato');
       return;
     }
+    const primaDiImportare = incassi.length;
     const inseriti = _processaRigheNumia(rows);
-    toast(`✓ Importate ${inseriti} transazioni Numia`);
     salvaIncassiLocale();
+    if(inseriti > 0){
+      toast(`⏳ Salvataggio ${inseriti} transazioni su Supabase...`);
+      await upsertIncassi(incassi.slice(primaDiImportare));
+      toast(`✓ Importate e salvate ${inseriti} transazioni Numia`);
+    } else {
+      toast('Nessuna nuova transazione da importare (già presenti o nessuna riga valida)');
+    }
     caricaChiusuraGiorno();
   }catch(e){
     console.error(e);
     toast('❌ Errore import: '+e.message);
+  }
+}
+
+// Salva su Supabase i nuovi incassi (import CSV Numia) — PRIMA di questa funzione
+// l'import scriveva SOLO in localStorage del dispositivo corrente: i dati non
+// arrivavano mai al backend condiviso, restavano invisibili su altri dispositivi
+// e nella tabella incassi reale (da cui il confronto "Estratto conto banca vs
+// estratto carta Numia" restava sempre a 0 anche dopo un import "riuscito").
+async function upsertIncassi(nuovi){
+  if(!nuovi || !nuovi.length) return;
+  try{
+    var payload = nuovi.map(function(x){
+      return {
+        id: x.id,
+        data: x.data,
+        importo: x.importo||0,
+        esito: x.esito||'',
+        tipo: x.tipo||'',
+        id_trans: x.idTrans||'',
+        source: x.source||'numia',
+        dedup: x._dedup||null,
+        updated_at: new Date().toISOString()
+      };
+    });
+    await sbFetch('incassi', {
+      method:'POST',
+      headers: Object.assign({}, SB_H, {'Prefer':'resolution=merge-duplicates,return=minimal'}),
+      body: JSON.stringify(payload)
+    });
+  }catch(e){
+    console.warn('upsertIncassi:', e);
+    toast('⚠️ Salvate solo in locale — errore sync: '+String(e.message||e).slice(0,60));
   }
 }
 
@@ -9345,9 +9382,10 @@ function _processaRigheNumia(rows){
     } else {
       // Stringa — prova vari formati
       const s = String(rawData||'').trim();
-      // Formato americano M/D/YYYY H:MM:SS AM/PM
+      // Formato italiano GG/MM/AAAA H:MM:SS (confermato con export reale Numia:
+      // il secondo campo è sempre il mese, il primo il giorno — non il contrario)
       const mAm = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-      if(mAm) dataISO = mAm[3]+'-'+mAm[1].padStart(2,'0')+'-'+mAm[2].padStart(2,'0');
+      if(mAm) dataISO = mAm[3]+'-'+mAm[2].padStart(2,'0')+'-'+mAm[1].padStart(2,'0');
       else dataISO = _normDataISO(s);
     }
     if(!dataISO) continue;
@@ -9442,7 +9480,7 @@ function renderIncLista(){
     const scostPOS = posBanca > 0 ? posBanca - pos : null;
     const coincide = posBanca > 0 && Math.abs(scostPOS) < 0.01;
     const rigaPosBanca = posBanca > 0 ? `
-      <tr><td style="padding:5px 0;color:#0066cc">🏦 Totale estratto POS</td><td style="padding:5px 0;text-align:right;color:#0066cc">${fmt(posBanca)} ${coincide?'✅':''}</td></tr>
+      <tr><td style="padding:5px 0;color:#0066cc">🏦 Estratto conto banca</td><td style="padding:5px 0;text-align:right;color:#0066cc">${fmt(posBanca)} ${coincide?'✅':''}</td></tr>
       ${coincide ? '' : `<tr><td style="padding:5px 0;color:${scostPOS<0?'var(--red)':'#b36a00'};padding-left:12px">· Differenza vs Pagamenti elettronici</td><td style="padding:5px 0;text-align:right;font-weight:600;color:${scostPOS<0?'var(--red)':'#b36a00'}">${scostPOS>=0?'+':''}${fmt(scostPOS)}</td></tr>`}` : '';
     // Confronto banca vs estratto carta Numia (transazione per transazione,
     // importato separatamente con "Import POS Numia") — due fonti indipendenti
@@ -9628,10 +9666,10 @@ function renderIncMese(){
     </div>
 
     <div style="margin-top:14px;padding:12px;border-radius:10px;background:var(--surface2)">
-      <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:8px">🏦 Pagamenti elettronici vs Totale estratto POS</div>
+      <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:8px">🏦 Pagamenti elettronici vs Estratto conto banca</div>
       <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px">
         <tr><td style="padding:4px 0;color:var(--ink3)">💳 Pagamenti elettronici</td><td style="padding:4px 0;text-align:right">${fmt(totPosFiscaleRiconc)}</td></tr>
-        <tr><td style="padding:4px 0;color:var(--ink3)">🏦 Totale estratto POS</td><td style="padding:4px 0;text-align:right">${fmt(totPosBanca)}</td></tr>
+        <tr><td style="padding:4px 0;color:var(--ink3)">🏦 Estratto conto banca</td><td style="padding:4px 0;text-align:right">${fmt(totPosBanca)}</td></tr>
       </table>
       ${nGiorniRiconc===0
         ? `<div style="font-size:12px;color:var(--ink3)">Nessun giorno ancora riconciliato con l'estratto conto in questo periodo.</div>`
@@ -11057,107 +11095,6 @@ function _normDataBanca(s){
   return '';
 }
 
-async function onBancaECSelected(input){
-  if(!input.files||!input.files[0]) return;
-  var file = input.files[0];
-  input.value = '';
-  var ext = file.name.toLowerCase().split('.').pop();
-  var info = document.getElementById('bancaImportInfo');
-  try{
-    var rows;
-    if(ext==='csv'){
-      var txt = await file.text();
-      rows = txt.split(/\r?\n/).map(function(l){return l.split(/[;,\t]/);});
-    } else if(ext==='xlsx'||ext==='xls'){
-      if(typeof XLSX==='undefined'){ toast('⚠️ XLSX non disponibile'); return; }
-      var buf = await file.arrayBuffer();
-      var wb = XLSX.read(buf,{type:'array',cellDates:true});
-      var ws = wb.Sheets[wb.SheetNames[0]];
-      rows = XLSX.utils.sheet_to_json(ws,{header:1,raw:true});
-    } else { toast('⚠️ Formato non supportato'); return; }
-    
-    var movimenti = _parseBancaRows(rows);
-    if(!movimenti.length){ toast('⚠️ Nessun movimento trovato'); return; }
-    _bancaMovimenti = movimenti;
-    var bm = document.getElementById('bancaMese');
-    if(bm && !bm.value && movimenti.length){ bm.value = movimenti[0].data.slice(0,7); }
-    _resetReconReport(file.name, bm ? bm.value : '');
-    if(info) info.textContent = '✓ ' + movimenti.length + ' movimenti da "' + file.name + '"';
-    // Salva su Supabase preservando abbinamenti esistenti
-    upsertMovimentiBanca(movimenti).then(function(){ renderRiconciliazione(); });
-    toast('✓ ' + movimenti.length + ' movimenti importati');
-  } catch(e){
-    toast('❌ Errore: ' + e.message);
-    if(info) info.textContent = '';
-  }
-}
-
-function _parseBancaRows(rows){
-  if(!rows.length) return [];
-  var hIdx = -1;
-  for(var i=0;i<Math.min(15,rows.length);i++){
-    var r = (rows[i]||[]).map(function(c){return String(c||'').trim().toLowerCase();});
-    var hasDate = false, hasAmt = false;
-    for(var j=0;j<r.length;j++){
-      if(r[j].indexOf('data')>=0) hasDate = true;
-      if(['dare','avere','importo','uscite','entrate','addebito','accredito'].some(function(k){return r[j].indexOf(k)>=0;})) hasAmt = true;
-    }
-    if(hasDate && hasAmt){ hIdx = i; break; }
-  }
-  if(hIdx<0) hIdx = 0;
-  var header = (rows[hIdx]||[]).map(function(c){return String(c||'').trim().toLowerCase();});
-  function find(){
-    var args = Array.prototype.slice.call(arguments);
-    for(var i=0;i<args.length;i++){
-      var idx = header.findIndex(function(h){return h===args[i] || h.indexOf(args[i])>=0;});
-      if(idx>=0) return idx;
-    }
-    return -1;
-  }
-  var colData  = find('data contabile','data operazione','data');
-  var colDesc  = find('descrizione','causale','dettagli');
-  var colDare  = find('dare','addebito','uscite');
-  var colAvere = find('avere','accredito','entrate');
-  var colImp   = find('importo','amount');
-  
-  var mov = [];
-  for(var r=hIdx+1;r<rows.length;r++){
-    var row = rows[r]||[];
-    var allEmpty = true;
-    for(var k=0;k<row.length;k++){
-      if(row[k]!==null && row[k]!==undefined && String(row[k]).trim()!==''){ allEmpty=false; break; }
-    }
-    if(allEmpty) continue;
-    var rawD = row[colData>=0?colData:0];
-    var dataISO = '';
-    if(rawD instanceof Date && !isNaN(rawD)){
-      dataISO = rawD.getFullYear()+'-'+('0'+(rawD.getMonth()+1)).slice(-2)+'-'+('0'+rawD.getDate()).slice(-2);
-    } else {
-      dataISO = _normDataBanca(rawD);
-    }
-    if(!dataISO) continue;
-    var desc = colDesc>=0 ? String(row[colDesc]||'').trim() : '';
-    var importo = 0, tipo = '';
-    if(colDare>=0 && row[colDare]!==null && row[colDare]!==undefined && String(row[colDare]).trim()!==''){
-      var v = _pNumBanca(row[colDare]);
-      if(v>0){ importo = -v; tipo = 'uscita'; }
-    }
-    if(colAvere>=0 && row[colAvere]!==null && row[colAvere]!==undefined && String(row[colAvere]).trim()!==''){
-      var v2 = _pNumBanca(row[colAvere]);
-      if(v2>0){ importo = v2; tipo = 'entrata'; }
-    }
-    if(colImp>=0 && importo===0){
-      importo = _pNumBanca(row[colImp]);
-      tipo = importo<0?'uscita':'entrata';
-    }
-    if(importo===0) continue;
-    mov.push({
-      id: dataISO + '_' + importo.toFixed(2) + '_' + desc.slice(0,30).replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_\-]/g,''),
-      data:dataISO, descrizione:desc, importo:importo, tipo:tipo, sottotipo:_bancaSottotipo(desc), abbinata:false, fatturaId:null
-    });
-  }
-  return mov.sort(function(a,b){return b.data.localeCompare(a.data);});
-}
 
 // ══════════════════════════════════════════════════════
 // PARSER PDF BANCO BPM — coordinate X reali
@@ -11196,14 +11133,37 @@ async function _parseBancoBPM(arrayBuffer){
   var reEstraiNum= /(-\s*[\d\.]+,\d{2}|[\d\.]+,\d{2})/g;
 
   var movimenti = [];
+  var oltreFineTabellaMovimenti = false; // una volta vista RIASSUNTO SCALARE (o tabelle successive), non ci sono più veri movimenti
 
   for(var p = 1; p <= pdf.numPages; p++){
+    if(oltreFineTabellaMovimenti) break; // pagine successive: solo riepiloghi/interessi, nessuna transazione reale
     var page = await pdf.getPage(p);
     var tc   = await page.getTextContent();
 
     var tokens = tc.items
       .filter(function(i){ return i.str && i.str.trim(); })
       .map(function(i){ return { x: i.transform[4], y: i.transform[5], t: i.str.trim() }; });
+
+    // ── Individua dove finisce la tabella dei movimenti veri su questa pagina ──
+    // Dopo "SALDO FINALE" seguono tabelle di riepilogo (RIASSUNTO SCALARE, INTERESSI
+    // MATURATI, COMPETENZE LIQUIDATE...) le cui righe (data + due importi + un numero
+    // di giorni) hanno la STESSA forma di una riga di movimento e finivano per essere
+    // lette come una transazione fantasma con descrizione ridotta al numero di giorni
+    // (es. "- 1 -"). Il token "RIASSUNTO" è univoco (compare solo nel titolo della
+    // tabella di riepilogo, mai in una descrizione di movimento reale — a differenza
+    // di "COMPETENZE" che invece è anche la descrizione legittima dell'addebito di
+    // fine periodo, quindi NON va usato come marcatore). Una volta trovato, scartiamo
+    // tutto ciò che sta alla stessa altezza o più in basso, sia in questa pagina che
+    // (impostando il flag) in tutte le pagine successive — dopo RIASSUNTO SCALARE non
+    // ci sono più transazioni reali, solo altre tabelle di riepilogo.
+    var _yFineMovimenti = null;
+    tokens.forEach(function(tok){
+      if(/RIASSUNTO/i.test(tok.t)){
+        if(_yFineMovimenti === null || tok.y > _yFineMovimenti) _yFineMovimenti = tok.y;
+      }
+    });
+    var _ykFineMovimenti = _yFineMovimenti === null ? null : Math.round(_yFineMovimenti / 4) * 4;
+    if(_ykFineMovimenti !== null) oltreFineTabellaMovimenti = true;
 
     var righeMap = {};
     tokens.forEach(function(tok){
@@ -11214,6 +11174,7 @@ async function _parseBancoBPM(arrayBuffer){
 
     // Ordina Y dal più alto (top pagina) al più basso
     var yKeys = Object.keys(righeMap).map(Number).sort(function(a,b){ return b-a; });
+    if(_ykFineMovimenti !== null) yKeys = yKeys.filter(function(yk){ return yk > _ykFineMovimenti; });
 
     // Classifica ogni riga
     var infoRighe = {};
@@ -11322,7 +11283,7 @@ async function _parseBancoBPM(arrayBuffer){
       });
       descCompleta = descCompleta.replace(/\s+/g,' ').replace(/\s*NOTPROVIDE\s*/gi,' ').trim();
 
-      if(/saldo\s+(iniziale|finale|a vostro)|riassunto\s+scalare|imp\.bollo\s+cc|commissioni\s+\d{2}\/\d{2}|comm\.sdd|spese e comm\b|rilascio carnet|interessi e comp|^competenze$/i.test(descCompleta)) return;
+      if(/saldo\s+(iniziale|finale|a vostro)|riassunto\s+scalare|imp\.bollo\s+cc|commissioni\s+\d{2}\/\d{2}|comm\.sdd|spese e comm\b|rilascio carnet|interessi e comp/i.test(descCompleta)) return;
 
       movimenti.push({
         id: dataISO + '_' + (isUscita ? -val : val).toFixed(2) + '_' + descCompleta.slice(0,30).replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_\-]/g,''),
@@ -11943,7 +11904,7 @@ function renderRiconciliazione(){
       html += '</div>';
       html += '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">';
       if(hasDocG) html += '<button onclick="aprifatturaAllegata('+f.id+')" style="border:none;background:var(--blue-light);color:var(--blue);border-radius:6px;padding:5px 8px;font-size:11px;font-weight:600;cursor:pointer">📄</button>';
-      html += '<button onclick="apriCambioAbbinamentoMov('+m.id+')" style="border:none;background:#fff8ee;color:#c06000;border-radius:6px;padding:5px 8px;font-size:11px;font-weight:600;cursor:pointer">✏️</button>';
+      html += '<button onclick="apriCambioAbbinamentoMov(\''+esc(m.id)+'\')" style="border:none;background:#fff8ee;color:#c06000;border-radius:6px;padding:5px 8px;font-size:11px;font-weight:600;cursor:pointer">✏️</button>';
       html += '<span style="font-size:11px;background:var(--green-light);color:#1a7a3a;padding:3px 8px;border-radius:99px;font-weight:700;white-space:nowrap">✓ Verificato</span>';
       html += '</div>';
       html += '</div>';
@@ -12059,7 +12020,7 @@ function renderRiconciliazione(){
       html += '<div style="font-size:11px;color:var(--ink3)">'+m.data+' · <b>'+fmt(Math.abs(m.importo))+'</b>'+(m.sottotipo?' · <i>'+m.sottotipo+'</i>':'')+'</div>';
       html += '<div style="font-size:11px;color:var(--ink2);word-break:break-word;line-height:1.3">'+esc(m.descrizione||'')+'</div>';
       html += '</div>';
-      html += '<button onclick="apriCambioAbbinamentoMov('+m.id+')" style="border:none;background:#fff8ee;color:#c06000;border-radius:6px;padding:5px 8px;font-size:11px;font-weight:600;cursor:pointer;flex-shrink:0;white-space:nowrap">🔍 Riconcilia</button>';
+      html += '<button onclick="apriCambioAbbinamentoMov(\''+esc(m.id)+'\')" style="border:none;background:#fff8ee;color:#c06000;border-radius:6px;padding:5px 8px;font-size:11px;font-weight:600;cursor:pointer;flex-shrink:0;white-space:nowrap">🔍 Riconcilia</button>';
       html += '</div>';
     });
     html += '</div></div>';
@@ -12112,13 +12073,13 @@ function renderRiconciliazione(){
     var segno = m.tipo==='entrata' ? '+' : '−';
     var stato;
     if(m.verificataBanca){
-      stato = '<span onclick="apriCambioAbbinamentoMov('+m.id+')" style="font-size:10px;background:var(--green-light);color:#1a7a3a;padding:2px 6px;border-radius:99px;font-weight:600;cursor:pointer;text-decoration:underline">✅ Verificato banca</span>';
+      stato = '<span onclick="apriCambioAbbinamentoMov(\''+esc(m.id)+'\')" style="font-size:10px;background:var(--green-light);color:#1a7a3a;padding:2px 6px;border-radius:99px;font-weight:600;cursor:pointer;text-decoration:underline">✅ Verificato banca</span>';
     } else if(m.abbinata){
-      stato = '<span onclick="apriCambioAbbinamentoMov('+m.id+')" style="font-size:10px;background:var(--blue-light);color:var(--blue);padding:2px 6px;border-radius:99px;font-weight:600;cursor:pointer;text-decoration:underline">✓ '+esc(m.fatturaLabel||'Abbinata')+'</span>';
+      stato = '<span onclick="apriCambioAbbinamentoMov(\''+esc(m.id)+'\')" style="font-size:10px;background:var(--blue-light);color:var(--blue);padding:2px 6px;border-radius:99px;font-weight:600;cursor:pointer;text-decoration:underline">✓ '+esc(m.fatturaLabel||'Abbinata')+'</span>';
     } else if(m.tipo==='uscita'){
-      stato = '<span onclick="apriCambioAbbinamentoMov('+m.id+')" style="font-size:10px;background:var(--red-light);color:var(--red);padding:2px 6px;border-radius:99px;font-weight:600;cursor:pointer;text-decoration:underline">⚠️ '+(m.sottotipo||'Non abbinata')+' · 🔍</span>';
+      stato = '<span onclick="apriCambioAbbinamentoMov(\''+esc(m.id)+'\')" style="font-size:10px;background:var(--red-light);color:var(--red);padding:2px 6px;border-radius:99px;font-weight:600;cursor:pointer;text-decoration:underline">⚠️ '+(m.sottotipo||'Non abbinata')+' · 🔍</span>';
     } else {
-      stato = '<span onclick="apriCambioAbbinamentoMov('+m.id+')" style="font-size:10px;background:var(--green-light);color:#1a7a3a;padding:2px 6px;border-radius:99px;font-weight:600;cursor:pointer;text-decoration:underline">↑ '+(m.sottotipo||'Entrata')+' · 🔍</span>';
+      stato = '<span onclick="apriCambioAbbinamentoMov(\''+esc(m.id)+'\')" style="font-size:10px;background:var(--green-light);color:#1a7a3a;padding:2px 6px;border-radius:99px;font-weight:600;cursor:pointer;text-decoration:underline">↑ '+(m.sottotipo||'Entrata')+' · 🔍</span>';
     }
     html += '<div style="padding:10px 14px;border-bottom:1px solid var(--sep)"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">';
     html += '<div style="flex:1;min-width:0"><div style="font-size:12px;color:var(--ink3);margin-bottom:2px">'+m.data+'</div>';
