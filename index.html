@@ -403,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.17.0</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.18.0</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -1015,10 +1015,10 @@ details[open] summary span:first-child{transform:rotate(90deg);display:inline-bl
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">💳 Come sono stati incassati</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
         <div><div style="font-size:10px;color:var(--ink3);margin-bottom:3px">💵 Cassa contanti</div><input type="text" id="chgCassa" inputmode="decimal" placeholder="0,00" oninput="_chgRecalc()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right"></div>
-        <div><div style="font-size:10px;color:var(--ink3);margin-bottom:3px">💳 POS Numia (fiscale)</div><input type="text" id="chgPos" inputmode="decimal" placeholder="0,00" oninput="_chgRecalc()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right"></div>
+        <div><div style="font-size:10px;color:var(--ink3);margin-bottom:3px">💳 Chiusura POS (fiscale)</div><input type="text" id="chgPos" inputmode="decimal" placeholder="0,00" oninput="_chgRecalc()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right"></div>
       </div>
       <div style="margin-bottom:10px">
-        <div style="font-size:10px;color:#0066cc;margin-bottom:3px">🏦 POS accreditato banca</div>
+        <div style="font-size:10px;color:#0066cc;margin-bottom:3px">🏦 POS accreditato in banca</div>
         <input type="text" id="chgPosBanca" inputmode="decimal" placeholder="0,00 (se diverso dal POS fiscale)" oninput="_chgRecalc()" style="width:100%;padding:10px;border:1.5px solid #b3d7f5;border-radius:8px;font-size:14px;background:#f0f7ff;box-sizing:border-box;text-align:right">
         <div id="chgPosScostamento" style="font-size:11px;margin-top:4px;display:none"></div>
       </div>
@@ -9466,9 +9466,10 @@ function renderIncLista(){
     // Riepilogo cassa/POS nella riga: se manca uno dei due, lo segnalo invece di scrivere €0
     const posBanca = +(c.pos_banca||0);
     const scostPOS = posBanca > 0 ? posBanca - pos : null;
+    const coincide = posBanca > 0 && Math.abs(scostPOS) < 0.01;
     const rigaPosBanca = posBanca > 0 ? `
-      <tr><td style="padding:5px 0;color:#0066cc">🏦 POS accreditato banca</td><td style="padding:5px 0;text-align:right;color:#0066cc">${fmt(posBanca)}</td></tr>
-      <tr><td style="padding:5px 0;color:${Math.abs(scostPOS)<0.01?'#1a7a3a':(scostPOS<0?'var(--red)':'#b36a00')};padding-left:12px">· Scostamento banca/fiscale</td><td style="padding:5px 0;text-align:right;font-weight:600;color:${Math.abs(scostPOS)<0.01?'#1a7a3a':(scostPOS<0?'var(--red)':'#b36a00')}">${scostPOS>=0?'+':''}${fmt(scostPOS)}</td></tr>` : '';
+      <tr><td style="padding:5px 0;color:#0066cc">🏦 POS accreditato in banca</td><td style="padding:5px 0;text-align:right;color:#0066cc">${fmt(posBanca)} ${coincide?'✅':''}</td></tr>
+      ${coincide ? '' : `<tr><td style="padding:5px 0;color:${scostPOS<0?'var(--red)':'#b36a00'};padding-left:12px">· Differenza vs Chiusura POS</td><td style="padding:5px 0;text-align:right;font-weight:600;color:${scostPOS<0?'var(--red)':'#b36a00'}">${scostPOS>=0?'+':''}${fmt(scostPOS)}</td></tr>`}` : '';
     const sintesi = isParziale
       ? (mancaCassa
           ? `💵 <span style="color:#b36a00;font-weight:600">non inserita</span> · 💳 ${fmt(pos)} POS`
@@ -9479,8 +9480,8 @@ function renderIncLista(){
       ? `<tr><td style="padding:5px 0;color:#b36a00">💵 Cassa contanti</td><td style="padding:5px 0;text-align:right;color:#b36a00;font-style:italic">non inserita</td></tr>`
       : `<tr><td style="padding:5px 0;color:var(--ink3)">💵 Cassa contanti</td><td style="padding:5px 0;text-align:right">${fmt(cassa)}</td></tr>`;
     const rigaPos = (mancaPos)
-      ? `<tr><td style="padding:5px 0;color:#b36a00">💳 POS Numia</td><td style="padding:5px 0;text-align:right;color:#b36a00;font-style:italic">non inserito</td></tr>`
-      : `<tr><td style="padding:5px 0;color:var(--ink3)">💳 POS Numia</td><td style="padding:5px 0;text-align:right">${fmt(pos)}</td></tr>`;
+      ? `<tr><td style="padding:5px 0;color:#b36a00">💳 Chiusura POS</td><td style="padding:5px 0;text-align:right;color:#b36a00;font-style:italic">non inserito</td></tr>`
+      : `<tr><td style="padding:5px 0;color:var(--ink3)">💳 Chiusura POS</td><td style="padding:5px 0;text-align:right">${fmt(pos)}</td></tr>`;
     // Riga finale: se parziale mostro "Parziale" senza valore di differenza, altrimenti come prima
     const rigaFinale = isParziale
       ? `<tr style="border-top:1px solid var(--sep)"><td style="padding:5px 0;color:#b36a00;font-weight:600">⚠️ ${mancaCassa?'Cassa contanti mancante':'POS mancante'}</td><td style="padding:5px 0;text-align:right;color:#b36a00;font-weight:700;font-size:12px">solo parziale</td></tr>`
@@ -9588,11 +9589,20 @@ function renderIncMese(){
   // Per retrocompatibilità: se c'è totaleCorrispettivi usa quello, altrimenti somma i campi legacy
   const totCorr = inMese.reduce((s,c)=>s+(c.totale_corrispettivi || c.totaleCorrispettivi || ((c.iva22||0)+(c.iva10||0)+(c.iva4||0))), 0);
   const totCassa = inMese.reduce((s,c)=>s+(c.cassa||0), 0);
-  const totPos = inMese.reduce((s,c)=>s+(c.pos_banca||c.pos||0), 0); // banca vince su fiscale
-  const totInc = totCassa + totPos;
-  // "Scostamento POS": nella pratica isola quasi sempre lo scarto tra il POS
-  // dichiarato nei corrispettivi e quello poi accreditato in banca, perché i
-  // contanti contati di solito coincidono già col dichiarato.
+  // Due totali distinti e separati (non più mescolati sotto un'unica etichetta):
+  // "Chiusura POS" = totale fiscale del terminale, sempre disponibile subito.
+  // "POS accreditato in banca" = quanto risulta DAVVERO accreditato dall'estratto
+  // conto, disponibile solo per i giorni già riconciliati (pos_riconciliata).
+  const totPosFiscale = inMese.reduce((s,c)=>s+(c.pos||0), 0);
+  const giorniRiconciliati = inMese.filter(c=>c.pos_banca && c.pos_riconciliata);
+  const totPosBanca = giorniRiconciliati.reduce((s,c)=>s+(c.pos_banca||0), 0);
+  const totPosFiscaleRiconc = giorniRiconciliati.reduce((s,c)=>s+(c.pos||0), 0);
+  const nGiorniRiconc = giorniRiconciliati.length;
+  const nGiorniTot = inMese.length;
+  const diffPosBancaFiscale = Math.round((totPosBanca - totPosFiscaleRiconc) * 100) / 100;
+  // Totale incassato/quadratura: si basa sulla Chiusura POS fiscale (quello che è
+  // successo davvero in giornata), non sul dato banca che arriva con ritardo.
+  const totInc = totCassa + totPosFiscale;
   const diff = Math.round((totInc - totCorr) * 100) / 100;
   // Scorporo IVA 10% (unica aliquota del bar)
   const imponibile = totCorr / 1.10;
@@ -9606,11 +9616,25 @@ function renderIncMese(){
       <tr><td style="padding:6px 4px;padding-left:16px;color:var(--ink3);font-size:12px">· IVA 10% a debito</td><td style="padding:6px 4px;text-align:right">${fmt(ivaDebito)}</td></tr>
       <tr><td colspan="2" style="border-top:1px solid var(--sep);padding:4px"></td></tr>
       <tr><td style="padding:6px 4px;color:var(--ink3)">💵 Cassa contanti</td><td style="padding:6px 4px;text-align:right">${fmt(totCassa)}</td></tr>
-      <tr><td style="padding:6px 4px;color:var(--ink3)">💳 POS Numia</td><td style="padding:6px 4px;text-align:right">${fmt(totPos)}</td></tr>
+      <tr><td style="padding:6px 4px;color:var(--ink3)">💳 Chiusura POS</td><td style="padding:6px 4px;text-align:right">${fmt(totPosFiscale)}</td></tr>
       <tr><td style="padding:6px 4px;font-weight:700">Totale incassato</td><td style="padding:6px 4px;text-align:right;font-weight:700">${fmt(totInc)}</td></tr>
     </table>
     <div style="padding:10px;border-radius:8px;text-align:center;font-weight:600;background:${Math.abs(diff)<=0.50?'var(--green-light)':'var(--red-light)'};color:${Math.abs(diff)<=0.50?'#1a7a3a':'var(--red)'}">
       ${Math.abs(diff)<=0.50 ? '✓ Quadratura OK' : `⚠️ Scostamento POS ${fmt(Math.abs(diff))}`}
+    </div>
+
+    <div style="margin-top:14px;padding:12px;border-radius:10px;background:var(--surface2)">
+      <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:8px">🏦 Chiusura POS vs accreditato in banca</div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px">
+        <tr><td style="padding:4px 0;color:var(--ink3)">💳 Chiusura POS</td><td style="padding:4px 0;text-align:right">${fmt(totPosFiscaleRiconc)}</td></tr>
+        <tr><td style="padding:4px 0;color:var(--ink3)">🏦 POS accreditato in banca</td><td style="padding:4px 0;text-align:right">${fmt(totPosBanca)}</td></tr>
+      </table>
+      ${nGiorniRiconc===0
+        ? `<div style="font-size:12px;color:var(--ink3)">Nessun giorno ancora riconciliato con l'estratto conto in questo periodo.</div>`
+        : Math.abs(diffPosBancaFiscale)<=0.50
+          ? `<div style="padding:8px;border-radius:8px;background:var(--green-light);color:#1a7a3a;font-weight:600;font-size:13px;text-align:center">✓ Coincidono (${nGiorniRiconc}/${nGiorniTot} giorni riconciliati)</div>`
+          : `<div style="padding:8px;border-radius:8px;background:var(--red-light);color:var(--red);font-weight:600;font-size:13px;text-align:center">⚠️ Differenza ${fmt(Math.abs(diffPosBancaFiscale))} (${nGiorniRiconc}/${nGiorniTot} giorni riconciliati)</div>`
+      }
     </div>
     <button onclick="esportaMeseIncassi('${nomeFileMese}')" style="width:100%;margin-top:10px;padding:12px;border:none;border-radius:10px;background:var(--blue);color:#fff;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer">📥 Esporta XLSX per commercialista</button>`;
 }
