@@ -403,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.16.0</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.16.2</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -468,21 +468,36 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
     </div>
 
     <div style="border-top:1px solid var(--sep);margin:8px 0 14px"></div>
-    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">&#129504; Apprendimento AI</div>
-    <div id="aiSummaryImp" style="font-size:12px;color:var(--ink3);background:var(--surface2);border-radius:8px;padding:10px;margin-bottom:10px;line-height:1.5">Nessuna correzione memorizzata.</div>
-    <button onclick="resetMemoriaAI();chiudiImpostazioni();" style="width:100%;padding:12px;border:1.5px solid var(--red);border-radius:var(--radius-sm);background:var(--red-light);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:var(--red);text-align:left;margin-bottom:16px">&#128465; Cancella apprendimento AI</button>
 
-    <div style="border-top:1px solid var(--sep);margin:0 0 14px"></div>
-    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--red);margin-bottom:8px">&#9888; Zona pericolosa</div>
-    <p style="font-size:12px;color:var(--ink3);margin-bottom:10px;line-height:1.5">Elimina <strong>tutti</strong> i dati dal dispositivo e dal Cloud. Azione irreversibile.</p>
-    <button onclick="chiudiImpostazioni();showDelAll();" style="width:100%;padding:12px;border:1.5px solid var(--red);border-radius:var(--radius-sm);background:var(--red-light);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:var(--red);text-align:left;margin-bottom:10px">&#128465; Cancella tutti i dati</button>
-    <button onclick="if(confirm('Verificare i fornitori delle fatture intestate erroneamente a Ceraldi? L\'app ricontrolla l\'XML e corregge automaticamente.')){bonificaFornitoriErrati(false);chiudiImpostazioni();}" style="width:100%;padding:12px;border:1.5px solid var(--blue);border-radius:var(--radius-sm);background:var(--blue-light);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:var(--blue);text-align:left;margin-bottom:10px">&#128269; Verifica fornitori (correggi intestazioni Ceraldi errate)</button>
-<button onclick="if(confirm('Svuotare solo la cache Cassa locale (chiusure, versamenti, incassi)? I dati su Supabase restano intatti.')){localStorage.removeItem(KCHIUSURE);localStorage.removeItem(KVERSAMENTI);localStorage.removeItem(KINCASSI);chiusure=[];versamenti=[];incassi=[];aggiornaSaldoCassa();chiudiImpostazioni();toast('✓ Cache cassa svuotata — ricarica dal Cloud al prossimo avvio');}" style="width:100%;padding:12px;border:1.5px solid var(--orange,#f90);border-radius:var(--radius-sm);background:#fff8ee;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:#c06000;text-align:left;margin-bottom:10px">&#129529; Svuota cache Cassa locale</button>
-    <button onclick="if(confirm('Svuotare tutta la cache locale (fatture + cassa + banca)? I dati su Supabase restano intatti. Al prossimo avvio riscarica tutto.')){['cf_fatture_cache','cf_fatture_maxts','ceraldi_chiusure_v1','ceraldi_versamenti_v1','ceraldi_incassi_v1','ceraldi_banca_v1'].forEach(k=>localStorage.removeItem(k));Object.keys(localStorage).filter(k=>k.startsWith('cf_xml_')||k.startsWith('cf_ivabk_')).forEach(k=>localStorage.removeItem(k));chiudiImpostazioni();toast('✓ Cache svuotata — riavvio in corso');setTimeout(()=>location.reload(),1500);}" style="width:100%;padding:12px;border:1.5px solid var(--orange,#f90);border-radius:var(--radius-sm);background:#fff8ee;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:#c06000;text-align:left">&#128257; Reset cache locale completa</button>
-    <button onclick="apriPuliziaFornitori()" style="width:100%;padding:12px;margin-top:8px;border:1.5px solid var(--orange,#f90);border-radius:var(--radius-sm);background:#fff8ee;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:#c06000;text-align:left">&#129529; Pulisci fornitori duplicati</button>
-    <button onclick="apriCestino()" style="width:100%;padding:12px;margin-top:8px;border:1.5px solid var(--sep);border-radius:var(--radius-sm);background:var(--surface);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:var(--ink);text-align:left">&#128465; Cestino</button>
+    <!-- MANUTENZIONE AVANZATA — raccolta in un menu a tendina, usata raramente -->
+    <details style="margin-bottom:10px">
+      <summary style="cursor:pointer;font-size:13px;font-weight:700;color:var(--ink2);padding:10px 0;list-style:none;display:flex;align-items:center;gap:6px">
+        <span style="font-size:11px">▶</span> ⚙️ Manutenzione avanzata
+      </summary>
+      <div style="padding-top:8px">
+        <div id="aiSummaryImp" style="font-size:12px;color:var(--ink3);background:var(--surface2);border-radius:8px;padding:10px;margin-bottom:8px;line-height:1.5">Nessuna correzione memorizzata.</div>
+        <button onclick="resetMemoriaAI();chiudiImpostazioni();" style="width:100%;padding:12px;border:1.5px solid var(--sep);border-radius:var(--radius-sm);background:var(--surface);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:var(--ink);text-align:left;margin-bottom:8px">&#128465; Cancella apprendimento AI</button>
+        <button onclick="apriCestino()" style="width:100%;padding:12px;border:1.5px solid var(--sep);border-radius:var(--radius-sm);background:var(--surface);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:var(--ink);text-align:left;margin-bottom:8px">&#128465; Cestino</button>
+        <button onclick="apriPuliziaFornitori()" style="width:100%;padding:12px;border:1.5px solid var(--sep);border-radius:var(--radius-sm);background:var(--surface);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:var(--ink);text-align:left;margin-bottom:8px">&#129529; Pulisci fornitori duplicati</button>
+        <button onclick="if(confirm('Svuotare tutta la cache locale (fatture + cassa + banca)? I dati su Supabase restano intatti. Al prossimo avvio riscarica tutto.')){['cf_fatture_cache','cf_fatture_maxts','ceraldi_chiusure_v1','ceraldi_versamenti_v1','ceraldi_incassi_v1','ceraldi_banca_v1'].forEach(k=>localStorage.removeItem(k));Object.keys(localStorage).filter(k=>k.startsWith('cf_xml_')||k.startsWith('cf_ivabk_')).forEach(k=>localStorage.removeItem(k));chiudiImpostazioni();toast('✓ Cache svuotata — riavvio in corso');setTimeout(()=>location.reload(),1500);}" style="width:100%;padding:12px;border:1.5px solid var(--sep);border-radius:var(--radius-sm);background:var(--surface);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:var(--ink);text-align:left">&#128257; Reset cache locale completa</button>
+      </div>
+    </details>
+
+    <!-- ZONA PERICOLOSA — anch'essa chiusa di default -->
+    <details>
+      <summary style="cursor:pointer;font-size:13px;font-weight:700;color:var(--ink2);padding:10px 0;list-style:none;display:flex;align-items:center;gap:6px">
+        <span style="font-size:11px">▶</span> 🔍 Altri strumenti
+      </summary>
+      <div style="padding-top:8px">
+        <button onclick="if(confirm('Verificare i fornitori delle fatture intestate erroneamente a Ceraldi? L\'app ricontrolla l\'XML e corregge automaticamente.')){bonificaFornitoriErrati(false);chiudiImpostazioni();}" style="width:100%;padding:12px;border:1.5px solid var(--sep);border-radius:var(--radius-sm);background:var(--surface);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:var(--ink);text-align:left">&#128269; Verifica fornitori (correggi intestazioni Ceraldi errate)</button>
+      </div>
+    </details>
   </div>
 </div>
+<style>
+details summary::-webkit-details-marker{display:none}
+details[open] summary span:first-child{transform:rotate(90deg);display:inline-block}
+</style>
 
 <style>
 /* Descrizione estratto: default espansa, click per collassare */
@@ -4258,14 +4273,18 @@ async function ripristinaBackup(input){
     try{
       const bk=JSON.parse(e.target.result);
       if(!bk.fatture) throw new Error('');
-      openMo('Ripristina backup','Verranno importate '+bk.fatture.length+' fatture. I dati attuali saranno sostituiti.',()=>{
+      openMo('Ripristina backup','Verranno importate '+bk.fatture.length+' fatture. Le fatture attuali andranno nel Cestino (recuperabili per '+RITENZIONE_CESTINO_GIORNI+' giorni), non cancellate per sempre.',()=>{
         fatture=bk.fatture||[]; fornitori=bk.fornitori||[];
         save(fatture); saveF(fornitori); aggiornaDL(); closeMo();
-        // Reinserisci su Supabase
+        // Reinserisci su Supabase — le vecchie righe vanno nel Cestino (deleted_at),
+        // MAI cancellate per sempre subito, coerente con tutto il resto dell'app.
         toast('Ripristino in corso...');
-        sbFetch('fatture?id=gt.0',{method:'DELETE'}).then(()=>{
-          const rows=fatture.map(appToDB);
-          if(rows.length) return sbFetch('fatture',{method:'POST',body:JSON.stringify(rows)});
+        sbFetch('fatture?select=id&deleted_at=is.null').then(rows=>{
+          const ids = (rows||[]).map(r=>r.id);
+          return Promise.all(ids.map(id=>dbCestina(id)));
+        }).then(()=>{
+          const rowsNuove=fatture.map(appToDB);
+          if(rowsNuove.length) return sbFetch('fatture',{method:'POST',headers:{...SB_H,'Prefer':'resolution=ignore-duplicates,return=minimal'},body:JSON.stringify(rowsNuove)});
         }).then(()=>{
           const nomi=[...new Set(fornitori)].map(nome=>({nome}));
           return sbFetch('fornitori',{method:'POST',headers:{...SB_H,'Prefer':'resolution=ignore-duplicates,return=representation'},body:JSON.stringify(nomi)});
@@ -4273,7 +4292,7 @@ async function ripristinaBackup(input){
           // Ricarica da Supabase per avere dati certi
           await loadAll();
           aggiornaDL(); renderLista(); aggiornaAlertBanner();
-          toast('Ripristino completato — '+fatture.length+' fatture caricate sul Cloud');
+          toast('Ripristino completato — '+fatture.length+' fatture caricate sul Cloud. Le fatture sostituite sono nel Cestino.');
         }).catch(()=>toast('Errore sync Cloud durante ripristino'));
       });
     }catch{toast('File backup non valido');}
@@ -4577,27 +4596,6 @@ async function _quickPayAssegnoDialog(id, metodo, backup){
     await _applicaQuickPay(id, metodo, {numAssegno, intestatario}, backup);
   };
   setTimeout(()=>{ try{ document.getElementById('qpaNum').focus(); }catch(e){} }, 100);
-}
-function showDelAll(){
-  openMo('Cancella tutti i dati?','Scrivi "ELIMINA" nel campo qui sotto per confermare. Questa azione è irreversibile e cancellerà tutto dal database.',()=>{
-    const input=document.getElementById('moConfirmInput');
-    if(!input||input.value.trim().toUpperCase()!=='ELIMINA'){
-      toast('Scrivi ELIMINA per confermare');return;
-    }
-    fatture=[]; save(fatture);
-    sbFetch('fatture?id=gt.0',{method:'DELETE'}).catch(()=>{});
-    closeMo(); updRiep(); aggiornaAlertBanner(); toast('Tutto eliminato');
-  });
-  // Aggiungi campo conferma al modal dopo l'apertura
-  setTimeout(()=>{
-    const msg=document.getElementById('moMsg');
-    if(msg&&!document.getElementById('moConfirmInput')){
-      const inp=document.createElement('input');
-      inp.id='moConfirmInput'; inp.placeholder='Scrivi ELIMINA';
-      inp.style.cssText='width:100%;padding:12px;border:1.5px solid var(--sep);border-radius:10px;font-size:16px;margin-top:12px;font-family:Inter,-apple-system,sans-serif;text-align:center;letter-spacing:2px';
-      msg.after(inp);
-    }
-  },50);
 }
 
 // ── MODAL ──
