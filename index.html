@@ -403,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.14.0</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.16.0</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -480,6 +480,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <button onclick="if(confirm('Svuotare solo la cache Cassa locale (chiusure, versamenti, incassi)? I dati su Supabase restano intatti.')){localStorage.removeItem(KCHIUSURE);localStorage.removeItem(KVERSAMENTI);localStorage.removeItem(KINCASSI);chiusure=[];versamenti=[];incassi=[];aggiornaSaldoCassa();chiudiImpostazioni();toast('✓ Cache cassa svuotata — ricarica dal Cloud al prossimo avvio');}" style="width:100%;padding:12px;border:1.5px solid var(--orange,#f90);border-radius:var(--radius-sm);background:#fff8ee;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:#c06000;text-align:left;margin-bottom:10px">&#129529; Svuota cache Cassa locale</button>
     <button onclick="if(confirm('Svuotare tutta la cache locale (fatture + cassa + banca)? I dati su Supabase restano intatti. Al prossimo avvio riscarica tutto.')){['cf_fatture_cache','cf_fatture_maxts','ceraldi_chiusure_v1','ceraldi_versamenti_v1','ceraldi_incassi_v1','ceraldi_banca_v1'].forEach(k=>localStorage.removeItem(k));Object.keys(localStorage).filter(k=>k.startsWith('cf_xml_')||k.startsWith('cf_ivabk_')).forEach(k=>localStorage.removeItem(k));chiudiImpostazioni();toast('✓ Cache svuotata — riavvio in corso');setTimeout(()=>location.reload(),1500);}" style="width:100%;padding:12px;border:1.5px solid var(--orange,#f90);border-radius:var(--radius-sm);background:#fff8ee;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:#c06000;text-align:left">&#128257; Reset cache locale completa</button>
     <button onclick="apriPuliziaFornitori()" style="width:100%;padding:12px;margin-top:8px;border:1.5px solid var(--orange,#f90);border-radius:var(--radius-sm);background:#fff8ee;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:#c06000;text-align:left">&#129529; Pulisci fornitori duplicati</button>
+    <button onclick="apriCestino()" style="width:100%;padding:12px;margin-top:8px;border:1.5px solid var(--sep);border-radius:var(--radius-sm);background:var(--surface);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:var(--ink);text-align:left">&#128465; Cestino</button>
   </div>
 </div>
 
@@ -1597,7 +1598,7 @@ const AI_HEADERS = ()=>({'Content-Type':'application/json','x-api-key':getApiKey
 // Entrambe possono pesare centinaia di KB a riga e mandano in timeout (57014) la SELECT
 // quando le righe sono centinaia. Foto e XML grezzo vengono caricati on-demand per la
 // singola fattura aperta (vedi apriF / aprifatturaAllegata).
-const SLIM_COLS_FATTURE = 'id,tipo,fornitore,numero,fatt_num,num_ddt,data,importo,pagamento,assegno,ass_int,ass_banca,bon_iban,bon_caus,bon_data,bon_rif,riconciliata,note,stato,scadenza,fattura_allegata_name,xml_github_path,source,rate,ts,parz_pagato,data_pagamento,pec_verificata,pec_verificata_at,pec_id,iva,iva_breakdown,totale_imponibile,totale_imposta,incompleta';
+const SLIM_COLS_FATTURE = 'id,tipo,fornitore,numero,fatt_num,num_ddt,data,importo,pagamento,assegno,ass_int,ass_banca,bon_iban,bon_caus,bon_data,bon_rif,riconciliata,note,stato,scadenza,fattura_allegata_name,xml_github_path,source,rate,ts,parz_pagato,data_pagamento,pec_verificata,pec_verificata_at,pec_id,iva,iva_breakdown,totale_imponibile,totale_imposta,incompleta,deleted_at';
 
 async function sbFetch(path, opts={}){
   const method = (opts.method||'GET').toUpperCase();
@@ -1754,7 +1755,8 @@ function dbToApp(r){
     // per mostrare icona foto/allegato senza dover scaricare il blob pesante.
     hasFoto: !!r.has_foto,
     hasAllegata: !!r.has_allegata,
-    incompleta: Array.isArray(r.incompleta) ? r.incompleta : []
+    incompleta: Array.isArray(r.incompleta) ? r.incompleta : [],
+    deletedAt: r.deleted_at || null
   };
 }
 function appToDB(f){
@@ -1807,7 +1809,7 @@ async function loadAll(forceRefresh=false){
       // Marca chi ha foto/XML su Cloud (per UI: icona camera / bottone allegato)
       await _arricchisciConFlagAllegati(rows);
       _saveCache(rows);
-      fatture = rows.map(dbToApp);
+      fatture = rows.map(dbToApp).filter(f=>!f.deletedAt);
       console.log('Download completo: '+rows.length+' fatture (slim)');
       if(forceRefresh){
         const nonPagateOra = fatture.filter(f=>(f.stato||'pagata')!=='pagata').length;
@@ -1832,7 +1834,7 @@ async function loadAll(forceRefresh=false){
       const rowsComplete = await sbFetchAll('fatture?select='+SLIM_COLS_FATTURE+'&order=data.desc,ts.desc,id.asc');
       await _arricchisciConFlagAllegati(rowsComplete);
       _saveCache(rowsComplete); // salva comunque solo le più recenti su disco
-      fatture = rowsComplete.map(dbToApp);
+      fatture = rowsComplete.map(dbToApp).filter(f=>!f.deletedAt);
       console.log('Cache locale incompleta ('+cached.length+'/'+remoteIdSet.size+') — scaricato tutto in memoria: '+rowsComplete.length);
       return true;
     }
@@ -1869,11 +1871,11 @@ async function loadAll(forceRefresh=false){
     // (Anche se merged.length === 0: significa che il Cloud è davvero vuoto.)
     if(merged.length > 0 || remoteIds.length === 0){
       _saveCache(merged.length ? merged : []);
-      fatture = merged.map(dbToApp);
+      fatture = merged.map(dbToApp).filter(f=>!f.deletedAt);
     } else {
       // merged vuoto ma il Cloud ha dati → qualcosa non va, mantieni cache precedente
       console.warn('Merge vuoto ma Cloud ha '+remoteIds.length+' righe — mantengo cache');
-      fatture = cached.map(dbToApp);
+      fatture = cached.map(dbToApp).filter(f=>!f.deletedAt);
     }
 
     if(changed.length > 0 || eliminated > 0){
@@ -1887,7 +1889,7 @@ async function loadAll(forceRefresh=false){
     console.warn('Supabase non raggiungibile:', e);
     const cached = _loadCache();
     if(cached && cached.length > 0){
-      fatture = cached.map(dbToApp);
+      fatture = cached.map(dbToApp).filter(f=>!f.deletedAt);
       console.warn('Offline — uso cache locale ('+fatture.length+' fatture)');
     } else {
       fatture = []; fornitori = [];
@@ -2200,6 +2202,59 @@ async function dbUpdateFoto(id, foto){
 }
 
 // ── DELETE FATTURA ──
+// ── CESTINO (soft-delete) ──
+// Filosofia dell'app: niente sparisce per sempre subito. "Eliminare" una fattura
+// la segna solo con deleted_at (sparisce dalle liste normali) ma resta recuperabile
+// per RITENZIONE_CESTINO_GIORNI giorni prima di essere cancellata sul serio.
+const RITENZIONE_CESTINO_GIORNI = 30;
+
+async function dbCestina(id){
+  try{
+    await sbFetch('fatture?id=eq.'+id, {
+      method:'PATCH',
+      headers:{...SB_H,'Prefer':'return=minimal'},
+      body:JSON.stringify({deleted_at: new Date().toISOString(), ts: Date.now()})
+    });
+  }catch(e){ console.error('Cestina error',e); toast('⚠️ Errore spostamento nel cestino'); }
+}
+
+async function dbRipristinaDaCestino(id){
+  try{
+    await sbFetch('fatture?id=eq.'+id, {
+      method:'PATCH',
+      headers:{...SB_H,'Prefer':'return=minimal'},
+      body:JSON.stringify({deleted_at: null, ts: Date.now()})
+    });
+  }catch(e){ console.error('Ripristino error',e); toast('⚠️ Errore ripristino'); }
+}
+
+// Cancellazione DEFINITIVA — usata solo dopo che sono passati i giorni di
+// conservazione, mai chiamata direttamente da un tap dell'utente.
+async function _purgaCestinoScaduto(){
+  const soglia = new Date(Date.now() - RITENZIONE_CESTINO_GIORNI*86400000).toISOString();
+  try{
+    const scadute = await sbFetch('fatture?select=id&deleted_at=lt.'+soglia);
+    if(scadute && scadute.length){
+      for(const r of scadute){ await dbDelete(r.id); }
+      console.log('Cestino: purgate definitivamente', scadute.length, 'fatture oltre '+RITENZIONE_CESTINO_GIORNI+' giorni');
+    }
+  }catch(e){ console.warn('Purga cestino fatture:', e); }
+  try{
+    const scaduteCh = await sbFetch('chiusure_giornaliere?select=id&deleted_at=lt.'+soglia);
+    if(scaduteCh && scaduteCh.length){
+      for(const r of scaduteCh){ await sbFetch('chiusure_giornaliere?id=eq.'+r.id, {method:'DELETE', headers:{...SB_H,'Prefer':'return=minimal'}}); }
+      console.log('Cestino: purgate', scaduteCh.length, 'chiusure oltre '+RITENZIONE_CESTINO_GIORNI+' giorni');
+    }
+  }catch(e){ console.warn('Purga cestino chiusure:', e); }
+  try{
+    const scaduteV = await sbFetch('versamenti?select=id&deleted_at=lt.'+soglia);
+    if(scaduteV && scaduteV.length){
+      for(const r of scaduteV){ await sbFetch('versamenti?id=eq.'+r.id, {method:'DELETE', headers:{...SB_H,'Prefer':'return=minimal'}}); }
+      console.log('Cestino: purgati', scaduteV.length, 'versamenti oltre '+RITENZIONE_CESTINO_GIORNI+' giorni');
+    }
+  }catch(e){ console.warn('Purga cestino versamenti:', e); }
+}
+
 async function dbDelete(id){
   try{
     await sbFetch('fatture?id=eq.'+id, {method:'DELETE'});
@@ -2517,18 +2572,16 @@ async function _bulkAzione(action){
   if(!count) return;
 
   if(action === 'elimina'){
-    openMo('Elimina selezionate', `Eliminare ${count} fattur${count>1?'e':'a'}? Puoi comunque annullare subito dopo.`, async ()=>{
+    openMo('Elimina selezionate', `Spostare ${count} fattur${count>1?'e':'a'} nel Cestino? Restano recuperabili per ${RITENZIONE_CESTINO_GIORNI} giorni.`, async ()=>{
       closeMo();
-      const cancellate = [];
       for(const id of ids){
         const i = fatture.findIndex(f=>f.id===id);
-        if(i>=0){ cancellate.push(Object.assign({}, fatture[i])); fatture.splice(i,1); try{ await dbDelete(id); }catch(e){} }
+        if(i>=0){ fatture.splice(i,1); try{ await dbCestina(id); }catch(e){} }
       }
       save(fatture);
       _uscitaSelezione();
       aggiornaAlertBanner();
-      toast(`✓ ${count} fattur${count>1?'e eliminate':'a eliminata'}`);
-      if(cancellate.length) _showUndoToastMultiplo(cancellate);
+      toast(`🗑 ${count} fattur${count>1?'e':'a'} nel Cestino`);
     }, 'user');
     return;
   }
@@ -4294,10 +4347,9 @@ async function _showUndoToast(f){
 function askDel(id){
   delId=id;
   const f=fatture.find(x=>x.id===id);
-  openMo('Elimina pagamento','Eliminare la fattura di '+(f?f.fornitore:'')+'?',()=>{
-    _lastDeleted = f ? Object.assign({}, f) : null; // salva una copia PRIMA di cancellare — senza questa riga l'Annulla non compariva mai
-    fatture=fatture.filter(f=>f.id!==delId); save(fatture); dbDelete(delId);
-    closeMo(); renderLista(); if(_lastDeleted) _showUndoToast(_lastDeleted); aggiornaAlertBanner(); toast('Eliminata');
+  openMo('Elimina pagamento','Eliminare la fattura di '+(f?f.fornitore:'')+'? Resterà nel Cestino per '+RITENZIONE_CESTINO_GIORNI+' giorni, recuperabile in qualunque momento.',()=>{
+    fatture=fatture.filter(f=>f.id!==delId); save(fatture); dbCestina(delId);
+    closeMo(); renderLista(); aggiornaAlertBanner(); toast('🗑 Spostata nel Cestino');
   }, 'user');
   // Assicura che il bottone Ok sia sempre "Elimina" e non "Unifica"
   setTimeout(()=>{
@@ -6117,6 +6169,106 @@ async function dbDeleteForn(nome){
   catch(e){ console.warn('Forn delete warn', e); }
 }
 
+// ── CESTINO — vista ──
+async function apriCestino(){
+  const existing = document.getElementById('cestinoMo');
+  if(existing) existing.remove();
+  const mo = document.createElement('div');
+  mo.id = 'cestinoMo';
+  mo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:900;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)';
+  const sheet = document.createElement('div');
+  sheet.id = 'cestinoSheet';
+  sheet.style.cssText = 'background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:85vh;overflow-y:auto;animation:slideUp .3s cubic-bezier(.32,.72,0,1)';
+  sheet.innerHTML = '<div style="padding:16px 20px 8px;border-bottom:1px solid var(--sep);display:flex;justify-content:space-between;align-items:center">'
+    + '<span style="font-size:17px;font-weight:700">🗑 Cestino</span>'
+    + '<button onclick="document.getElementById(\'cestinoMo\').remove()" style="background:var(--surface2);border:none;border-radius:99px;width:30px;height:30px;font-size:17px;cursor:pointer">&times;</button>'
+    + '</div><div id="cestinoLista" style="padding:16px 20px">Carico…</div>';
+  mo.appendChild(sheet);
+  mo.onclick = e=>{ if(e.target===mo) mo.remove(); };
+  document.body.appendChild(mo);
+
+  function _rigaCestino(icona, titolo, sottotitolo, giorniRimasti, onRipristina){
+    const row = document.createElement('div');
+    row.style.cssText = 'padding:11px 12px;border-radius:10px;margin-bottom:6px;background:var(--surface);display:flex;justify-content:space-between;align-items:center;gap:8px';
+    row.innerHTML = '<div style="flex:1;min-width:0">'
+      + '<div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+icona+' '+esc(titolo)+'</div>'
+      + '<div style="font-size:12px;color:var(--ink3)">'+esc(sottotitolo)+'</div>'
+      + '<div style="font-size:11px;color:'+(giorniRimasti<=3?'var(--red)':'var(--ink3)')+';margin-top:2px">'+(giorniRimasti>0?giorniRimasti+' giorni prima della cancellazione definitiva':'in cancellazione a breve')+'</div>'
+      + '</div>';
+    const btn = document.createElement('button');
+    btn.textContent = '↩️ Ripristina';
+    btn.style.cssText = 'flex-shrink:0;padding:8px 14px;border:none;border-radius:8px;background:var(--blue);color:#fff;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer';
+    btn.onclick = onRipristina;
+    row.appendChild(btn);
+    return row;
+  }
+  function _giorniRimasti(deletedAt){
+    const giorniPassati = Math.floor((Date.now() - new Date(deletedAt).getTime())/86400000);
+    return Math.max(0, RITENZIONE_CESTINO_GIORNI - giorniPassati);
+  }
+
+  try{
+    const [rowsFatt, rowsChiu, rowsVers] = await Promise.all([
+      sbFetch('fatture?select='+SLIM_COLS_FATTURE+'&deleted_at=not.is.null&order=deleted_at.desc').catch(()=>[]),
+      sbFetch('chiusure_giornaliere?select=*&deleted_at=not.is.null&order=deleted_at.desc').catch(()=>[]),
+      sbFetch('versamenti?select=*&deleted_at=not.is.null&order=deleted_at.desc').catch(()=>[])
+    ]);
+    const lista = document.getElementById('cestinoLista');
+    if(!lista) return;
+    const totale = (rowsFatt?.length||0) + (rowsChiu?.length||0) + (rowsVers?.length||0);
+    if(!totale){
+      lista.innerHTML = '<div style="text-align:center;padding:20px;color:var(--ink3)">Il cestino è vuoto.</div>';
+      return;
+    }
+    lista.innerHTML = '<div style="font-size:12px;color:var(--ink3);margin-bottom:12px">Tutto resta qui per '+RITENZIONE_CESTINO_GIORNI+' giorni, poi viene cancellato per sempre.</div>';
+
+    (rowsFatt||[]).forEach(r=>{
+      const f = dbToApp(r);
+      lista.appendChild(_rigaCestino('📄', f.fornitore||'', 'N° '+(f.numero||'—')+' · '+fmt(f.importo||0), _giorniRimasti(r.deleted_at), ()=>_ripristinaDalCestino(f.id)));
+    });
+    (rowsChiu||[]).forEach(r=>{
+      const df = r.data ? new Date(r.data+'T12:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'numeric'}) : '';
+      lista.appendChild(_rigaCestino('💰', 'Chiusura del '+df, 'Cassa giornaliera', _giorniRimasti(r.deleted_at), ()=>_ripristinaChiusuraCestino(r.id)));
+    });
+    (rowsVers||[]).forEach(r=>{
+      const df = r.data ? new Date(r.data+'T12:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'numeric'}) : '';
+      lista.appendChild(_rigaCestino('🏦', 'Versamento '+df, fmt(r.importo||0)+(r.note?' · '+r.note:''), _giorniRimasti(r.deleted_at), ()=>_ripristinaVersamentoCestino(r.id)));
+    });
+  }catch(e){
+    const lista = document.getElementById('cestinoLista');
+    if(lista) lista.innerHTML = '<div style="text-align:center;padding:20px;color:var(--red)">Errore nel caricare il cestino.</div>';
+  }
+}
+
+async function _ripristinaChiusuraCestino(id){
+  try{
+    await sbFetch('chiusure_giornaliere?id=eq.'+id, {method:'PATCH', headers:{...SB_H,'Prefer':'return=minimal'}, body:JSON.stringify({deleted_at:null})});
+    const rows = await sbFetch('chiusure_giornaliere?id=eq.'+id+'&select=*');
+    if(rows && rows[0]){ chiusure.push(rows[0]); salvaChiusureLocale(); aggiornaSaldoCassa(); renderIncLista(); }
+  }catch(e){}
+  toast('✓ Ripristinata dal Cestino');
+  apriCestino();
+}
+async function _ripristinaVersamentoCestino(id){
+  try{
+    await sbFetch('versamenti?id=eq.'+id, {method:'PATCH', headers:{...SB_H,'Prefer':'return=minimal'}, body:JSON.stringify({deleted_at:null})});
+    const rows = await sbFetch('versamenti?id=eq.'+id+'&select=*');
+    if(rows && rows[0]){ versamenti.push(rows[0]); salvaVersamentiLocale(); aggiornaSaldoCassa(); renderVersamenti(); }
+  }catch(e){}
+  toast('✓ Ripristinato dal Cestino');
+  apriCestino();
+}
+
+async function _ripristinaDalCestino(id){
+  await dbRipristinaDaCestino(id);
+  try{
+    const rows = await sbFetch('fatture?select='+SLIM_COLS_FATTURE+'&id=eq.'+id);
+    if(rows && rows[0]){ fatture.unshift(dbToApp(rows[0])); save(fatture); renderLista(); aggiornaAlertBanner(); }
+  }catch(e){}
+  toast('✓ Ripristinata dal Cestino');
+  apriCestino(); // ricarica la lista del cestino aggiornata
+}
+
 function apriPuliziaFornitori(){
   const gruppi = _calcolaGruppiFornitoriDuplicati();
   window._gruppiFornDaPulire = gruppi;
@@ -6915,14 +7067,12 @@ async function _confermaDedup(){
       if(nuovoTs) fatture[idxM].ts = nuovoTs;
     }
   }
-  const _dedupCancellate = [];
   for(const f of daEliminare){
     const i=fatture.findIndex(x=>x.id===f.id);
-    if(i>=0){ _dedupCancellate.push(Object.assign({}, fatture[i])); fatture.splice(i,1); await dbDelete(f.id); }
+    if(i>=0){ fatture.splice(i,1); await dbCestina(f.id); }
   }
   save(fatture); renderLista(); aggiornaAlertBanner();
-  toast('✅ '+daEliminare.length+' duplicato'+(daEliminare.length>1?'i':'')+' eliminato'+(daEliminare.length>1?'i':'')+'!');
-  if(_dedupCancellate.length) _showUndoToastMultiplo(_dedupCancellate);
+  toast('✅ '+daEliminare.length+' duplicato'+(daEliminare.length>1?'i':'')+' nel Cestino');
   _dedupStato.idMantenere = null;
   setTimeout(()=>_proponiDeduplicaStep(_dedupStato.gruppi, _dedupStato.idx+1, _dedupStato.ignorati), 300);
 }
@@ -8257,7 +8407,7 @@ async function init(){
   const _cachedFatture = _loadCache();
   const _hasCacheFatture = _cachedFatture && _cachedFatture.length > 0;
   if(_hasCacheFatture){
-    fatture = _cachedFatture.map(dbToApp);
+    fatture = _cachedFatture.map(dbToApp).filter(f=>!f.deletedAt);
     // Ripristina XML dalle chiavi separate cf_xml_ID
     fatture.forEach(function(f){
       if(!f.fatturaAllegata || f.fatturaAllegata.length < 10){
@@ -8314,6 +8464,7 @@ async function init(){
   // All'avvio: solo ricerca fatture duplicate (riconciliazione DDT↔fatture disabilitata)
   // setTimeout(()=>{ try{ const c=trovaCoppie(); if(c.length) _riconciliaStep(c,0,0); }catch(e){} }, 6000);
   setTimeout(()=>deduplicaFatture(), 12000);
+  setTimeout(()=>_purgaCestinoScaduto(), 20000);
   // DISATTIVATA (29/07): bonificaNoteCreditoErrate si basava sul presupposto che le note
   // di credito avessero sempre "TD04" scritto nel campo note — l'import attuale non lo
   // scrive mai lì, quindi questa "bonifica" automatica riportava indietro a "fattura"
@@ -8554,12 +8705,12 @@ async function caricaIncassi(){
     const data = await sbFetch(url);
     if(Array.isArray(data) && data.length){
       if(!lastCh){
-        chiusure = data; // primo caricamento
+        chiusure = data.filter(r=>!r.deleted_at); // primo caricamento
       } else {
         // Merge incrementale
         const map = {}; chiusure.forEach(r=>{ map[r.id]=r; });
         data.forEach(r=>{ map[r.id]=r; });
-        chiusure = Object.values(map).sort((a,b)=>b.data.localeCompare(a.data));
+        chiusure = Object.values(map).filter(r=>!r.deleted_at).sort((a,b)=>b.data.localeCompare(a.data));
       }
       salvaChiusureLocale();
       aggiornaSaldoCassa();
@@ -8581,11 +8732,11 @@ async function caricaIncassi(){
     const data = await sbFetch(url);
     if(Array.isArray(data) && data.length){
       if(!lastV){
-        versamenti = data;
+        versamenti = data.filter(r=>!r.deleted_at);
       } else {
         const map = {}; versamenti.forEach(r=>{ map[r.id]=r; });
         data.forEach(r=>{ map[r.id]=r; });
-        versamenti = Object.values(map).sort((a,b)=>b.data.localeCompare(a.data));
+        versamenti = Object.values(map).filter(r=>!r.deleted_at).sort((a,b)=>b.data.localeCompare(a.data));
       }
       salvaVersamentiLocale();
     }
@@ -8762,52 +8913,32 @@ function _showUndoToastGenerico(etichetta, ripristinaFn){
 }
 
 async function eliminaChiusura(idOrData, data){
-  openMo('Elimina chiusura', 'Eliminare la chiusura del '+new Date(data+'T12:00:00').toLocaleDateString('it-IT',{weekday:'long',day:'2-digit',month:'long'})+'?', async ()=>{
+  openMo('Elimina chiusura', 'Spostare nel Cestino la chiusura del '+new Date(data+'T12:00:00').toLocaleDateString('it-IT',{weekday:'long',day:'2-digit',month:'long'})+'? Resta recuperabile per '+RITENZIONE_CESTINO_GIORNI+' giorni.', async ()=>{
     closeMo();
-    const _copiaChiusura = chiusure.find(c=>c.data===data);
-    // Rimuovi da RAM
+    // Rimuovi da RAM (resta su Supabase, solo marcata come cestinata)
     chiusure = chiusure.filter(c=>c.data!==data);
     salvaChiusureLocale();
-    // Rimuovi da Supabase
     try{
-      // Prima trova l'id reale su Supabase (potrebbe essere diverso dalla RAM)
       const rows = await sbFetch('chiusure_giornaliere?data=eq.'+data+'&select=id');
       if(rows && rows.length){
-        await sbFetch('chiusure_giornaliere?id=eq.'+rows[0].id, {method:'DELETE', headers:{...SB_H,'Prefer':'return=minimal'}});
+        await sbFetch('chiusure_giornaliere?id=eq.'+rows[0].id, {method:'PATCH', headers:{...SB_H,'Prefer':'return=minimal'}, body:JSON.stringify({deleted_at:new Date().toISOString()})});
       }
-    }catch(e){ console.warn('Errore eliminazione chiusura:', e); }
+    }catch(e){ console.warn('Errore spostamento chiusura nel cestino:', e); }
     aggiornaSaldoCassa();
     renderIncLista();
-    toast('✓ Chiusura eliminata');
-    if(_copiaChiusura){
-      _showUndoToastGenerico('Chiusura del '+data, async ()=>{
-        chiusure.push(_copiaChiusura);
-        salvaChiusureLocale();
-        await sbFetch('chiusure_giornaliere', {method:'POST', headers:{...SB_H,'Prefer':'return=minimal'}, body:JSON.stringify(_copiaChiusura)}).catch(()=>{});
-        aggiornaSaldoCassa(); renderIncLista();
-      });
-    }
+    toast('🗑 Spostata nel Cestino');
   }, 'user');
 }
 
 async function eliminaVersamento(id){
-  openMo('Elimina versamento', 'Eliminare questo versamento?', async ()=>{
+  openMo('Elimina versamento', 'Spostare nel Cestino questo versamento? Resta recuperabile per '+RITENZIONE_CESTINO_GIORNI+' giorni.', async ()=>{
     closeMo();
-    const _copiaVers = versamenti.find(v=>v.id===id);
     versamenti = versamenti.filter(v=>v.id!==id);
     salvaVersamentiLocale();
-    try{ await sbFetch('versamenti?id=eq.'+id, {method:'DELETE', headers:{...SB_H,'Prefer':'return=minimal'}}); }catch(e){}
+    try{ await sbFetch('versamenti?id=eq.'+id, {method:'PATCH', headers:{...SB_H,'Prefer':'return=minimal'}, body:JSON.stringify({deleted_at:new Date().toISOString()})}); }catch(e){}
     aggiornaSaldoCassa();
     renderVersamenti();
-    toast('✓ Eliminato');
-    if(_copiaVers){
-      _showUndoToastGenerico('Versamento', async ()=>{
-        versamenti.push(_copiaVers);
-        salvaVersamentiLocale();
-        await sbFetch('versamenti', {method:'POST', headers:{...SB_H,'Prefer':'return=minimal'}, body:JSON.stringify(_copiaVers)}).catch(()=>{});
-        aggiornaSaldoCassa(); renderVersamenti();
-      });
-    }
+    toast('🗑 Spostato nel Cestino');
   }, 'user');
 }
 
@@ -12782,6 +12913,37 @@ function apriCambioAbbinamentoConferma(idx){
   if(!d) return;
   _apriPickerCambioAbbinamento(d.mov, d.fatt);
 }
+// Rimanda esplicitamente un movimento a "Da classificare" — usata quando nessuna
+// delle fatture proposte (automatiche o no) è quella giusta, invece di lasciare
+// che l'app riprovi a indovinarne un'altra da sola.
+async function _rimandaADaClassificare(mov, fAttuale){
+  if(fAttuale && fAttuale.id){
+    mov._rifiutati = mov._rifiutati || [];
+    mov._rifiutati.push(fAttuale.id);
+    try{
+      var rif = [];
+      try{ rif = JSON.parse(localStorage.getItem('ceraldi_recon_rifiutati')||'[]'); }catch(e){}
+      var chiaveDesc = (mov.descrizione||'').toLowerCase().replace(/\s+/g,'').slice(0,40);
+      rif.push(chiaveDesc+'|'+fAttuale.id);
+      localStorage.setItem('ceraldi_recon_rifiutati', JSON.stringify(rif.slice(-500)));
+    }catch(e){}
+    if(fAttuale.stato==='pagata' && fAttuale.dataPagamento===mov.data){
+      fAttuale.stato = 'da_pagare';
+      fAttuale.dataPagamento = '';
+      if(typeof dbUpdate==='function') dbUpdate(fAttuale);
+    }
+  }
+  mov.abbinata = false;
+  mov.fatturaId = null;
+  mov.fatturaLabel = '';
+  mov.ignorata = false; // esplicitamente "da classificare", non "ignorato"
+  await salvaMovimentoBanca(mov);
+  toast('↩️ Spostato in "Da classificare"');
+  var _sy = window.pageYOffset || document.documentElement.scrollTop || 0;
+  renderRiconciliazione();
+  setTimeout(function(){ window.scrollTo(0, _sy); }, 30);
+}
+
 function _apriPickerCambioAbbinamento(m, fAttuale){
   const existing = document.getElementById('cambioAbbMo');
   if(existing) existing.remove();
@@ -12811,6 +12973,15 @@ function _apriPickerCambioAbbinamento(m, fAttuale){
   lista.id = 'cambioAbbLista';
   lista.style.cssText = 'overflow-y:auto;flex:1;padding:0 16px 20px';
   sheet.appendChild(lista);
+
+  const footer = document.createElement('div');
+  footer.style.cssText = 'padding:10px 16px 18px;border-top:1px solid var(--sep);flex-shrink:0';
+  footer.innerHTML = '<button id="btnRimandaDaClassificare" style="width:100%;padding:12px;border:1px solid var(--red);border-radius:10px;background:var(--red-light);color:var(--red);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">↩️ Nessuna di queste — sposta in "Da classificare"</button>';
+  sheet.appendChild(footer);
+  setTimeout(()=>{
+    const btnR = document.getElementById('btnRimandaDaClassificare');
+    if(btnR) btnR.onclick = ()=>{ _rimandaADaClassificare(m, fAttuale); mo.remove(); };
+  }, 50);
 
   mo.appendChild(sheet);
   mo.onclick = e=>{ if(e.target===mo) mo.remove(); };
