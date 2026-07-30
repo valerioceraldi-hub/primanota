@@ -403,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.18.0</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.18.1</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -8504,6 +8504,20 @@ async function sincronizzaOra(){
   const ok=await loadAll(true); // forceRefresh: ignora cache
   aggiornaDL(); renderLista(); aggiornaAlertBanner(); updRiep();
   renderDizForn(); renderPagDefault(); renderFornRateList(); aggiornaMenuAI();
+  // Mancavano del tutto: senza queste, "Sincronizza ora" non aggiornava mai
+  // chiusure/versamenti/POS/movimenti banca — solo le fatture.
+  await caricaIncassi();
+  await caricaMovimentiBanca();
+  aggiornaSaldoCassa();
+  if(document.getElementById('view-banca') && document.getElementById('view-banca').classList.contains('active')){
+    renderRiconciliazione();
+  }
+  if(document.getElementById('view-incassi') && document.getElementById('view-incassi').classList.contains('active')){
+    if(_incTabAttivo === 'giorno') caricaChiusuraGiorno();
+    if(_incTabAttivo === 'versamenti') renderVersamenti();
+    if(_incTabAttivo === 'lista') renderIncLista();
+    if(_incTabAttivo === 'mese') renderIncMese();
+  }
   if(ok) toast('✓ Dati aggiornati dal Cloud!');
   else toast('&#9888; Offline - dati dalla cache');
 }
