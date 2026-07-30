@@ -403,7 +403,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.18.1</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.19.0</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -1015,10 +1015,10 @@ details[open] summary span:first-child{transform:rotate(90deg);display:inline-bl
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">💳 Come sono stati incassati</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
         <div><div style="font-size:10px;color:var(--ink3);margin-bottom:3px">💵 Cassa contanti</div><input type="text" id="chgCassa" inputmode="decimal" placeholder="0,00" oninput="_chgRecalc()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right"></div>
-        <div><div style="font-size:10px;color:var(--ink3);margin-bottom:3px">💳 Chiusura POS (fiscale)</div><input type="text" id="chgPos" inputmode="decimal" placeholder="0,00" oninput="_chgRecalc()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right"></div>
+        <div><div style="font-size:10px;color:var(--ink3);margin-bottom:3px">💳 Pagamenti elettronici (fiscale)</div><input type="text" id="chgPos" inputmode="decimal" placeholder="0,00" oninput="_chgRecalc()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right"></div>
       </div>
       <div style="margin-bottom:10px">
-        <div style="font-size:10px;color:#0066cc;margin-bottom:3px">🏦 POS accreditato in banca</div>
+        <div style="font-size:10px;color:#0066cc;margin-bottom:3px">🏦 Totale estratto POS</div>
         <input type="text" id="chgPosBanca" inputmode="decimal" placeholder="0,00 (se diverso dal POS fiscale)" oninput="_chgRecalc()" style="width:100%;padding:10px;border:1.5px solid #b3d7f5;border-radius:8px;font-size:14px;background:#f0f7ff;box-sizing:border-box;text-align:right">
         <div id="chgPosScostamento" style="font-size:11px;margin-top:4px;display:none"></div>
       </div>
@@ -9482,8 +9482,23 @@ function renderIncLista(){
     const scostPOS = posBanca > 0 ? posBanca - pos : null;
     const coincide = posBanca > 0 && Math.abs(scostPOS) < 0.01;
     const rigaPosBanca = posBanca > 0 ? `
-      <tr><td style="padding:5px 0;color:#0066cc">🏦 POS accreditato in banca</td><td style="padding:5px 0;text-align:right;color:#0066cc">${fmt(posBanca)} ${coincide?'✅':''}</td></tr>
-      ${coincide ? '' : `<tr><td style="padding:5px 0;color:${scostPOS<0?'var(--red)':'#b36a00'};padding-left:12px">· Differenza vs Chiusura POS</td><td style="padding:5px 0;text-align:right;font-weight:600;color:${scostPOS<0?'var(--red)':'#b36a00'}">${scostPOS>=0?'+':''}${fmt(scostPOS)}</td></tr>`}` : '';
+      <tr><td style="padding:5px 0;color:#0066cc">🏦 Totale estratto POS</td><td style="padding:5px 0;text-align:right;color:#0066cc">${fmt(posBanca)} ${coincide?'✅':''}</td></tr>
+      ${coincide ? '' : `<tr><td style="padding:5px 0;color:${scostPOS<0?'var(--red)':'#b36a00'};padding-left:12px">· Differenza vs Pagamenti elettronici</td><td style="padding:5px 0;text-align:right;font-weight:600;color:${scostPOS<0?'var(--red)':'#b36a00'}">${scostPOS>=0?'+':''}${fmt(scostPOS)}</td></tr>`}` : '';
+    // Confronto banca vs estratto carta Numia (transazione per transazione,
+    // importato separatamente con "Import POS Numia") — due fonti indipendenti
+    // che devono coincidere se tutto è stato accreditato correttamente.
+    const totNumiaCard = (typeof incassi!=='undefined' ? incassi : []).filter(function(x){return x.data===c.data && x.source==='numia' && x.esito==='ok';}).reduce(function(s,x){return s+(x.importo||0);},0);
+    const scostBancaNumia = (posBanca > 0 && totNumiaCard > 0) ? Math.round((posBanca - totNumiaCard)*100)/100 : null;
+    const coincideBancaNumia = scostBancaNumia !== null && Math.abs(scostBancaNumia) < 0.50;
+    const rigaBancaVsNumia = (posBanca > 0 && totNumiaCard > 0) ? `
+      <tr><td colspan="2" style="padding:2px 0"></td></tr>
+      <tr><td style="padding:5px 0;color:var(--ink2);font-weight:600">🔄 Banca vs estratto carta Numia</td><td></td></tr>
+      <tr><td style="padding:5px 0;color:var(--ink3);padding-left:12px">· Estratto carta Numia</td><td style="padding:5px 0;text-align:right">${fmt(totNumiaCard)}</td></tr>
+      <tr><td colspan="2" style="text-align:center;padding:6px 0">
+        ${coincideBancaNumia
+          ? '<span style="background:var(--green-light);color:#1a7a3a;padding:3px 10px;border-radius:99px;font-weight:700;font-size:12px">✓ Riconciliato</span>'
+          : `<span style="background:var(--red-light);color:var(--red);padding:3px 10px;border-radius:99px;font-weight:700;font-size:12px">⚠️ Scostamento ${fmt(Math.abs(scostBancaNumia))}</span>`}
+      </td></tr>` : '';
     const sintesi = isParziale
       ? (mancaCassa
           ? `💵 <span style="color:#b36a00;font-weight:600">non inserita</span> · 💳 ${fmt(pos)} POS`
@@ -9494,8 +9509,8 @@ function renderIncLista(){
       ? `<tr><td style="padding:5px 0;color:#b36a00">💵 Cassa contanti</td><td style="padding:5px 0;text-align:right;color:#b36a00;font-style:italic">non inserita</td></tr>`
       : `<tr><td style="padding:5px 0;color:var(--ink3)">💵 Cassa contanti</td><td style="padding:5px 0;text-align:right">${fmt(cassa)}</td></tr>`;
     const rigaPos = (mancaPos)
-      ? `<tr><td style="padding:5px 0;color:#b36a00">💳 Chiusura POS</td><td style="padding:5px 0;text-align:right;color:#b36a00;font-style:italic">non inserito</td></tr>`
-      : `<tr><td style="padding:5px 0;color:var(--ink3)">💳 Chiusura POS</td><td style="padding:5px 0;text-align:right">${fmt(pos)}</td></tr>`;
+      ? `<tr><td style="padding:5px 0;color:#b36a00">💳 Pagamenti elettronici</td><td style="padding:5px 0;text-align:right;color:#b36a00;font-style:italic">non inserito</td></tr>`
+      : `<tr><td style="padding:5px 0;color:var(--ink3)">💳 Pagamenti elettronici</td><td style="padding:5px 0;text-align:right">${fmt(pos)}</td></tr>`;
     // Riga finale: se parziale mostro "Parziale" senza valore di differenza, altrimenti come prima
     const rigaFinale = isParziale
       ? `<tr style="border-top:1px solid var(--sep)"><td style="padding:5px 0;color:#b36a00;font-weight:600">⚠️ ${mancaCassa?'Cassa contanti mancante':'POS mancante'}</td><td style="padding:5px 0;text-align:right;color:#b36a00;font-weight:700;font-size:12px">solo parziale</td></tr>`
@@ -9533,6 +9548,7 @@ function renderIncLista(){
             ${rigaCassa}
             ${rigaPos}
             ${rigaPosBanca}
+            ${rigaBancaVsNumia}
             <tr><td style="padding:5px 0;color:var(--ink3)">Totale incassato</td><td style="padding:5px 0;text-align:right;font-weight:600">${isParziale ? '— solo parziale —' : fmt(cassa+pos)}</td></tr>
             ${rigaFinale}
           </table>
@@ -9614,6 +9630,20 @@ function renderIncMese(){
   const nGiorniRiconc = giorniRiconciliati.length;
   const nGiorniTot = inMese.length;
   const diffPosBancaFiscale = Math.round((totPosBanca - totPosFiscaleRiconc) * 100) / 100;
+  // Confronto banca vs estratto carta Numia (transazione per transazione) per
+  // l'intero periodo — solo sui giorni dove entrambi i dati sono disponibili.
+  const giorniConEntrambi = inMese.filter(c=>{
+    if(!(c.pos_banca>0)) return false;
+    const totG = (typeof incassi!=='undefined'?incassi:[]).filter(x=>x.data===c.data && x.source==='numia' && x.esito==='ok').reduce((s,x)=>s+(x.importo||0),0);
+    return totG > 0;
+  });
+  const totBancaConEntrambi = giorniConEntrambi.reduce((s,c)=>s+(c.pos_banca||0),0);
+  const totNumiaConEntrambi = giorniConEntrambi.reduce((s,c)=>{
+    const totG = (typeof incassi!=='undefined'?incassi:[]).filter(x=>x.data===c.data && x.source==='numia' && x.esito==='ok').reduce((s2,x)=>s2+(x.importo||0),0);
+    return s+totG;
+  },0);
+  const nGiorniEntrambi = giorniConEntrambi.length;
+  const diffBancaNumia = Math.round((totBancaConEntrambi - totNumiaConEntrambi)*100)/100;
   // Totale incassato/quadratura: si basa sulla Chiusura POS fiscale (quello che è
   // successo davvero in giornata), non sul dato banca che arriva con ritardo.
   const totInc = totCassa + totPosFiscale;
@@ -9630,7 +9660,7 @@ function renderIncMese(){
       <tr><td style="padding:6px 4px;padding-left:16px;color:var(--ink3);font-size:12px">· IVA 10% a debito</td><td style="padding:6px 4px;text-align:right">${fmt(ivaDebito)}</td></tr>
       <tr><td colspan="2" style="border-top:1px solid var(--sep);padding:4px"></td></tr>
       <tr><td style="padding:6px 4px;color:var(--ink3)">💵 Cassa contanti</td><td style="padding:6px 4px;text-align:right">${fmt(totCassa)}</td></tr>
-      <tr><td style="padding:6px 4px;color:var(--ink3)">💳 Chiusura POS</td><td style="padding:6px 4px;text-align:right">${fmt(totPosFiscale)}</td></tr>
+      <tr><td style="padding:6px 4px;color:var(--ink3)">💳 Pagamenti elettronici</td><td style="padding:6px 4px;text-align:right">${fmt(totPosFiscale)}</td></tr>
       <tr><td style="padding:6px 4px;font-weight:700">Totale incassato</td><td style="padding:6px 4px;text-align:right;font-weight:700">${fmt(totInc)}</td></tr>
     </table>
     <div style="padding:10px;border-radius:8px;text-align:center;font-weight:600;background:${Math.abs(diff)<=0.50?'var(--green-light)':'var(--red-light)'};color:${Math.abs(diff)<=0.50?'#1a7a3a':'var(--red)'}">
@@ -9638,16 +9668,30 @@ function renderIncMese(){
     </div>
 
     <div style="margin-top:14px;padding:12px;border-radius:10px;background:var(--surface2)">
-      <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:8px">🏦 Chiusura POS vs accreditato in banca</div>
+      <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:8px">🏦 Pagamenti elettronici vs Totale estratto POS</div>
       <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px">
-        <tr><td style="padding:4px 0;color:var(--ink3)">💳 Chiusura POS</td><td style="padding:4px 0;text-align:right">${fmt(totPosFiscaleRiconc)}</td></tr>
-        <tr><td style="padding:4px 0;color:var(--ink3)">🏦 POS accreditato in banca</td><td style="padding:4px 0;text-align:right">${fmt(totPosBanca)}</td></tr>
+        <tr><td style="padding:4px 0;color:var(--ink3)">💳 Pagamenti elettronici</td><td style="padding:4px 0;text-align:right">${fmt(totPosFiscaleRiconc)}</td></tr>
+        <tr><td style="padding:4px 0;color:var(--ink3)">🏦 Totale estratto POS</td><td style="padding:4px 0;text-align:right">${fmt(totPosBanca)}</td></tr>
       </table>
       ${nGiorniRiconc===0
         ? `<div style="font-size:12px;color:var(--ink3)">Nessun giorno ancora riconciliato con l'estratto conto in questo periodo.</div>`
         : Math.abs(diffPosBancaFiscale)<=0.50
           ? `<div style="padding:8px;border-radius:8px;background:var(--green-light);color:#1a7a3a;font-weight:600;font-size:13px;text-align:center">✓ Coincidono (${nGiorniRiconc}/${nGiorniTot} giorni riconciliati)</div>`
           : `<div style="padding:8px;border-radius:8px;background:var(--red-light);color:var(--red);font-weight:600;font-size:13px;text-align:center">⚠️ Differenza ${fmt(Math.abs(diffPosBancaFiscale))} (${nGiorniRiconc}/${nGiorniTot} giorni riconciliati)</div>`
+      }
+    </div>
+
+    <div style="margin-top:10px;padding:12px;border-radius:10px;background:var(--surface2)">
+      <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:8px">🔄 Estratto conto banca vs estratto carta Numia</div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px">
+        <tr><td style="padding:4px 0;color:var(--ink3)">🏦 Estratto conto banca</td><td style="padding:4px 0;text-align:right">${fmt(totBancaConEntrambi)}</td></tr>
+        <tr><td style="padding:4px 0;color:var(--ink3)">💳 Estratto carta Numia</td><td style="padding:4px 0;text-align:right">${fmt(totNumiaConEntrambi)}</td></tr>
+      </table>
+      ${nGiorniEntrambi===0
+        ? `<div style="font-size:12px;color:var(--ink3)">Nessun giorno con entrambi i dati disponibili in questo periodo.</div>`
+        : Math.abs(diffBancaNumia)<=0.50
+          ? `<div style="padding:8px;border-radius:8px;background:var(--green-light);color:#1a7a3a;font-weight:600;font-size:13px;text-align:center">✓ Riconciliato (${nGiorniEntrambi}/${nGiorniTot} giorni)</div>`
+          : `<div style="padding:8px;border-radius:8px;background:var(--red-light);color:var(--red);font-weight:600;font-size:13px;text-align:center">⚠️ Scostamento ${fmt(Math.abs(diffBancaNumia))} (${nGiorniEntrambi}/${nGiorniTot} giorni)</div>`
       }
     </div>
     <button onclick="esportaMeseIncassi('${nomeFileMese}')" style="width:100%;margin-top:10px;padding:12px;border:none;border-radius:10px;background:var(--blue);color:#fff;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer">📥 Esporta XLSX per commercialista</button>`;
