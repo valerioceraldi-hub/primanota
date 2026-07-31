@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.21.0</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.24.0</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -3146,6 +3146,7 @@ function _aggiornaAss(px){
   let id1, id2, idFull;
   if(px==='r'){ id1='rAss1'; id2='rAss2'; idFull='rAss'; }
   else if(px==='m'){ id1='mAss1'; id2='mAss2'; idFull='mAss'; }
+  else if(px==='q'){ id1='qpcAss1'; id2='qpcAss2'; idFull='qpcAssNum'; }
   else { id1='eAss2a'; id2='eAss2b'; idFull='eAss2'; }
   const v1=(document.getElementById(id1)||{}).value||'';
   const v2=(document.getElementById(id2)||{}).value||'';
@@ -3406,7 +3407,7 @@ function aggiornaHeroCard(){
   const meseStr = ora.toISOString().slice(0,7);
   const meseLbl = ora.toLocaleDateString('it-IT',{month:'long',year:'numeric'});
   const fattureMese = fatture.filter(f=>f.data&&f.data.startsWith(meseStr)&&f.tipo!=='ddt');
-  const totaleMese = fattureMese.reduce((s,f)=>s+(f.tipo==='nota_credito' ? -(f.importo||0) : (f.importo||0)),0);
+  const totaleMese = fattureMese.reduce((s,f)=>s+(f.importo||0),0);
   const oggi = ora.toISOString().slice(0,10);
   const daPagare = fatture.filter(f=>(f.stato==='da_pagare'||f.stato==='parziale')&&f.tipo!=='ddt').length;
   const scadute = fatture.filter(f=>(f.stato==='da_pagare'||f.stato==='parziale')&&f.tipo!=='ddt'&&f.scadenza&&f.scadenza<oggi).length;
@@ -4548,8 +4549,13 @@ function _quickPayConfirmDialog(id){
   });
   html += '</div>';
   html += '<div id="qpcAssegnoFields" style="display:' + (metodoDefault==='assegno'?'block':'none') + ';margin-bottom:14px">';
-  html += '<div style="margin-bottom:10px"><label style="display:block;font-size:12px;font-weight:600;color:var(--ink3);margin-bottom:5px">Numero assegno</label>';
-  html += '<input id="qpcAssNum" type="text" autocapitalize="characters" placeholder="Es. AB1234567" style="width:100%;padding:11px 13px;border:1.5px solid var(--sep);border-radius:10px;font-size:15px;background:var(--surface2);color:var(--ink);box-sizing:border-box;font-family:inherit"></div>';
+  html += '<div style="margin-bottom:10px"><label style="display:block;font-size:12px;font-weight:600;color:var(--ink3);margin-bottom:5px">N° Assegno</label>';
+  html += '<div style="display:flex;align-items:center;gap:8px">';
+  html += '<input id="qpcAss1" type="text" placeholder="0208770855" inputmode="numeric" pattern="[0-9]*" maxlength="10" autocomplete="off" autocorrect="off" spellcheck="false" style="flex:1;padding:11px 13px;border:1.5px solid var(--sep);border-radius:10px;font-size:15px;background:var(--surface2);color:var(--ink);box-sizing:border-box;font-family:inherit" oninput="_aggiornaAss(\'q\')">';
+  html += '<span style="font-size:18px;font-weight:700;color:var(--ink3)">-</span>';
+  html += '<input id="qpcAss2" type="text" placeholder="07" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" autocorrect="off" spellcheck="false" style="width:64px;padding:11px 13px;border:1.5px solid var(--sep);border-radius:10px;font-size:15px;background:var(--surface2);color:var(--ink);box-sizing:border-box;font-family:inherit" oninput="_aggiornaAss(\'q\')">';
+  html += '</div>';
+  html += '<input type="hidden" id="qpcAssNum" value=""></div>';
   html += '<div><label style="display:block;font-size:12px;font-weight:600;color:var(--ink3);margin-bottom:5px">Intestatario</label>';
   html += '<input id="qpcAssInt" type="text" autocapitalize="words" value="' + esc(f.fornitore||'') + '" style="width:100%;padding:11px 13px;border:1.5px solid var(--sep);border-radius:10px;font-size:15px;background:var(--surface2);color:var(--ink);box-sizing:border-box;font-family:inherit"></div>';
   html += '<div style="margin-top:10px"><label style="display:block;font-size:12px;font-weight:600;color:var(--ink3);margin-bottom:5px">Banca</label>';
@@ -4573,7 +4579,7 @@ function _quickPayConfirmDialog(id){
     });
     var af = document.getElementById('qpcAssegnoFields');
     if(af) af.style.display = metodo === 'assegno' ? 'block' : 'none';
-    if(metodo === 'assegno') setTimeout(function(){ try{document.getElementById('qpcAssNum').focus();}catch(e){} }, 50);
+    if(metodo === 'assegno') setTimeout(function(){ try{document.getElementById('qpcAss1').focus();}catch(e){} }, 50);
   };
 
   document.getElementById('qpcClose').onclick = function(){ mo.remove(); };
@@ -6465,6 +6471,7 @@ async function _confermaPuliziaFornitori(){
   const gruppi = window._gruppiFornDaPulire || [];
   const checkbox = [...document.querySelectorAll('#puliziaFornSheet input[type=checkbox]:checked')];
   let rimossi = 0;
+  let fattureRinominate = 0;
   for(const c of checkbox){
     const gi = parseInt(c.getAttribute('data-gi'),10);
     const ni = parseInt(c.getAttribute('data-ni'),10);
@@ -6472,11 +6479,26 @@ async function _confermaPuliziaFornitori(){
     if(!g) continue;
     const nome = g.daRimuovere[ni];
     if(!nome) continue;
+    // Rinomina anche le fatture già registrate con questo nome verso quello che
+    // resta (g.tenere) — prima veniva cancellato solo dalla lista fornitori,
+    // lasciando le fatture storiche agganciate al nome rimosso: sembrava un
+    // duplicato "pulito" ma in realtà le fatture restavano orfane, ed è per
+    // questo che "Unifica fornitori simili" trovava di nuovo la stessa coppia.
+    for(let i=0;i<fatture.length;i++){
+      if((fatture[i].fornitore||'').trim()===nome){
+        fatture[i].fornitore = g.tenere;
+        try{ const _r=await dbUpdate(fatture[i]); if(_r&&_r[0])_updateCacheRow(_r[0]); }catch(e){}
+        fattureRinominate++;
+      }
+    }
+    const dbPag=cacheGet(KDP,{}); if(dbPag[nome]){dbPag[g.tenere]=dbPag[g.tenere]||dbPag[nome];delete dbPag[nome];sbSaveImpostazione(KDP,dbPag).catch(()=>{});}
+    const dbL=cacheGet(KL,{}); if(dbL[nome]){dbL[g.tenere]=dbL[g.tenere]||dbL[nome];delete dbL[nome];sbSaveImpostazione(KL,dbL).catch(()=>{});}
     await dbDeleteForn(nome);
     const idx = fornitori.indexOf(nome);
     if(idx>=0) fornitori.splice(idx,1);
     rimossi++;
   }
+  save(fatture); renderLista();
   aggiornaDL();
   // Esito mostrato dentro il foglio stesso (il toast ora mostra solo errori,
   // qui serve una conferma visibile di un'azione esplicitamente richiesta).
@@ -6485,6 +6507,7 @@ async function _confermaPuliziaFornitori(){
     sheet.innerHTML = '<div style="padding:30px 20px;text-align:center">'
       + '<div style="font-size:32px;margin-bottom:10px">✅</div>'
       + '<div style="font-size:16px;font-weight:700;margin-bottom:6px">Rimossi '+rimossi+' fornitori duplicati</div>'
+      + (fattureRinominate>0?'<div style="font-size:13px;color:var(--ink3)">'+fattureRinominate+' fattur'+(fattureRinominate!==1?'e':'a')+' riassegnat'+(fattureRinominate!==1?'e':'a')+' al nome corretto</div>':'')
       + '<button onclick="document.getElementById(\'puliziaFornMo\').remove()" style="margin-top:14px;padding:10px 24px;border:none;border-radius:10px;background:var(--blue);color:#fff;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer">Chiudi</button>'
       + '</div>';
   }
@@ -6825,11 +6848,7 @@ async function bonificaFornitoriErrati(silent){
     var sospette = fatture.filter(function(f){
       if(!f.fornitore) return false;
       // Solo fatture intestate erroneamente a noi
-      if(!/ceraldi/i.test(f.fornitore)) return false;
-      // Deve avere un XML da rileggere
-      var hasXml = (f.xmlGithubPath && f.xmlGithubPath.length > 0)
-                || (f.fatturaAllegata && f.fatturaAllegata.length > 100);
-      return hasXml;
+      return /ceraldi/i.test(f.fornitore);
     });
     if(!sospette.length){ if(!silent) toast('Nessuna fattura da correggere'); return 0; }
     if(!silent) toast('\ud83d\udd0d Controllo '+sospette.length+' fatture\u2026');
@@ -8483,6 +8502,46 @@ async function init(){
 
   // All'avvio: solo ricerca fatture duplicate (riconciliazione DDT↔fatture disabilitata)
   // setTimeout(()=>{ try{ const c=trovaCoppie(); if(c.length) _riconciliaStep(c,0,0); }catch(e){} }, 6000);
+// ── AUTOCOMPLETE FORNITORE (personalizzato) ──
+// Il <datalist> nativo usato finora non mostra suggerimenti in modo affidabile
+// su iOS/WebView — questo mostra un elenco a tendina vero, sempre funzionante.
+function _attivaAutocompleteFornitore(inputId){
+  var inp = document.getElementById(inputId);
+  if(!inp || inp._acWired) return;
+  inp._acWired = true;
+  var parent = inp.parentElement;
+  if(parent && getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
+  var dd = document.createElement('div');
+  dd.id = inputId+'_ac';
+  dd.style.cssText = 'position:absolute;left:0;right:0;z-index:500;background:var(--surface);border:1px solid var(--sep);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.15);max-height:180px;overflow-y:auto;display:none;margin-top:2px';
+  parent.appendChild(dd);
+
+  function render(){
+    var v = inp.value.trim().toLowerCase();
+    if(!v){ dd.style.display='none'; return; }
+    var match = (typeof fornitori!=='undefined'?fornitori:[]).filter(function(f){ return f.toLowerCase().indexOf(v)>=0; }).slice(0,6);
+    if(!match.length){ dd.style.display='none'; return; }
+    dd.innerHTML = match.map(function(f){
+      return '<div class="ac-item" data-nome="'+esc(f)+'" style="padding:10px 13px;font-size:14px;border-bottom:1px solid var(--sep);cursor:pointer">'+esc(f)+'</div>';
+    }).join('');
+    dd.style.display = 'block';
+  }
+  inp.addEventListener('input', render);
+  inp.addEventListener('focus', render);
+  inp.addEventListener('blur', function(){ setTimeout(function(){ dd.style.display='none'; }, 150); });
+  dd.addEventListener('mousedown', function(e){
+    e.preventDefault();
+    var item = e.target.closest('.ac-item');
+    if(!item) return;
+    inp.value = item.getAttribute('data-nome');
+    dd.style.display = 'none';
+    inp.dispatchEvent(new Event('input'));
+  });
+}
+setTimeout(function(){
+  ['mForn','rForn','eForn2'].forEach(_attivaAutocompleteFornitore);
+}, 1000);
+
   setTimeout(()=>deduplicaFatture(), 12000);
   setTimeout(()=>_purgaCestinoScaduto(), 20000);
   // DISATTIVATA (29/07): bonificaNoteCreditoErrate si basava sul presupposto che le note
@@ -9517,9 +9576,11 @@ function renderIncLista(){
     const coincide = totNumiaCard > 0 && Math.abs(scostPOS) < 0.01;
     const rigaPosBanca = totNumiaCard > 0 ? `
       <tr><td style="padding:5px 0;color:#0066cc">💳 Estratto carta Numia</td><td style="padding:5px 0;text-align:right;color:#0066cc">${fmt(totNumiaCard)} ${coincide?'✅':''}</td></tr>
-      ${coincide ? '' : `<tr><td style="padding:5px 0;color:${scostPOS<0?'var(--red)':'#b36a00'};padding-left:12px">· Differenza vs Pagamenti elettronici</td><td style="padding:5px 0;text-align:right;font-weight:600;color:${scostPOS<0?'var(--red)':'#b36a00'}">${scostPOS>=0?'+':''}${fmt(scostPOS)}</td></tr>`}` : '';
+      ${coincide ? '' : `<tr><td style="padding:5px 0;color:${scostPOS<0?'var(--red)':'#b36a00'};padding-left:12px">· Differenza vs Pagamenti elettronici</td><td style="padding:5px 0;text-align:right;font-weight:600;color:${scostPOS<0?'var(--red)':'#b36a00'}">${scostPOS>=0?'+':''}${fmt(scostPOS)}</td></tr>`}`
+      : (posBanca > 0 ? `<tr><td style="padding:5px 0;color:#0066cc">🏦 Estratto conto banca</td><td style="padding:5px 0;text-align:right;color:#0066cc">${fmt(posBanca)}</td></tr>` : '');
     const scostBancaNumia = (posBanca > 0 && totNumiaCard > 0) ? Math.round((posBanca - totNumiaCard)*100)/100 : null;
     const coincideBancaNumia = scostBancaNumia !== null && Math.abs(scostBancaNumia) < 0.50;
+    const nonQuadraBancaNumia = scostBancaNumia !== null && !coincideBancaNumia;
     const rigaBancaVsNumia = (posBanca > 0 && totNumiaCard > 0) ? `
       <tr><td colspan="2" style="padding:2px 0"></td></tr>
       <tr><td style="padding:5px 0;color:var(--ink2);font-weight:600">🔄 Banca vs estratto carta Numia</td><td></td></tr>
@@ -9556,7 +9617,7 @@ function renderIncLista(){
       <!-- Riga riassuntiva (tap per espandere) -->
       <div onclick="toggleChiusuraDetail('${detailId}')" style="padding:12px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
         <div style="flex:1;min-width:0">
-          <div style="font-size:13px;font-weight:600">${dataLabel} ${c.pos_riconciliata?'<span style="font-size:10px;background:var(--blue-light);color:var(--blue);padding:2px 6px;border-radius:99px;font-weight:700;margin-left:4px">🏦 Riconciliata</span>':''}</div>
+          <div style="font-size:13px;font-weight:600">${dataLabel} ${c.pos_riconciliata?(nonQuadraBancaNumia?'<span style="font-size:10px;background:var(--red-light);color:var(--red);padding:2px 6px;border-radius:99px;font-weight:700;margin-left:4px">🏦 Riconciliata ⚠️</span>':'<span style="font-size:10px;background:var(--blue-light);color:var(--blue);padding:2px 6px;border-radius:99px;font-weight:700;margin-left:4px">🏦 Riconciliata</span>'):''}</div>
           <div style="font-size:11px;color:var(--ink3);margin-top:2px">${sintesi}</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
@@ -9717,7 +9778,7 @@ function renderIncMese(){
         ? `<div style="font-size:12px;color:var(--ink3)">Nessun dato Numia importato per questo periodo.</div>`
         : Math.abs(diffPosNumiaFiscale)<=0.50
           ? `<div style="padding:8px;border-radius:8px;background:var(--green-light);color:#1a7a3a;font-weight:600;font-size:13px;text-align:center">✓ Coincidono (${nGiorniConNumia}/${nGiorniTot} giorni con dato Numia)</div>`
-          : `<div style="padding:8px;border-radius:8px;background:var(--red-light);color:var(--red);font-weight:600;font-size:13px;text-align:center">⚠️ Differenza ${fmt(Math.abs(diffPosNumiaFiscale))} (${nGiorniConNumia}/${nGiorniTot} giorni con dato Numia)</div>`
+          : `<div onclick="apriDettaglioScostamento('fiscale-numia','${nomeFileMese}')" style="cursor:pointer;padding:8px;border-radius:8px;background:var(--red-light);color:var(--red);font-weight:600;font-size:13px;text-align:center">⚠️ Differenza ${fmt(Math.abs(diffPosNumiaFiscale))} (${nGiorniConNumia}/${nGiorniTot} giorni con dato Numia) · vedi giorni ›</div>`
       }
     </div>
 
@@ -9731,10 +9792,69 @@ function renderIncMese(){
         ? `<div style="font-size:12px;color:var(--ink3)">Nessun giorno con entrambi i dati disponibili in questo periodo.</div>`
         : Math.abs(diffBancaNumia)<=0.50
           ? `<div style="padding:8px;border-radius:8px;background:var(--green-light);color:#1a7a3a;font-weight:600;font-size:13px;text-align:center">✓ Riconciliato (${nGiorniEntrambi}/${nGiorniTot} giorni)</div>`
-          : `<div style="padding:8px;border-radius:8px;background:var(--red-light);color:var(--red);font-weight:600;font-size:13px;text-align:center">⚠️ Scostamento ${fmt(Math.abs(diffBancaNumia))} (${nGiorniEntrambi}/${nGiorniTot} giorni)</div>`
+          : `<div onclick="apriDettaglioScostamento('banca-numia','${nomeFileMese}')" style="cursor:pointer;padding:8px;border-radius:8px;background:var(--red-light);color:var(--red);font-weight:600;font-size:13px;text-align:center">⚠️ Scostamento ${fmt(Math.abs(diffBancaNumia))} (${nGiorniEntrambi}/${nGiorniTot} giorni) · vedi giorni ›</div>`
       }
     </div>
     <button onclick="esportaMeseIncassi('${nomeFileMese}')" style="width:100%;margin-top:10px;padding:12px;border:none;border-radius:10px;background:var(--blue);color:#fff;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer">📥 Esporta XLSX per commercialista</button>`;
+}
+
+// Drill-down: mostra giorno per giorno dove nasce lo scostamento, invece di
+// lasciare solo il totale aggregato del periodo.
+function apriDettaglioScostamento(tipo, nomeFileMese){
+  const isYtd = /_YTD$/.test(nomeFileMese);
+  const filtroData = isYtd ? nomeFileMese.replace('_YTD','') : nomeFileMese;
+  const inMese = chiusure.filter(c=>c.data && c.data.startsWith(filtroData)).sort((a,b)=>b.data.localeCompare(a.data));
+  const numiaDelGiorno = data => (typeof incassi!=='undefined'?incassi:[]).filter(x=>x.data===data && x.source==='numia' && x.esito==='ok').reduce((s,x)=>s+(x.importo||0),0);
+
+  let righe = [];
+  let titolo = '';
+  if(tipo === 'fiscale-numia'){
+    titolo = '💳 Pagamenti elettronici vs Estratto carta Numia';
+    righe = inMese.map(c=>{
+      const numiaG = numiaDelGiorno(c.data);
+      if(numiaG <= 0) return null;
+      const diffG = Math.round((numiaG - (c.pos||0))*100)/100;
+      return {data:c.data, a:c.pos||0, b:numiaG, diff:diffG};
+    }).filter(Boolean);
+  } else {
+    titolo = '🔄 Estratto conto banca vs estratto carta Numia';
+    righe = inMese.map(c=>{
+      const numiaG = numiaDelGiorno(c.data);
+      if(!(c.pos_banca>0) || numiaG<=0) return null;
+      const diffG = Math.round(((c.pos_banca||0) - numiaG)*100)/100;
+      return {data:c.data, a:c.pos_banca||0, b:numiaG, diff:diffG};
+    }).filter(Boolean);
+  }
+  righe = righe.filter(r=>Math.abs(r.diff)>0.50).sort((a,b)=>Math.abs(b.diff)-Math.abs(a.diff));
+
+  const existing = document.getElementById('scostMo'); if(existing) existing.remove();
+  const mo = document.createElement('div');
+  mo.id = 'scostMo';
+  mo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:900;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)';
+  const sheet = document.createElement('div');
+  sheet.style.cssText = 'background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:80vh;overflow-y:auto';
+  let html = '<div style="padding:16px 20px 8px;border-bottom:1px solid var(--sep);display:flex;justify-content:space-between;align-items:center">'
+    + '<span style="font-size:16px;font-weight:700">'+titolo+'</span>'
+    + '<button onclick="document.getElementById(\'scostMo\').remove()" style="background:var(--surface2);border:none;border-radius:99px;width:30px;height:30px;font-size:17px;cursor:pointer">&times;</button>'
+    + '</div><div style="padding:12px 20px 24px">';
+  if(!righe.length){
+    html += '<div style="text-align:center;padding:20px;color:var(--ink3);font-size:13px">Nessun giorno con uno scostamento superiore a 0,50€ trovato — la differenza totale nasce da tanti piccoli scarti sparsi sui giorni con dato disponibile.</div>';
+  } else {
+    html += '<div style="font-size:12px;color:var(--ink3);margin-bottom:10px">Giorni ordinati dallo scostamento più grande</div>';
+    righe.forEach(r=>{
+      const dLbl = new Date(r.data+'T12:00:00').toLocaleDateString('it-IT',{weekday:'short',day:'2-digit',month:'short',year:'numeric'});
+      html += '<div style="padding:9px 0;border-bottom:1px solid var(--sep);display:flex;justify-content:space-between;align-items:center">'
+        + '<div style="font-size:13px;color:var(--ink)">'+dLbl+'</div>'
+        + '<div style="text-align:right"><div style="font-size:13px;font-weight:700;color:'+(r.diff<0?'var(--red)':'#b36a00')+'">'+(r.diff>=0?'+':'')+fmt(r.diff)+'</div>'
+        + '<div style="font-size:11px;color:var(--ink3)">'+fmt(r.a)+' vs '+fmt(r.b)+'</div></div>'
+        + '</div>';
+    });
+  }
+  html += '</div>';
+  sheet.innerHTML = html;
+  mo.appendChild(sheet);
+  mo.onclick = e=>{ if(e.target===mo) mo.remove(); };
+  document.body.appendChild(mo);
 }
 
 async function esportaMeseIncassi(mese){
@@ -11646,6 +11766,24 @@ function renderRiconciliazione(){
       // REGOLA FONDAMENTALE: proponi solo se importo identico ±0.50€
       if(diffImp > 0.50) continue;
 
+      // REGOLA SDD: per un addebito diretto la fattura deve essere sempre
+      // antecedente (o dello stesso giorno) rispetto alla data dell'addebito —
+      // non ha senso abbinare in automatico una fattura non ancora emessa.
+      var isSDD = /sdd\s+core|sdd\s+b2b/i.test(m.descrizione);
+      if(isSDD && new Date(f.data+'T12:00:00') > new Date(m.data+'T12:00:00')) continue;
+
+      // REGOLA SPECIALE ALD Automotive / Arval: gli addebiti mensili (canone
+      // leasing, sempre stesso importo) si riferiscono sempre alla fattura di
+      // ESATTAMENTE due mesi prima — senza questo vincolo sarebbero ambigui,
+      // dato che più fatture consecutive hanno lo stesso importo.
+      if(isSDD && /ald automotive|arval/i.test(f.fornitore||'')){
+        var dMovv = new Date(m.data+'T12:00:00');
+        var meseTarget = dMovv.getMonth() - 2, annoTarget = dMovv.getFullYear();
+        if(meseTarget < 0){ meseTarget += 12; annoTarget -= 1; }
+        var dFatt = new Date(f.data+'T12:00:00');
+        if(!(dFatt.getFullYear()===annoTarget && dFatt.getMonth()===meseTarget)) continue;
+      }
+
       // Match su numero assegno
       if(isAssegno && numAssStr && f.assegno){
         var assClean = String(f.assegno).replace(/\D/g,'');
@@ -11664,7 +11802,7 @@ function renderRiconciliazione(){
 
       // ── Auto-match SDD/Bonifico: stesso fornitore (≥5 car) + importo identico ──
       // Cerca il nome del fornitore nella descrizione del movimento (o viceversa)
-      if(!matchCerto && (isBonifico || /sdd\s+core|sdd\s+b2b/i.test(m.descrizione))){
+      if(!matchCerto && (isBonifico || isSDD)){
         var _norm = function(s){
           return (s||'').toLowerCase()
             .replace(/\s+s\.?r\.?l\.?|\s+s\.?p\.?a\.?|\s+snc|\s+sas|\s+sarl|\s+di\b|\s+soc\b|\s+spa\b|\s+srl\b|\s+add\.tot|\s+notprovide/gi,'')
@@ -12163,12 +12301,11 @@ function _cercaFatturaPerMovimento(idx){
     var diffGG = Math.abs(dataMov - new Date(f.data+'T12:00:00'))/86400000;
     return diffGG <= 20;
   });
-  if(esatte.length === 1){
-    _cfAbbina(idx, esatte[0].id, false);
-    return;
-  }
-
-  // Prova prima a trovare una combinazione di più fatture (fornitori "a rate")
+  // Anche con un solo importo esatto, NON saltiamo più dritti alla conferma
+  // nativa senza alternative: alcuni fornitori (es. leasing con rata fissa
+  // mensile) hanno più fatture con lo STESSO importo in mesi diversi, quindi
+  // "unico importo esatto entro 20 giorni" non garantisce che sia quella giusta.
+  // Mostriamo comunque la lista completa, con quella più probabile in cima.
   var combo = _trovaCombinazioneRate(imp);
   if(combo){
     var elenco = combo.fatture.map(function(f){
@@ -12556,9 +12693,18 @@ function _cfAbbina(movIdx, fattId, isParziale){
   var ov=document.getElementById('_cfOv');
   if(ov) ov.remove();
   var imp=Math.abs(m.importo), impF=f.importo||0, diff=Math.abs(impF-imp);
+  // Se la fattura è già "pagata" potrebbe essere agganciata a UN ALTRO movimento —
+  // prima veniva sovrascritta senza staccare quello vecchio, lasciando due
+  // movimenti agganciati alla stessa fattura.
+  var movAltrove = (f.stato==='pagata') ? (_bancaMovimenti||[]).find(function(x){ return x.fatturaId===f.id && x.id!==m.id && x.abbinata; }) : null;
   var conf=(isParziale?'Pagamento PARZIALE':'Abbina')+' a:\n'+f.fornitore+' N°'+f.numero+' ('+fmt(impF)+')';
   if(diff>0.50) conf+='\nBanca: '+fmt(imp)+' — diff: '+fmt(diff);
+  if(movAltrove) conf+='\n\n⚠️ Questa fattura è già abbinata al movimento del '+movAltrove.data+', che resterà senza fattura.';
   if(!confirm(conf)) return;
+  if(movAltrove){
+    movAltrove.abbinata=false; movAltrove.fatturaId=null; movAltrove.fatturaLabel='';
+    salvaMovimentoBanca(movAltrove);
+  }
   m.abbinata=true; m.fatturaId=f.id; m.fatturaLabel=(f.fornitore||'')+' N°'+(f.numero||'');
   salvaMovimentoBanca(m); // persiste su Supabase
   // Aggiunge dettagli estratto nelle note
@@ -13043,7 +13189,7 @@ function _apriPickerCambioAbbinamento(m, fAttuale){
   function renderLista_(filtro){
     const s = (filtro||'').toLowerCase();
     const candidati = fatture.filter(f=>
-      f.tipo==='fattura' && (f.stato==='da_pagare'||f.stato==='parziale') &&
+      f.tipo==='fattura' &&
       (!s || f.fornitore.toLowerCase().includes(s) || (f.numero||'').toLowerCase().includes(s))
     ).sort((a,b)=>{
       // Stesso fornitore dell'abbinamento attuale prima di tutto, poi per data (più vicina al movimento prima)
@@ -13063,16 +13209,25 @@ function _apriPickerCambioAbbinamento(m, fAttuale){
       const df = f.data?new Date(f.data).toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'numeric'}):'';
       const eAttuale = f.id===fAttuale.id;
       const eStessoImporto = Math.abs((f.importo||0)-Math.abs(m.importo))<0.02;
-      const bg = eAttuale?'var(--surface2)':(eStessoImporto?'var(--green-light)':'var(--surface2)');
+      // Un'altra fattura può già risultare abbinata a UN ALTRO movimento — prima
+      // veniva semplicemente esclusa dalla lista (f.stato==='pagata' non compariva
+      // mai), rendendo impossibile accorgersene o correggerla da qui.
+      const movAltrove = (!eAttuale && f.stato==='pagata') ? (_bancaMovimenti||[]).find(x=>x.fatturaId===f.id && x.id!==m.id && x.abbinata) : null;
+      const bg = eAttuale?'var(--surface2)':(movAltrove?'var(--orange-light)':(eStessoImporto?'var(--green-light)':'var(--surface2)'));
       const row = document.createElement('div');
       row.style.cssText = 'padding:11px 12px;border-radius:10px;margin-bottom:5px;background:'+bg+';cursor:'+(eAttuale?'default':'pointer')+';display:flex;justify-content:space-between;align-items:center;opacity:'+(eAttuale?'0.5':'1');
       row.innerHTML = '<div style="flex:1;min-width:0">'
         +(eAttuale?'<div style="font-size:10px;font-weight:700;color:var(--ink3);margin-bottom:2px">ATTUALE</div>':'')
+        +(movAltrove?'<div style="font-size:10px;font-weight:700;color:#b36a00;margin-bottom:2px">🔗 GIÀ ABBINATA · '+esc(movAltrove.data||'')+'</div>':'')
         +'<div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(f.fornitore)+'</div>'
         +'<div style="font-size:12px;color:var(--ink3)">N° '+esc(f.numero||'—')+' · '+df+'</div>'
         +'</div>'
         +'<div style="font-weight:700;font-size:14px;margin-left:8px;flex-shrink:0">'+fmt(f.importo||0)+'</div>';
-      if(!eAttuale) row.onclick = ()=>{ _applicaCambioAbbinamento(m, fAttuale, f); mo.remove(); };
+      if(!eAttuale) row.onclick = ()=>{
+        if(movAltrove && !confirm('Questa fattura è già abbinata al movimento del '+movAltrove.data+'. Vuoi spostarla su questo movimento (quello del '+movAltrove.data+' resterà senza fattura)?')) return;
+        _applicaCambioAbbinamento(m, fAttuale, f, movAltrove);
+        mo.remove();
+      };
       lista.appendChild(row);
     });
   }
@@ -13083,7 +13238,16 @@ function _apriPickerCambioAbbinamento(m, fAttuale){
   }, 100);
 }
 
-async function _applicaCambioAbbinamento(mov, vecchiaFattura, nuovaFattura){
+async function _applicaCambioAbbinamento(mov, vecchiaFattura, nuovaFattura, movDaSvincolare){
+  // Se la fattura scelta era già abbinata a UN ALTRO movimento, quel movimento
+  // resta senza fattura — lo rispediamo esplicitamente a "da classificare",
+  // stessa logica già usata altrove, così non sparisce silenziosamente.
+  if(movDaSvincolare){
+    movDaSvincolare.abbinata = false;
+    movDaSvincolare.fatturaId = null;
+    movDaSvincolare.fatturaLabel = '';
+    await salvaMovimentoBanca(movDaSvincolare);
+  }
   // La vecchia fattura non viene più proposta per questo movimento (stesso
   // meccanismo di esclusione usato da "Sbagliato")
   if(vecchiaFattura && vecchiaFattura.id){
