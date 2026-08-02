@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.24.3</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.25.0</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -9739,6 +9739,15 @@ function renderIncMese(){
   // "POS accreditato in banca" = quanto risulta DAVVERO accreditato dall'estratto
   // conto, disponibile solo per i giorni già riconciliati (pos_riconciliata).
   const totPosFiscale = inMese.reduce((s,c)=>s+(c.pos||0), 0);
+  // Confronto diretto banca vs fiscale (indipendente da Numia): copre TUTTI i
+  // giorni già riconciliati con l'estratto conto, non solo quelli che si
+  // sovrappongono al periodo coperto dal CSV Numia (oggi solo giugno) — senza
+  // questo, mesi di riconciliazione bancaria reale restavano invisibili.
+  const giorniRiconciliatiBanca = inMese.filter(c=>c.pos_banca>0 && c.pos_riconciliata);
+  const totBancaSolo = giorniRiconciliatiBanca.reduce((s,c)=>s+(c.pos_banca||0), 0);
+  const totPosFiscaleConBanca = giorniRiconciliatiBanca.reduce((s,c)=>s+(c.pos||0), 0);
+  const nGiorniRiconciliatiBanca = giorniRiconciliatiBanca.length;
+  const diffPosBancaFiscale = Math.round((totBancaSolo - totPosFiscaleConBanca) * 100) / 100;
   // "Estratto carta Numia" = totale delle transazioni del CSV Numia (tabella incassi,
   // source:'numia', esito:'ok') per i giorni disponibili in questo periodo. È lo STESSO
   // dato usato più sotto nel confronto "Estratto conto banca vs estratto carta Numia" —
@@ -9793,6 +9802,20 @@ function renderIncMese(){
     </div>
 
     <div style="margin-top:14px;padding:12px;border-radius:10px;background:var(--surface2)">
+      <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:8px">🏦 Pagamenti elettronici vs Estratto conto banca</div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px">
+        <tr><td style="padding:4px 0;color:var(--ink3)">💳 Pagamenti elettronici</td><td style="padding:4px 0;text-align:right">${fmt(totPosFiscaleConBanca)}</td></tr>
+        <tr><td style="padding:4px 0;color:var(--ink3)">🏦 Estratto conto banca</td><td style="padding:4px 0;text-align:right">${fmt(totBancaSolo)}</td></tr>
+      </table>
+      ${nGiorniRiconciliatiBanca===0
+        ? `<div style="font-size:12px;color:var(--ink3)">Nessun giorno ancora riconciliato con l'estratto conto in questo periodo.</div>`
+        : Math.abs(diffPosBancaFiscale)<=0.50
+          ? `<div style="padding:8px;border-radius:8px;background:var(--green-light);color:#1a7a3a;font-weight:600;font-size:13px;text-align:center">✓ Coincidono (${nGiorniRiconciliatiBanca}/${nGiorniTot} giorni riconciliati)</div>`
+          : `<div onclick="apriDettaglioScostamento('banca-fiscale','${nomeFileMese}')" style="cursor:pointer;padding:8px;border-radius:8px;background:var(--red-light);color:var(--red);font-weight:600;font-size:13px;text-align:center">⚠️ Differenza ${fmt(Math.abs(diffPosBancaFiscale))} (${nGiorniRiconciliatiBanca}/${nGiorniTot} giorni riconciliati) · vedi giorni ›</div>`
+      }
+    </div>
+
+    <div style="margin-top:10px;padding:12px;border-radius:10px;background:var(--surface2)">
       <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:8px">💳 Pagamenti elettronici vs Estratto carta Numia</div>
       ${nGiorniConNumia>0 && nGiorniConNumia<nGiorniTot ? `<div style="font-size:11px;color:var(--ink3);margin-bottom:6px;font-style:italic">Solo sui ${nGiorniConNumia} giorni con dato Numia disponibile (su ${nGiorniTot} nel periodo) — non è il totale dell'intero periodo mostrato sopra.</div>` : ''}
       <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px">
@@ -9833,7 +9856,14 @@ function apriDettaglioScostamento(tipo, nomeFileMese){
 
   let righe = [];
   let titolo = '';
-  if(tipo === 'fiscale-numia'){
+  if(tipo === 'banca-fiscale'){
+    titolo = '🏦 Pagamenti elettronici vs Estratto conto banca';
+    righe = inMese.map(c=>{
+      if(!(c.pos_banca>0) || !c.pos_riconciliata) return null;
+      const diffG = Math.round(((c.pos_banca||0) - (c.pos||0))*100)/100;
+      return {data:c.data, a:c.pos||0, b:c.pos_banca||0, diff:diffG};
+    }).filter(Boolean);
+  } else if(tipo === 'fiscale-numia'){
     titolo = '💳 Pagamenti elettronici vs Estratto carta Numia';
     righe = inMese.map(c=>{
       const numiaG = numiaDelGiorno(c.data);
