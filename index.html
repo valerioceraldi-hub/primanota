@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.24.0</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.24.2</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -508,6 +508,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
       </summary>
       <div style="padding-top:8px">
         <button onclick="if(confirm('Verificare i fornitori delle fatture intestate erroneamente a Ceraldi? L\'app ricontrolla l\'XML e corregge automaticamente.')){bonificaFornitoriErrati(false);chiudiImpostazioni();}" style="width:100%;padding:12px;border:1.5px solid var(--sep);border-radius:var(--radius-sm);background:var(--surface);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:var(--ink);text-align:left">&#128269; Verifica fornitori (correggi intestazioni Ceraldi errate)</button>
+        <button onclick="apriScriptableRT()" style="width:100%;padding:12px;border:1.5px solid var(--sep);border-radius:var(--radius-sm);background:var(--surface);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:var(--ink);text-align:left;margin-top:8px">&#128424;&#65039; Importa chiusure da RT (apre Scriptable)</button>
       </div>
     </details>
   </div>
@@ -1604,7 +1605,23 @@ function setFornitoreAbbinato(fornitore,valore){var db=cacheGet(KABBINA,{});db[f
 const getApiKey = ()=>localStorage.getItem('fatture_apikey')||'';
 const AI_HEADERS = ()=>({'Content-Type':'application/json','x-api-key':getApiKey(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'});
 
-// ── ASSISTENTE AI (ricerca fornitori/fatture/pagamenti/riconciliazione) ──
+// ── LANCIO RAPIDO SCRIPT SCRIPTABLE (import chiusure da RT) ──
+// Non è possibile eseguire davvero lo script DENTRO questa app: Scriptable usa
+// API sue (Request, Alert...) non disponibili in un browser, e il registratore
+// telematico è raggiungibile solo in HTTP sulla rete locale — una pagina HTTPS
+// come questa non può contattarlo per policy di sicurezza del browser. Quello
+// che possiamo fare è aprire Scriptable con un tocco solo, invece di uscire
+// dall'app e cercarlo a mano.
+function apriScriptableRT(){
+  var KSCR = 'ceraldi_scriptable_nome_script';
+  var nome = localStorage.getItem(KSCR);
+  if(!nome){
+    nome = prompt('Nome esatto dello script in Scriptable (come lo vedi nell\'app Scriptable):', 'Ceraldi RT Import');
+    if(!nome) return;
+    localStorage.setItem(KSCR, nome);
+  }
+  location.href = 'scriptable:///run/' + encodeURIComponent(nome);
+}
 function apriAiAssistente(){
   if(!getApiKey()){ toast('⚠️ Imposta prima la chiave API nelle Impostazioni'); return; }
   document.getElementById('modalAiAssist').style.display='flex';
@@ -9602,6 +9619,12 @@ function renderIncLista(){
     const rigaPos = (mancaPos)
       ? `<tr><td style="padding:5px 0;color:#b36a00">💳 Pagamenti elettronici</td><td style="padding:5px 0;text-align:right;color:#b36a00;font-style:italic">non inserito</td></tr>`
       : `<tr><td style="padding:5px 0;color:var(--ink3)">💳 Pagamenti elettronici</td><td style="padding:5px 0;text-align:right">${fmt(pos)}</td></tr>`;
+    // Vendite fiscalmente registrate (fanno parte del totale corrispettivi) ma
+    // non ancora incassate — non sono un errore di quadratura, vanno solo
+    // mostrate perché altrimenti la differenza "sparisce" senza spiegazione.
+    const rigaNonRiscosso = (c.non_riscosso && c.non_riscosso > 0)
+      ? `<tr><td style="padding:5px 0;color:#b36a00">📋 Non riscosso</td><td style="padding:5px 0;text-align:right;color:#b36a00">${fmt(c.non_riscosso)}</td></tr>`
+      : '';
     // Riga finale: se parziale mostro "Parziale" senza valore di differenza, altrimenti come prima
     const rigaFinale = isParziale
       ? `<tr style="border-top:1px solid var(--sep)"><td style="padding:5px 0;color:#b36a00;font-weight:600">⚠️ ${mancaCassa?'Cassa contanti mancante':'POS mancante'}</td><td style="padding:5px 0;text-align:right;color:#b36a00;font-weight:700;font-size:12px">solo parziale</td></tr>`
@@ -9638,6 +9661,7 @@ function renderIncLista(){
             <tr style="border-top:1px solid var(--sep)"></tr>
             ${rigaCassa}
             ${rigaPos}
+            ${rigaNonRiscosso}
             ${rigaPosBanca}
             ${rigaBancaVsNumia}
             <tr><td style="padding:5px 0;color:var(--ink3)">Totale incassato</td><td style="padding:5px 0;text-align:right;font-weight:600">${isParziale ? '— solo parziale —' : fmt(cassa+pos)}</td></tr>
