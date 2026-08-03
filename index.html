@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.26.1</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.26.3</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -9739,6 +9739,11 @@ function renderIncMese(){
   // "POS accreditato in banca" = quanto risulta DAVVERO accreditato dall'estratto
   // conto, disponibile solo per i giorni già riconciliati (pos_riconciliata).
   const totPosFiscale = inMese.reduce((s,c)=>s+(c.pos||0), 0);
+  // Vendite fiscalmente registrate ma non ancora incassate (conto sospeso, cliente
+  // che paga più tardi). Vanno incluse nella quadratura: cassa+pos DA SOLI non
+  // possono mai coincidere con corrispettivi quando esiste non riscosso, perché
+  // quei soldi non sono ancora entrati né in cassa né sul POS.
+  const totNonRiscosso = inMese.reduce((s,c)=>s+(c.non_riscosso||0), 0);
   // "Estratto carta Numia" = totale delle transazioni del CSV Numia (tabella incassi,
   // source:'numia', esito:'ok') per i giorni disponibili in questo periodo. È lo STESSO
   // dato usato più sotto nel confronto "Estratto conto banca vs estratto carta Numia" —
@@ -9771,8 +9776,11 @@ function renderIncMese(){
   const diffBancaNumia = Math.round((totBancaConEntrambi - totNumiaConEntrambi)*100)/100;
   // Totale incassato/quadratura: si basa sulla Chiusura POS fiscale (quello che è
   // successo davvero in giornata), non sul dato banca che arriva con ritardo.
+  // Il non riscosso NON è "incassato" (i soldi non ci sono ancora), ma va incluso
+  // nella quadratura: senza, cassa+pos risulterebbe sempre più basso dei
+  // corrispettivi di esattamente il non riscosso, dando un falso scostamento.
   const totInc = totCassa + totPosFiscale;
-  const diff = Math.round((totInc - totCorr) * 100) / 100;
+  const diff = Math.round((totInc + totNonRiscosso - totCorr) * 100) / 100;
   // Scorporo IVA 10% (unica aliquota del bar)
   const imponibile = totCorr / 1.10;
   const ivaDebito = totCorr - imponibile;
@@ -9787,9 +9795,10 @@ function renderIncMese(){
       <tr><td style="padding:6px 4px;color:var(--ink3)">💵 Cassa contanti</td><td style="padding:6px 4px;text-align:right">${fmt(totCassa)}</td></tr>
       <tr><td style="padding:6px 4px;color:var(--ink3)">💳 Pagamenti elettronici</td><td style="padding:6px 4px;text-align:right">${fmt(totPosFiscale)}</td></tr>
       <tr><td style="padding:6px 4px;font-weight:700">Totale incassato</td><td style="padding:6px 4px;text-align:right;font-weight:700">${fmt(totInc)}</td></tr>
+      ${totNonRiscosso>0 ? `<tr><td style="padding:6px 4px;color:#b36a00">📋 Non ancora riscosso</td><td style="padding:6px 4px;text-align:right;color:#b36a00">${fmt(totNonRiscosso)}</td></tr>` : ''}
     </table>
-    <div style="padding:10px;border-radius:8px;text-align:center;font-weight:600;background:${Math.abs(diff)<=0.50?'var(--green-light)':'var(--red-light)'};color:${Math.abs(diff)<=0.50?'#1a7a3a':'var(--red)'}">
-      ${Math.abs(diff)<=0.50 ? '✓ Quadratura OK' : `⚠️ Scostamento POS ${fmt(Math.abs(diff))}`}
+    <div ${Math.abs(diff)>0.50?`onclick="apriDettaglioScostamento('corrispettivi-incassato','${nomeFileMese}')" style="cursor:pointer;`:'style="'}padding:10px;border-radius:8px;text-align:center;font-weight:600;background:${Math.abs(diff)<=0.50?'var(--green-light)':'var(--red-light)'};color:${Math.abs(diff)<=0.50?'#1a7a3a':'var(--red)'}">
+      ${Math.abs(diff)<=0.50 ? '✓ Quadratura OK' : `⚠️ Scostamento da verificare ${fmt(Math.abs(diff))} · vedi giorni ›`}
     </div>
 
     <div style="margin-top:14px;padding:12px;border-radius:10px;background:var(--surface2)">
@@ -9833,7 +9842,16 @@ function apriDettaglioScostamento(tipo, nomeFileMese){
 
   let righe = [];
   let titolo = '';
-  if(tipo === 'fiscale-numia'){
+  if(tipo === 'corrispettivi-incassato'){
+    titolo = '⚠️ Scostamento da verificare';
+    righe = inMese.map(c=>{
+      const d = c.differenza || 0;
+      if(Math.abs(d) <= 0.50) return null;
+      const inc = (c.cassa||0)+(c.pos||0)+(c.non_riscosso||0);
+      const tot = c.totale_corrispettivi || c.totaleCorrispettivi || ((c.iva22||0)+(c.iva10||0)+(c.iva4||0));
+      return {data:c.data, a:tot, b:inc, diff:d};
+    }).filter(Boolean);
+  } else if(tipo === 'fiscale-numia'){
     titolo = '💳 Pagamenti elettronici vs Estratto carta POS';
     righe = inMese.map(c=>{
       const numiaG = numiaDelGiorno(c.data);
@@ -9892,7 +9910,7 @@ async function esportaMeseIncassi(mese){
   const r1_10 = 1.10;
   const nomeFile = isYtd ? filtroData+'_da-inizio-anno' : mese;
   if(typeof XLSX === 'undefined'){
-    const header = 'Data;Totale corrispettivi;Imponibile 10%;IVA 10% a debito;Cassa contanti;Estratto POS;Totale incassato;Scostamento POS;Note\n';
+    const header = 'Data;Totale corrispettivi;Imponibile 10%;IVA 10% a debito;Cassa contanti;Estratto POS;Totale incassato;Scostamento;Note\n';
     const rows = inMese.map(c=>{
       const t = getTot(c), imp = t/r1_10, iva = t-imp;
       return [
@@ -9905,17 +9923,21 @@ async function esportaMeseIncassi(mese){
     condividi(header+rows, `corrispettivi_${nomeFile}.csv`, 'text/csv');
     return;
   }
-  const headers = ['Data','Totale corrispettivi','Imponibile 10%','IVA 10% a debito','Cassa contanti','Estratto POS','Totale incassato','Scostamento POS','Note'];
+  const headers = ['Data','Totale corrispettivi','Imponibile 10%','IVA 10% a debito','Cassa contanti','Estratto POS','Totale incassato','Scostamento','Note'];
   const data = [headers, ...inMese.map(c=>{
     const t = getTot(c), imp = Math.round((t/r1_10)*100)/100, iva = Math.round((t-imp)*100)/100;
     return [c.data, t, imp, iva, c.cassa||0, c.pos||0, c.incassato||0, c.differenza||0, c.note||''];
   })];
-  // Riga totali finale
+  // Riga totali finale: lo scostamento è la SOMMA delle differenze giornaliere già
+  // salvate (c.differenza, che include il non riscosso) — non va ricalcolato da
+  // zero con cassa+pos-totale, altrimenti il non riscosso sparisce e genera un
+  // falso scostamento pari esattamente al totale non riscosso del periodo.
   const totT = inMese.reduce((s,c)=>s+getTot(c),0);
   const totImp = Math.round((totT/r1_10)*100)/100, totIva = Math.round((totT-totImp)*100)/100;
   const totCassa = inMese.reduce((s,c)=>s+(c.cassa||0),0);
   const totPos = inMese.reduce((s,c)=>s+(c.pos_banca||c.pos||0),0); // banca vince su fiscale
-  data.push(['TOTALE', totT, totImp, totIva, totCassa, totPos, totCassa+totPos, Math.round((totCassa+totPos-totT)*100)/100, '']);
+  const totScostamento = Math.round(inMese.reduce((s,c)=>s+(c.differenza||0),0)*100)/100;
+  data.push(['TOTALE', totT, totImp, totIva, totCassa, totPos, totCassa+totPos, totScostamento, '']);
   const ws = XLSX.utils.aoa_to_sheet(data);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, isYtd ? 'Corrispettivi '+filtroData : 'Corrispettivi '+mese);
