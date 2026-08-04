@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.26.5</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.26.6</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -11955,8 +11955,11 @@ function renderRiconciliazione(){
     // Se matchCerto con verificato = già in app → spunta silenzioso
     // (a meno che il metodo reale non contraddica il pagamento predefinito del fornitore:
     // in quel caso non auto-verifichiamo, chiediamo conferma mostrando l'avviso)
+    // REGOLA ASSEGNI: un assegno non viene MAI auto-confermato o abbinato in
+    // automatico, anche con un match "certo" (es. numero assegno coincidente) —
+    // richiede sempre una conferma manuale prima di considerarlo riconciliato.
     var _defDiv1 = matchCerto ? _defaultDiverso(matchCerto.fornitore) : null;
-    if(matchCerto && verificato && matchCerto.stato==='pagata' && !_defDiv1){
+    if(matchCerto && verificato && matchCerto.stato==='pagata' && !_defDiv1 && !isAssegno){
       m.abbinata       = true;
       m.fatturaId      = matchCerto.id;
       m.fatturaLabel   = (matchCerto.fornitore||'') + ' N°' + (matchCerto.numero||'');
@@ -11968,7 +11971,7 @@ function renderRiconciliazione(){
         fornitore:matchCerto.fornitore||'', numero:matchCerto.numero||''
       });
 
-    } else if(matchCerto && !_defaultDiverso(matchCerto.fornitore)){
+    } else if(matchCerto && !_defaultDiverso(matchCerto.fornitore) && !isAssegno){
       m.abbinata     = true;
       m.fatturaId    = matchCerto.id;
       m.fatturaLabel = (matchCerto.fornitore||'') + ' N°' + (matchCerto.numero||'');
@@ -11980,13 +11983,17 @@ function renderRiconciliazione(){
       });
 
     } else if(matchCerto){
-      // matchCerto c'è, ma il metodo contraddice il default del fornitore: chiedi conferma
+      // matchCerto c'è, ma finisce comunque in "da confermare" perché:
+      // - il metodo reale contraddice il default del fornitore, oppure
+      // - è un assegno (mai auto-confermato, qualunque sia la certezza del match)
       var _defC = _defaultDiverso(matchCerto.fornitore);
       m._matchProbabile = matchCerto;
       m._matchScore     = 100;
       daConfermare.push({mov:m, fatt:matchCerto, score:100,
         isAssegno:isAssegno, isBonifico:isBonifico, numAssStr:numAssStr,
-        avviso:'⚠️ Di solito paghi "'+matchCerto.fornitore+'" con '+_defC+', ma questo sembra un '+metodoMovimento});
+        avviso: _defC
+          ? '⚠️ Di solito paghi "'+matchCerto.fornitore+'" con '+_defC+', ma questo sembra un '+metodoMovimento
+          : (isAssegno ? '📝 Assegno — verifica sempre manualmente prima di confermare' : null)});
 
     } else if(matchProbabile){
       var _defP = _defaultDiverso(matchProbabile.fornitore);
@@ -12021,6 +12028,77 @@ function renderRiconciliazione(){
     autoContantiCount++;
   });
   if(autoContantiCount>0) toast('💵 '+autoContantiCount+' fattur'+(autoContantiCount>1?'e segnate':'a segnata')+' pagate in contanti (default fornitore)');
+
+  // ── AUTO-SERIE RATE (generalizzato a qualsiasi fornitore): una fattura può
+  // essere pagata con PIÙ movimenti di importo IDENTICO invece che con un
+  // singolo movimento — tipico degli assegni a rate (es. fattura 3000€ pagata
+  // con 3 assegni da 1000€, spesso a mesi alterni). A differenza di
+  // _trovaCombinazioneRate (che cerca più FATTURE per UN movimento, solo per i
+  // fornitori pre-configurati in Impostazioni), questo cerca più MOVIMENTI per
+  // UNA fattura, per qualunque fornitore, usando solo i movimenti rimasti
+  // liberi dopo il giro di abbinamento sopra.
+  // Se trova TUTTE le rate attese → propone il gruppo come "da confermare"
+  // (mai auto-confermato: gli assegni comunque non lo sarebbero mai, e anche
+  // per i bonifici a rate è giusto un controllo umano prima di chiudere).
+  // Se ne manca esattamente UNA → non tocca lo stato della fattura, ma segnala
+  // le rate trovate come "da confermare" con nota esplicita che manca l'ultima,
+  // probabilmente perché non ancora presente in un estratto conto importato.
+  var _movUsatiSerie = new Set();
+  fattCandidati.forEach(function(f){
+    if(fattIdUsate.has(f.id)) return;      // già abbinata a un singolo movimento
+    if(f.stato==='pagata') return;
+    var target = nettoFattura(f);
+    if(target <= 1) return;
+
+    var liberi = _bancaMovimenti.filter(function(m){
+      return m.tipo==='uscita' && !m.abbinata && !_movUsatiSerie.has(m.id) && Math.abs(m.importo) < target - 0.5;
+    });
+    if(liberi.length < 2) return;
+
+    // Raggruppa i movimenti liberi per importo pressoché identico (±0,50€)
+    var gruppi = [];
+    liberi.forEach(function(m){
+      var g = gruppi.find(function(gr){ return Math.abs(gr.rata - Math.abs(m.importo)) <= 0.50; });
+      if(g) g.mov.push(m); else gruppi.push({rata:Math.abs(m.importo), mov:[m]});
+    });
+
+    gruppi.forEach(function(g){
+      if(g.mov.length < 2) return;
+      var rata = g.rata;
+      var nRateAttese = Math.round(target / rata);
+      // La rata deve "dividere" bene l'importo fattura (tolleranza 1€ sul totale)
+      if(nRateAttese < 2 || Math.abs(nRateAttese*rata - target) > 1) return;
+
+      var completa = g.mov.length >= nRateAttese;
+      var mancaUna = g.mov.length === nRateAttese - 1;
+      if(!completa && !mancaUna) return;
+
+      var scelti = completa ? g.mov.slice(0, nRateAttese) : g.mov.slice();
+      scelti.forEach(function(m){
+        _movUsatiSerie.add(m.id);
+        var idxNA = nonAbbinati.indexOf(m);
+        if(idxNA>=0) nonAbbinati.splice(idxNA,1);
+      });
+
+      var notaExtra = completa
+        ? null
+        : 'manca ancora 1 rata da '+fmt(rata)+' — forse in un estratto conto non ancora importato';
+      scelti.forEach(function(m,i){
+        daConfermare.push({mov:m, fatt:f, score:70,
+          isAssegno:/vostro assegno/i.test(m.descrizione||''), isBonifico:false, numAssStr:'',
+          avviso:'🧩 Possibile rata '+(i+1)+'/'+nRateAttese+' da '+fmt(rata)+' per la fattura da '+fmt(target)+(notaExtra?' — '+notaExtra:'')});
+      });
+
+      if(_reconReport){
+        var chiave = completa ? 'serieRateTrovate' : 'serieRateParziali';
+        _reconReport[chiave] = _reconReport[chiave] || [];
+        _reconReport[chiave].push({
+          fornitore:f.fornitore||'', numero:f.numero||'', importo:target,
+          rata:rata, trovate:g.mov.length, attese:nRateAttese
+        });
+      }
+    });
+  });
 
   // Fix versamenti: dedup per data+importo con conteggio multipli
   // (stesso giorno, stesso importo → contiamo entrambi)
