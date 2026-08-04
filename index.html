@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.26.7</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.26.10</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -11967,7 +11967,7 @@ function renderRiconciliazione(){
       fattIdUsate.add(matchCerto.id);
       giaBanca.push({mov:m, fatt:matchCerto, verificato:true});
       if(_reconReport) _reconReport.fattureAbbinateAuto.push({
-        data:m.data, importo:imp,
+        data:m.data, importo:imp, fattData:matchCerto.data||'',
         fornitore:matchCerto.fornitore||'', numero:matchCerto.numero||''
       });
 
@@ -11978,7 +11978,7 @@ function renderRiconciliazione(){
       fattIdUsate.add(matchCerto.id);
       abbinatiAuto.push({mov:m, fatt:matchCerto, verificato:verificato});
       if(_reconReport) _reconReport.fattureAbbinateAuto.push({
-        data:m.data, importo:imp,
+        data:m.data, importo:imp, fattData:matchCerto.data||'',
         fornitore:matchCerto.fornitore||'', numero:matchCerto.numero||''
       });
 
@@ -12028,6 +12028,90 @@ function renderRiconciliazione(){
     autoContantiCount++;
   });
   if(autoContantiCount>0) toast('💵 '+autoContantiCount+' fattur'+(autoContantiCount>1?'e segnate':'a segnata')+' pagate in contanti (default fornitore)');
+
+  // ── AUTO-SERIE RATE v2 (generalizzato, con guardrail testati sui dati reali) ──
+  // Una fattura può essere pagata con PIÙ movimenti di importo IDENTICO invece
+  // che con uno solo (es. 3 assegni da 1.000€ per una fattura da 3.000€).
+  // La v1 di questa funzione è stata ritirata perché, senza filtri sufficienti,
+  // raggruppava anche piccole spese bancarie ricorrenti e bonifici a dipendenti
+  // (es. 27 "rate" da 1,10€ per una fattura da 29,35€). Questa v2 aggiunge, in
+  // ordine, tutti i filtri che si sono rivelati necessari testando sui dati veri:
+  //  1) stessa regex _escludiMatch del motore principale (esclude commissioni,
+  //     SDD tecnici, e i nomi già noti di dipendenti/soci)
+  //  2) esclusioni aggiuntive emerse dal test (distinte multiple, causali "ADD.SPE"
+  //     cioè la sola quota-spese di un bonifico, enti pubblici, carte di credito)
+  //  3) soglia minima per rata (50€) — le spese ricorrenti sono quasi sempre sotto
+  //  4) soglia minima per fattura (150€) — non ha senso rateizzare importi piccoli
+  //  5) numero di rate plausibile: da 2 a 6 (mai decine di "rate" come nella v1)
+  //  6) nessuna ambiguità: se lo stesso gruppo di importo potrebbe corrispondere a
+  //     più di una fattura candidata, non si propone nulla (troppo incerto)
+  // Anche trovando una serie "completa", non viene MAI auto-confermata: finisce
+  // sempre in "da confermare", stessa regola già valida per i singoli assegni.
+  var _escludiSerie = /beneficiari\s+vari\s+distinta|add\.spe|comune\s+di\s+napoli|american\s+express\s+payments/i;
+  var SERIE_MIN_RATA = 50, SERIE_MIN_FATTURA = 150, SERIE_MIN_N = 2, SERIE_MAX_N = 6;
+
+  var _movLiberiSerie = _bancaMovimenti.filter(function(m){
+    var dl = (m.descrizione||'').toLowerCase();
+    return m.tipo==='uscita' && !m.abbinata
+      && !_escludiMatch.test(dl) && !_escludiSerie.test(dl)
+      && Math.abs(m.importo) >= SERIE_MIN_RATA;
+  });
+
+  var _gruppiSerie = [];
+  _movLiberiSerie.forEach(function(m){
+    var g = _gruppiSerie.find(function(gr){ return Math.abs(gr.rata - Math.abs(m.importo)) <= 0.50; });
+    if(g) g.mov.push(m); else _gruppiSerie.push({rata:Math.abs(m.importo), mov:[m]});
+  });
+  var _gruppiSerieMulti = _gruppiSerie.filter(function(g){ return g.mov.length >= 2; });
+
+  var _fattSerieCandidate = fattCandidati.filter(function(f){
+    return !fattIdUsate.has(f.id) && f.stato!=='pagata' && nettoFattura(f) >= SERIE_MIN_FATTURA;
+  });
+
+  var _movUsatiSerie = new Set();
+  _gruppiSerieMulti.forEach(function(g){
+    var rata = g.rata;
+    // Tutte le fatture che questo gruppo potrebbe soddisfare, con un numero di
+    // rate plausibile (2-6) e importo che torna entro tolleranza
+    var candidatiFatt = _fattSerieCandidate.filter(function(f){
+      var target = nettoFattura(f);
+      var nRate = Math.round(target / rata);
+      if(nRate < SERIE_MIN_N || nRate > SERIE_MAX_N) return false;
+      return Math.abs(nRate*rata - target) <= Math.max(1, target*0.01);
+    });
+    if(candidatiFatt.length !== 1) return; // 0 = nessun match, >1 = ambiguo → non proponiamo nulla
+
+    var f = candidatiFatt[0];
+    var target = nettoFattura(f);
+    var nRateAttese = Math.round(target / rata);
+    var movDisponibili = g.mov.filter(function(m){ return !_movUsatiSerie.has(m.id); });
+    if(movDisponibili.length < 2) return;
+
+    var completa = movDisponibili.length >= nRateAttese;
+    var mancaUna = movDisponibili.length === nRateAttese - 1;
+    if(!completa && !mancaUna) return;
+
+    var scelti = completa ? movDisponibili.slice(0, nRateAttese) : movDisponibili.slice();
+    scelti.forEach(function(m){
+      _movUsatiSerie.add(m.id);
+      var idxNA = nonAbbinati.indexOf(m);
+      if(idxNA>=0) nonAbbinati.splice(idxNA,1);
+    });
+
+    var notaExtra = completa ? null
+      : 'manca ancora 1 rata da '+fmt(rata)+' — forse in un estratto conto non ancora importato';
+    scelti.forEach(function(m,i){
+      daConfermare.push({mov:m, fatt:f, score:70,
+        isAssegno:/vostro assegno/i.test(m.descrizione||''), isBonifico:false, numAssStr:'',
+        avviso:'🧩 Possibile rata '+(i+1)+'/'+nRateAttese+' da '+fmt(rata)+' per la fattura da '+fmt(target)+(notaExtra?' — '+notaExtra:'')});
+    });
+
+    if(_reconReport){
+      var chiave = completa ? 'serieRateTrovate' : 'serieRateParziali';
+      _reconReport[chiave] = _reconReport[chiave] || [];
+      _reconReport[chiave].push({fornitore:f.fornitore||'', numero:f.numero||'', importo:target, rata:rata, trovate:scelti.length, attese:nRateAttese});
+    }
+  });
 
   // Fix versamenti: dedup per data+importo con conteggio multipli
   // (stesso giorno, stesso importo → contiamo entrambi)
@@ -12508,6 +12592,7 @@ function _cfRender(mostraTutte, filtro){
         var diff=Math.abs(impF-imp);
         var diffStr=diff<0.50?'':'diff '+fmt(diff);
         var statoCol=f.stato==='pagata'?'#1a7a3a':(f.stato==='parziale'?'#b36a00':'var(--red)');
+        var movAltrove = f.stato==='pagata' ? (_bancaMovimenti||[]).find(function(x){ return x.fatturaId===f.id && x.abbinata; }) : null;
         var fid=String(f.id).replace(/'/g,'');
         hh+='<div style="padding:10px;border:1px solid var(--sep);border-radius:8px;margin-bottom:8px">';
         hh+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">';
@@ -12516,6 +12601,7 @@ function _cfRender(mostraTutte, filtro){
         hh+='<div style="font-size:11px;color:var(--ink3)">N°'+esc(f.numero||'—')+' · '+f.data+'</div>';
         hh+='<div style="font-size:11px;margin-top:2px"><span style="color:'+statoCol+'">'+f.stato+'</span>';
         if(f.stato==='parziale') hh+=' · Pagato '+fmt(f.parzPagato||0)+' · Resto '+fmt(resto);
+        if(movAltrove) hh+=' · <span style="color:#b36a00;font-weight:700">🔗 già abbinata al movimento del '+esc(movAltrove.data||'')+'</span>';
         hh+='</div></div>';
         hh+='<div style="text-align:right;flex-shrink:0">';
         hh+='<div style="font-size:14px;font-weight:700">'+fmt(impF)+'</div>';
@@ -12570,6 +12656,7 @@ function _cfRender(mostraTutte, filtro){
       var diff=Math.abs(impF-imp);
       var diffStr=diff<0.50?'':'diff '+fmt(diff);
       var statoCol=f.stato==='pagata'?'#1a7a3a':(f.stato==='parziale'?'#b36a00':'var(--red)');
+        var movAltrove = f.stato==='pagata' ? (_bancaMovimenti||[]).find(function(x){ return x.fatturaId===f.id && x.abbinata; }) : null;
       var fid=String(f.id).replace(/'/g,'');
       hh+='<div style="padding:10px;border:1px solid var(--sep);border-radius:8px;margin-bottom:8px">';
       hh+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">';
@@ -12578,6 +12665,7 @@ function _cfRender(mostraTutte, filtro){
       hh+='<div style="font-size:11px;color:var(--ink3)">N°'+esc(f.numero||'—')+' · '+f.data+'</div>';
       hh+='<div style="font-size:11px;margin-top:2px"><span style="color:'+statoCol+'">'+f.stato+'</span>';
       if(f.stato==='parziale') hh+=' · Pagato '+fmt(f.parzPagato||0)+' · Resto '+fmt(resto);
+      if(movAltrove) hh+=' · <span style="color:#b36a00;font-weight:700">🔗 già abbinata al movimento del '+esc(movAltrove.data||'')+'</span>';
       hh+='</div></div>';
       hh+='<div style="text-align:right;flex-shrink:0">';
       hh+='<div style="font-size:14px;font-weight:700">'+fmt(impF)+'</div>';
@@ -12631,10 +12719,11 @@ function _cfMultiplo(){
       lista.forEach(function(f){
         var fid=String(f.id).replace(/'/g,'');
         var statoCol=f.stato==='pagata'?'#1a7a3a':(f.stato==='parziale'?'#b36a00':'var(--red)');
+        var movAltrove = f.stato==='pagata' ? (_bancaMovimenti||[]).find(function(x){ return x.fatturaId===f.id && x.abbinata; }) : null;
         lh+='<div style="display:flex;justify-content:space-between;align-items:center;padding:8px;border:1px solid var(--sep);border-radius:8px;margin-bottom:6px">';
         lh+='<div style="flex:1;min-width:0">';
         lh+='<div style="font-size:12px;font-weight:600">'+esc(f.fornitore||'—')+'</div>';
-        lh+='<div style="font-size:11px;color:var(--ink3)">N°'+esc(f.numero||'—')+' · '+f.data+' · <span style="color:'+statoCol+'">'+f.stato+'</span></div>';
+        lh+='<div style="font-size:11px;color:var(--ink3)">N°'+esc(f.numero||'—')+' · '+f.data+' · <span style="color:'+statoCol+'">'+f.stato+'</span>'+(movAltrove?' · <span style="color:#b36a00;font-weight:700">🔗 già abbinata al '+esc(movAltrove.data||'')+'</span>':'')+'</div>';
         lh+='</div>';
         lh+='<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">';
         lh+='<div style="font-size:13px;font-weight:700">'+fmt(f.importo||0)+'</div>';
@@ -12823,7 +12912,7 @@ function _cfAbbina(movIdx, fattId, isParziale){
     }catch(ex){}
     toast('Abbinato: '+f.fornitore);
   }
-  if(_reconReport) _reconReport.fattureConfermate.push({data:m.data,importo:imp,fornitore:f.fornitore||'',numero:f.numero||''});
+  if(_reconReport) _reconReport.fattureConfermate.push({data:m.data,importo:imp,fattData:f.data||'',fornitore:f.fornitore||'',numero:f.numero||''});
   // Preserva scroll PAGINA
   var _sy = window.pageYOffset || document.documentElement.scrollTop || 0;
   renderRiconciliazione();
@@ -13143,7 +13232,7 @@ function _confermaPagamento(idx, conferma){
     }
     if(typeof dbUpdate==='function') dbUpdate(d.fatt);
     if(_reconReport) _reconReport.fattureConfermate.push({
-      data: d.mov.data, importo: Math.abs(d.mov.importo),
+      data: d.mov.data, importo: Math.abs(d.mov.importo), fattData: d.fatt.data||'',
       fornitore: d.fatt.fornitore||'', numero: d.fatt.numero||''
     });
     // Salva apprendimento
@@ -13518,9 +13607,12 @@ function _mostraReportRiconciliazione(){
     html += '<div style="font-size:13px;font-weight:700;color:#1a7a3a">'+r.fattureAbbinateAuto.length+' · '+fmt(totFattAuto)+'</div>';
     html += '</div>';
     r.fattureAbbinateAuto.forEach(function(f){
-      html += '<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;color:var(--ink2);gap:8px">';
-      html += '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0">'+fmtData(f.data)+' · '+esc(f.fornitore)+(f.numero?' N°'+esc(f.numero):'')+'</span>';
+      html += '<div style="padding:3px 0;font-size:12px;color:var(--ink2)">';
+      html += '<div style="display:flex;justify-content:space-between;gap:8px">';
+      html += '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0">🏦 '+fmtData(f.data)+' · '+esc(f.fornitore)+'</span>';
       html += '<span style="font-weight:600;flex-shrink:0">'+fmt(f.importo)+'</span></div>';
+      html += '<div style="font-size:11px;color:var(--ink3);padding-left:16px">→ fattura'+(f.fattData?' del '+fmtData(f.fattData):'')+(f.numero?' N°'+esc(f.numero):' (senza numero)')+'</div>';
+      html += '</div>';
     });
     html += '</div>';
   }
@@ -13533,9 +13625,12 @@ function _mostraReportRiconciliazione(){
     html += '<div style="font-size:13px;font-weight:700;color:#1a7a3a">'+r.fattureConfermate.length+' · '+fmt(totFattConf)+'</div>';
     html += '</div>';
     r.fattureConfermate.forEach(function(f){
-      html += '<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;color:var(--ink2);gap:8px">';
-      html += '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0">'+fmtData(f.data)+' · '+esc(f.fornitore)+(f.numero?' N°'+esc(f.numero):'')+'</span>';
+      html += '<div style="padding:3px 0;font-size:12px;color:var(--ink2)">';
+      html += '<div style="display:flex;justify-content:space-between;gap:8px">';
+      html += '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0">🏦 '+fmtData(f.data)+' · '+esc(f.fornitore)+'</span>';
       html += '<span style="font-weight:600;flex-shrink:0">'+fmt(f.importo)+'</span></div>';
+      html += '<div style="font-size:11px;color:var(--ink3);padding-left:16px">→ fattura'+(f.fattData?' del '+fmtData(f.fattData):'')+(f.numero?' N°'+esc(f.numero):' (senza numero)')+'</div>';
+      html += '</div>';
     });
     html += '</div>';
   }
@@ -13619,13 +13714,13 @@ function _reportRiconciliazioneTesto(){
   if(r.fattureAbbinateAuto.length){
     var totA = r.fattureAbbinateAuto.reduce(function(s,f){return s+(+f.importo||0);},0);
     L.push('✅ Fatture abbinate auto: '+r.fattureAbbinateAuto.length+' ('+fmt(totA)+')');
-    r.fattureAbbinateAuto.forEach(function(f){ L.push('  · '+f.data+'  '+f.fornitore+(f.numero?' N°'+f.numero:'')+'  '+fmt(f.importo)); });
+    r.fattureAbbinateAuto.forEach(function(f){ L.push('  · movimento '+f.data+' → fattura '+f.fornitore+(f.fattData?' del '+f.fattData:'')+(f.numero?' N°'+f.numero:' (senza numero)')+'  '+fmt(f.importo)); });
     L.push('');
   }
   if(r.fattureConfermate.length){
     var totC = r.fattureConfermate.reduce(function(s,f){return s+(+f.importo||0);},0);
     L.push('👍 Fatture confermate: '+r.fattureConfermate.length+' ('+fmt(totC)+')');
-    r.fattureConfermate.forEach(function(f){ L.push('  · '+f.data+'  '+f.fornitore+(f.numero?' N°'+f.numero:'')+'  '+fmt(f.importo)); });
+    r.fattureConfermate.forEach(function(f){ L.push('  · movimento '+f.data+' → fattura '+f.fornitore+(f.fattData?' del '+f.fattData:'')+(f.numero?' N°'+f.numero:' (senza numero)')+'  '+fmt(f.importo)); });
     L.push('');
   }
   if(r.fattureRifiutate.length){
