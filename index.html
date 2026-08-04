@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.26.10</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.27.0</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -11696,7 +11696,7 @@ function renderRiconciliazione(){
   // Livello 5: nessun match → da classificare manualmente
 
   // Categorie che non possono MAI essere fatture fornitori
-  var _escludiMatch = /commissioni?\s*(numia|pagobancomat|internazionale|01\/|12\/|carta)|^commissioni$|comm\.sdd|comm\.bon|telematico\s+sct|ns\s+rif\.|rif\.[a-z0-9]+\s+comm|rif\.[a-z0-9]+\s+perc|spese\s+e\s+comm|imp\.bollo|rilascio\s+carnet|interessi\s+e\s+comp|^competenze$|mutuo\s+n\.|i24\s+agenzia|agenzia\s+entrate|pag\.to\s+telematico|boll\.cbill|spesa\s+con\s+carta\s+di\s+credito|numia-|sdd\s+core:\s+49rj2252|paypal\s+europe|worldpay|ceraldi\s+valerio|ceraldi\s+vincenzo|ceraldi\s+michele|pocci\s+salvatore|murolo\s+mario|parisi\s+antonio|capezzuto\s+alessandro|taiano\s+luigi|moscato\s+emanuele|guarino\s+giuliano|lesina\s+angela|russo\s+carmine|vespa\s+vincenzo|carotenuto\s+antonella|sankapala|fattura\s+numia|^saldo\s+(iniziale|finale)|riassunto\s+scalare/i;
+  var _escludiMatch = /commissioni?\s*(numia|pagobancomat|internazionale|01\/|12\/|carta)|^commissioni$|comm\.sdd|comm\.bon|telematico\s+sct|ns\s+rif\.|rif\.[a-z0-9]+\s+comm|rif\.[a-z0-9]+\s+perc|spese\s+e\s+comm|imp\.bollo|rilascio\s+carnet|interessi\s+e\s+comp|^competenze$|mutuo\s+n\.|i24\s+agenzia|agenzia\s+entrate|pag\.to\s+telematico|boll\.cbill|spesa\s+con\s+carta\s+di\s+credito|numia-|sdd\s+core:\s+49rj2252|paypal\s+europe|worldpay|ceraldi\s+valerio|ceraldi\s+vincenzo|ceraldi\s+michele|pocci\s+salvatore|murolo\s+mario|parisi\s+antonio|capezzuto\s+alessandro|taiano\s+luigi|moscato\s+emanuele|guarino\s+giuliano|lesina\s+angela|russo\s+carmine|vespa\s+vincenzo|carotenuto\s+antonella|sankapala|fattura\s+numia|^saldo\s+(iniziale|finale)|riassunto\s+scalare|add\.spe/i;
 
   // Apprendimento: legge le associazioni confermate in passato da localStorage
   var _appreso = {};
@@ -12153,7 +12153,7 @@ function renderRiconciliazione(){
     }
   });
 
-  // ═══ 4. RENDERING ═══
+  // ═══ 4. RENDERING (a tab: Da confermare / Da classificare / Riconciliati / Scartati / Tutti i movimenti) ═══
   var html = '';
 
   // Banner Report (visibile solo se ci sono azioni in questa sessione)
@@ -12242,59 +12242,67 @@ function renderRiconciliazione(){
     html += '</div>';
   }
 
-  // ═══ SEZIONE 3: Verificati automaticamente (già in app + confermati da banca) ═══
+  // ═══════════════════════════════════════════════════════════════════
+  // Da qui in poi, tutto il resto viene organizzato in TAB (invece di un
+  // unico lunghissimo elenco a scorrimento) — Da confermare / Da classificare
+  // / Riconciliati / Scartati / Tutti i movimenti — così è chiaro dove
+  // andare a cercare ciascun tipo di movimento.
+  // ═══════════════════════════════════════════════════════════════════
+
+  // ── TAB "Riconciliati": verificati da estratto + abbinati in automatico ──
+  var htmlRiconciliati = '';
   if(giaBanca.length){
-    html += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid var(--green)">';
-    html += '<div style="font-size:13px;font-weight:700;color:#1a7a3a;margin-bottom:4px">✅ Verificati da estratto ('+giaBanca.length+')</div>';
-    html += '<div style="font-size:11px;color:var(--ink3);margin-bottom:10px">Già registrati in app e confermati dalla banca</div>';
+    htmlRiconciliati += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid var(--green)">';
+    htmlRiconciliati += '<div style="font-size:13px;font-weight:700;color:#1a7a3a;margin-bottom:4px">✅ Verificati da estratto ('+giaBanca.length+')</div>';
+    htmlRiconciliati += '<div style="font-size:11px;color:var(--ink3);margin-bottom:10px">Già registrati in app e confermati dalla banca</div>';
     giaBanca.forEach(function(d){
       var m=d.mov, f=d.fatt;
       var tipoIcon = /assegno/i.test(m.sottotipo||'') ? '📝' : '🏦';
       var hasDocG = (f.fatturaAllegata&&f.fatturaAllegata.length>0)||(f.xmlGithubPath&&f.xmlGithubPath.length>0)||(f.source==='aruba')||f.hasAllegata;
-      html += '<div style="padding:8px 0;border-top:1px solid var(--sep);display:flex;justify-content:space-between;align-items:flex-start;gap:8px">';
-      html += '<div style="flex:1;min-width:0">';
-      html += '<div style="font-size:11px;color:var(--ink3)">'+m.data+'</div>';
-      html += '<div style="font-size:11px;color:var(--ink2);word-break:break-word;line-height:1.3;margin:2px 0">'+esc(m.descrizione||'')+'</div>';
-      html += '<div style="font-size:12px;font-weight:600">'+tipoIcon+' '+esc(f.fornitore||'')+'</div>';
-      html += '<div style="font-size:11px;color:var(--ink3)">N°'+esc(f.numero||'')+' · '+fmt(f.importo||0)+'</div>';
-      html += '</div>';
-      html += '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">';
-      if(hasDocG) html += '<button onclick="aprifatturaAllegata('+f.id+')" style="border:none;background:var(--blue-light);color:var(--blue);border-radius:6px;padding:5px 8px;font-size:11px;font-weight:600;cursor:pointer">📄</button>';
-      html += '<button onclick="apriCambioAbbinamentoMov(\''+esc(m.id)+'\')" style="border:none;background:#fff8ee;color:#c06000;border-radius:6px;padding:5px 8px;font-size:11px;font-weight:600;cursor:pointer">✏️</button>';
-      html += '<span style="font-size:11px;background:var(--green-light);color:#1a7a3a;padding:3px 8px;border-radius:99px;font-weight:700;white-space:nowrap">✓ Verificato</span>';
-      html += '</div>';
-      html += '</div>';
+      htmlRiconciliati += '<div style="padding:8px 0;border-top:1px solid var(--sep);display:flex;justify-content:space-between;align-items:flex-start;gap:8px">';
+      htmlRiconciliati += '<div style="flex:1;min-width:0">';
+      htmlRiconciliati += '<div style="font-size:11px;color:var(--ink3)">'+m.data+'</div>';
+      htmlRiconciliati += '<div style="font-size:11px;color:var(--ink2);word-break:break-word;line-height:1.3;margin:2px 0">'+esc(m.descrizione||'')+'</div>';
+      htmlRiconciliati += '<div style="font-size:12px;font-weight:600">'+tipoIcon+' '+esc(f.fornitore||'')+'</div>';
+      htmlRiconciliati += '<div style="font-size:11px;color:var(--ink3)">N°'+esc(f.numero||'')+' · '+fmt(f.importo||0)+'</div>';
+      htmlRiconciliati += '</div>';
+      htmlRiconciliati += '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">';
+      if(hasDocG) htmlRiconciliati += '<button onclick="aprifatturaAllegata('+f.id+')" style="border:none;background:var(--blue-light);color:var(--blue);border-radius:6px;padding:5px 8px;font-size:11px;font-weight:600;cursor:pointer">📄</button>';
+      htmlRiconciliati += '<button onclick="apriCambioAbbinamentoMov(\''+esc(m.id)+'\')" style="border:none;background:#fff8ee;color:#c06000;border-radius:6px;padding:5px 8px;font-size:11px;font-weight:600;cursor:pointer">✏️</button>';
+      htmlRiconciliati += '<span style="font-size:11px;background:var(--green-light);color:#1a7a3a;padding:3px 8px;border-radius:99px;font-weight:700;white-space:nowrap">✓ Verificato</span>';
+      htmlRiconciliati += '</div>';
+      htmlRiconciliati += '</div>';
     });
-    html += '</div>';
+    htmlRiconciliati += '</div>';
   }
 
-  // ═══ SEZIONE 3b: Abbinati in automatico — da controllare, correggibili ═══
   window._abbinatiAutoList = abbinatiAuto;
   if(abbinatiAuto.length){
-    html += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid var(--blue)">';
-    html += '<div style="font-size:13px;font-weight:700;color:var(--blue);margin-bottom:4px">🤖 Abbinati in automatico ('+abbinatiAuto.length+')</div>';
-    html += '<div style="font-size:11px;color:var(--ink3);margin-bottom:10px">Importo e data corrispondono — controlla e correggi se qualcosa non torna</div>';
+    htmlRiconciliati += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid var(--blue)">';
+    htmlRiconciliati += '<div style="font-size:13px;font-weight:700;color:var(--blue);margin-bottom:4px">🤖 Abbinati in automatico ('+abbinatiAuto.length+')</div>';
+    htmlRiconciliati += '<div style="font-size:11px;color:var(--ink3);margin-bottom:10px">Importo e data corrispondono — controlla e correggi se qualcosa non torna</div>';
     abbinatiAuto.forEach(function(d, i){
       var m=d.mov, f=d.fatt;
       var hasDocA = (f.fatturaAllegata&&f.fatturaAllegata.length>0)||(f.xmlGithubPath&&f.xmlGithubPath.length>0)||(f.source==='aruba')||f.hasAllegata;
-      html += '<div style="padding:10px 0;border-top:1px solid var(--sep)">';
-      html += '<div style="font-size:11px;color:var(--ink3);margin-bottom:2px">'+m.data+' · <b>'+fmt(Math.abs(m.importo))+'</b></div>';
-      html += '<div style="font-size:11px;color:var(--ink2);word-break:break-word;line-height:1.3;margin-bottom:6px">'+esc(m.descrizione||'')+'</div>';
-      html += '<div style="font-size:12px;font-weight:600;margin-bottom:2px">'+esc(f.fornitore||'')+'</div>';
-      html += '<div style="font-size:11px;color:var(--ink3);margin-bottom:8px">N°'+esc(f.numero||'')+' · '+fmt(f.importo||0)+'</div>';
-      html += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
-      if(hasDocA) html += '<button onclick="aprifatturaAllegata('+f.id+')" style="padding:7px 10px;border:1px solid var(--blue);border-radius:6px;background:var(--blue-light);color:var(--blue);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">📄 Doc.</button>';
-      html += '<button onclick="_confermaAbbinatoAuto('+i+',true)" style="flex:1;min-width:70px;padding:7px 8px;border:1px solid var(--green);border-radius:6px;background:var(--green-light);color:#1a7a3a;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✓ Giusto</button>';
-      html += '<button onclick="apriCambioAbbinamento('+i+')" style="flex:1;min-width:70px;padding:7px 8px;border:1px solid var(--orange,#f90);border-radius:6px;background:#fff8ee;color:#c06000;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✏️ Cambia</button>';
-      html += '<button onclick="_confermaAbbinatoAuto('+i+',false)" style="flex:1;min-width:70px;padding:7px 8px;border:1px solid var(--red);border-radius:6px;background:var(--red-light);color:var(--red);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✗ Sbagliato</button>';
-      html += '</div></div>';
+      htmlRiconciliati += '<div style="padding:10px 0;border-top:1px solid var(--sep)">';
+      htmlRiconciliati += '<div style="font-size:11px;color:var(--ink3);margin-bottom:2px">'+m.data+' · <b>'+fmt(Math.abs(m.importo))+'</b></div>';
+      htmlRiconciliati += '<div style="font-size:11px;color:var(--ink2);word-break:break-word;line-height:1.3;margin-bottom:6px">'+esc(m.descrizione||'')+'</div>';
+      htmlRiconciliati += '<div style="font-size:12px;font-weight:600;margin-bottom:2px">'+esc(f.fornitore||'')+'</div>';
+      htmlRiconciliati += '<div style="font-size:11px;color:var(--ink3);margin-bottom:8px">N°'+esc(f.numero||'')+' · '+fmt(f.importo||0)+'</div>';
+      htmlRiconciliati += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+      if(hasDocA) htmlRiconciliati += '<button onclick="aprifatturaAllegata('+f.id+')" style="padding:7px 10px;border:1px solid var(--blue);border-radius:6px;background:var(--blue-light);color:var(--blue);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">📄 Doc.</button>';
+      htmlRiconciliati += '<button onclick="_confermaAbbinatoAuto('+i+',true)" style="flex:1;min-width:70px;padding:7px 8px;border:1px solid var(--green);border-radius:6px;background:var(--green-light);color:#1a7a3a;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✓ Giusto</button>';
+      htmlRiconciliati += '<button onclick="apriCambioAbbinamento('+i+')" style="flex:1;min-width:70px;padding:7px 8px;border:1px solid var(--orange,#f90);border-radius:6px;background:#fff8ee;color:#c06000;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✏️ Cambia</button>';
+      htmlRiconciliati += '<button onclick="_confermaAbbinatoAuto('+i+',false)" style="flex:1;min-width:70px;padding:7px 8px;border:1px solid var(--red);border-radius:6px;background:var(--red-light);color:var(--red);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✗ Sbagliato</button>';
+      htmlRiconciliati += '</div></div>';
     });
-    html += '</div>';
+    htmlRiconciliati += '</div>';
   }
+  if(!htmlRiconciliati) htmlRiconciliati = '<div style="text-align:center;padding:30px 14px;color:var(--ink3);font-size:13px">Nessun movimento riconciliato per questo mese.</div>';
 
-  // ═══ SEZIONE 4: Pagamenti da confermare — raggruppati per tipo ═══
+  // ── TAB "Da confermare" ──
+  var htmlConferma = '';
   if(daConfermare.length){
-    // Raggruppa per macro-area
     var grpBonifico = daConfermare.filter(function(d){ return /vs\.disp\.|favore/i.test(d.mov.descrizione); });
     var grpAssegno  = daConfermare.filter(function(d){ return /vostro assegno/i.test(d.mov.descrizione); });
     var grpSDD      = daConfermare.filter(function(d){ return /sdd\s+core|sdd\s+b2b/i.test(d.mov.descrizione); });
@@ -12302,9 +12310,9 @@ function renderRiconciliazione(){
       return !(/vs\.disp\.|favore|vostro assegno|sdd\s+core|sdd\s+b2b/i.test(d.mov.descrizione));
     });
 
-    html += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid #FFB800">';
-    html += '<div style="font-size:13px;font-weight:700;color:#b36a00;margin-bottom:4px">❓ Da confermare ('+daConfermare.length+')</div>';
-    html += '<div style="font-size:11px;color:var(--ink3);margin-bottom:10px">Solo movimenti con importo identico alla fattura</div>';
+    htmlConferma += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid #FFB800">';
+    htmlConferma += '<div style="font-size:13px;font-weight:700;color:#b36a00;margin-bottom:4px">❓ Da confermare ('+daConfermare.length+')</div>';
+    htmlConferma += '<div style="font-size:11px;color:var(--ink3);margin-bottom:10px">Solo movimenti con importo identico alla fattura</div>';
     window._pagDaConfermare = daConfermare;
 
     function _renderGruppo(gruppo, titolo, icona){
@@ -12330,101 +12338,122 @@ function renderRiconciliazione(){
       return hh;
     }
 
-    html += _renderGruppo(grpBonifico, 'Bonifici', '🏦');
-    html += _renderGruppo(grpSDD,      'Addebiti SDD', '🔄');
-    html += _renderGruppo(grpAssegno,  'Assegni', '📝');
-    html += _renderGruppo(grpAltro,    'Altro', '💸');
-    html += '</div>';
+    htmlConferma += _renderGruppo(grpBonifico, 'Bonifici', '🏦');
+    htmlConferma += _renderGruppo(grpSDD,      'Addebiti SDD', '🔄');
+    htmlConferma += _renderGruppo(grpAssegno,  'Assegni', '📝');
+    htmlConferma += _renderGruppo(grpAltro,    'Altro', '💸');
+    htmlConferma += '</div>';
+  } else {
+    htmlConferma = '<div style="text-align:center;padding:30px 14px;color:var(--ink3);font-size:13px">Nessun movimento da confermare per questo mese.</div>';
   }
 
-  // ═══ SEZIONE 5: Non abbinati — da classificare ═══
-  // Pattern esclusione commissioni/voci superflue (usato sia qui che nel pre-filtro uscite)
-  var _escludiClassifica = /commissioni?\s*(numia|pagobancomat|internazionale|carta)|^commissioni$|comm\.sdd|comm\.bon|telematico\s+sct|ns\s+rif\.|rif\.[a-z0-9]+\s+comm|rif\.[a-z0-9]+\s+perc|spese\s+e\s+comm|imp\.bollo|rilascio\s+carnet|interessi\s+e\s+comp|interessi|^competenze$|worldpay|boll\.cbill|pag\.to\s+telematico|fattura\s+numia|numia-|sdd\s+core:\s+49rj2252|paypal\s+europe|ceraldi\s+valerio|ceraldi\s+vincenzo|ceraldi\s+michele|pocci\s+salvatore|murolo\s+mario|parisi\s+antonio|capezzuto\s+alessandro|taiano\s+luigi|moscato\s+emanuele|guarino\s+giuliano|lesina\s+angela|russo\s+carmine|vespa\s+vincenzo|carotenuto\s+antonella|sankapala|mutuo\s+n\.|i24\s+agenzia|agenzia\s+entrate|spesa\s+con\s+carta/i;
+  // ═══ Classificazione movimenti non abbinati: visibili vs filtrati automaticamente ═══
+  var _escludiClassifica = /commissioni?\s*(numia|pagobancomat|internazionale|carta)|^commissioni$|comm\.sdd|comm\.bon|telematico\s+sct|ns\s+rif\.|rif\.[a-z0-9]+\s+comm|rif\.[a-z0-9]+\s+perc|spese\s+e\s+comm|imp\.bollo|rilascio\s+carnet|interessi\s+e\s+comp|interessi|^competenze$|worldpay|boll\.cbill|pag\.to\s+telematico|fattura\s+numia|numia-|sdd\s+core:\s+49rj2252|paypal\s+europe|ceraldi\s+valerio|ceraldi\s+vincenzo|ceraldi\s+michele|pocci\s+salvatore|murolo\s+mario|parisi\s+antonio|capezzuto\s+alessandro|taiano\s+luigi|moscato\s+emanuele|guarino\s+giuliano|lesina\s+angela|russo\s+carmine|vespa\s+vincenzo|carotenuto\s+antonella|sankapala|mutuo\s+n\.|i24\s+agenzia|agenzia\s+entrate|spesa\s+con\s+carta|add\.spe/i;
   var nonAbbinatiVis  = nonAbbinati.filter(function(m){ return !_escludiClassifica.test((m.descrizione||'').toLowerCase()); });
   var nonAbbinatiHide = nonAbbinati.filter(function(m){ return  _escludiClassifica.test((m.descrizione||'').toLowerCase()); });
   window._nonAbbinati = nonAbbinati;
 
+  // ── TAB "Da classificare" ──
+  var htmlClassificare = '';
   if(nonAbbinatiVis.length){
-    html += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid var(--red)">';
-    html += '<div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:4px">⚠️ Da classificare ('+nonAbbinatiVis.length+')</div>';
-    html += '<div style="font-size:11px;color:var(--ink3);margin-bottom:10px">Uscite non abbinate a nessuna fattura — scegli come registrarle</div>';
+    htmlClassificare += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid var(--red)">';
+    htmlClassificare += '<div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:4px">⚠️ Da classificare ('+nonAbbinatiVis.length+')</div>';
+    htmlClassificare += '<div style="font-size:11px;color:var(--ink3);margin-bottom:10px">Uscite non abbinate a nessuna fattura — scegli come registrarle</div>';
     nonAbbinatiVis.forEach(function(m, i){
       var origIdx = nonAbbinati.indexOf(m);
-      html += '<div style="padding:10px 0;border-top:1px solid var(--sep)">';
-      html += '<div style="font-size:11px;color:var(--ink3);margin-bottom:2px">'+m.data+' · <b>'+fmt(Math.abs(m.importo))+'</b>'+(m.sottotipo?' · '+m.sottotipo:'')+'</div>';
-      html += '<div style="font-size:11px;font-weight:500;line-height:1.4;word-break:break-word;white-space:pre-wrap;color:var(--ink);margin-bottom:8px">'+esc(m.descrizione||'')+'</div>';
-      html += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
-      html += '<button onclick="_cercaFatturaPerMovimento('+origIdx+')" style="flex:1;min-width:100px;padding:7px 10px;border:1px solid var(--blue);border-radius:6px;background:var(--blue-light);color:var(--blue);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">🔍 Cerca fattura</button>';
-      html += '<button onclick="_segnaIgnora('+origIdx+')" style="padding:7px 10px;border:1px solid var(--sep);border-radius:6px;background:var(--surface);color:var(--ink3);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">Ignora</button>';
-      html += '</div></div>';
+      htmlClassificare += '<div style="padding:10px 0;border-top:1px solid var(--sep)">';
+      htmlClassificare += '<div style="font-size:11px;color:var(--ink3);margin-bottom:2px">'+m.data+' · <b>'+fmt(Math.abs(m.importo))+'</b>'+(m.sottotipo?' · '+m.sottotipo:'')+'</div>';
+      htmlClassificare += '<div style="font-size:11px;font-weight:500;line-height:1.4;word-break:break-word;white-space:pre-wrap;color:var(--ink);margin-bottom:8px">'+esc(m.descrizione||'')+'</div>';
+      htmlClassificare += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+      htmlClassificare += '<button onclick="_cercaFatturaPerMovimento('+origIdx+')" style="flex:1;min-width:100px;padding:7px 10px;border:1px solid var(--blue);border-radius:6px;background:var(--blue-light);color:var(--blue);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">🔍 Cerca fattura</button>';
+      htmlClassificare += '<button onclick="_segnaIgnora('+origIdx+')" style="padding:7px 10px;border:1px solid var(--sep);border-radius:6px;background:var(--surface);color:var(--ink3);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">Ignora</button>';
+      htmlClassificare += '</div></div>';
     });
-    html += '</div>';
+    htmlClassificare += '</div>';
+  } else {
+    htmlClassificare = '<div style="text-align:center;padding:30px 14px;color:var(--ink3);font-size:13px">Nessun movimento da classificare per questo mese.</div>';
   }
 
-  // ═══ SEZIONE 5b: Movimenti filtrati (commissioni, spese banca, ecc.) ═══
+  // ── TAB "Scartati": filtrati automaticamente + ignorati manualmente ──
+  var htmlScartati = '';
   if(nonAbbinatiHide.length){
-    html += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid #ccc">';
-    html += '<div onclick="var d=document.getElementById(\'_filtrati\');d.style.display=d.style.display===\'none\'?\'block\':\'none\'" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer">';
-    html += '<div><span style="font-size:13px;font-weight:700;color:var(--ink3)">🚫 Filtrati automaticamente ('+nonAbbinatiHide.length+')</span></div>';
-    html += '<span style="font-size:11px;color:var(--ink3)">▼ mostra</span>';
-    html += '</div>';
-    html += '<div id="_filtrati" style="display:none;margin-top:10px">';
-    html += '<div style="font-size:11px;color:var(--ink3);margin-bottom:8px">Commissioni bancarie, bolli, stipendi e altre voci non abbinabili a fatture</div>';
+    htmlScartati += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid #ccc">';
+    htmlScartati += '<div style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:4px">🚫 Filtrati automaticamente ('+nonAbbinatiHide.length+')</div>';
+    htmlScartati += '<div style="font-size:11px;color:var(--ink3);margin-bottom:10px">Commissioni bancarie, bolli, stipendi e altre voci non abbinabili a fatture</div>';
     nonAbbinatiHide.forEach(function(m){
-      html += '<div style="padding:7px 0;border-top:1px solid var(--sep);display:flex;justify-content:space-between;align-items:flex-start;gap:8px">';
-      html += '<div style="flex:1;min-width:0">';
-      html += '<div style="font-size:11px;color:var(--ink3)">'+m.data+' · <b>'+fmt(Math.abs(m.importo))+'</b>'+(m.sottotipo?' · <i>'+m.sottotipo+'</i>':'')+'</div>';
-      html += '<div style="font-size:11px;color:var(--ink2);word-break:break-word;line-height:1.3">'+esc(m.descrizione||'')+'</div>';
-      html += '</div>';
-      html += '<button onclick="apriCambioAbbinamentoMov(\''+esc(m.id)+'\')" style="border:none;background:#fff8ee;color:#c06000;border-radius:6px;padding:5px 8px;font-size:11px;font-weight:600;cursor:pointer;flex-shrink:0;white-space:nowrap">🔍 Riconcilia</button>';
-      html += '</div>';
+      htmlScartati += '<div style="padding:7px 0;border-top:1px solid var(--sep);display:flex;justify-content:space-between;align-items:flex-start;gap:8px">';
+      htmlScartati += '<div style="flex:1;min-width:0">';
+      htmlScartati += '<div style="font-size:11px;color:var(--ink3)">'+m.data+' · <b>'+fmt(Math.abs(m.importo))+'</b>'+(m.sottotipo?' · <i>'+m.sottotipo+'</i>':'')+'</div>';
+      htmlScartati += '<div style="font-size:11px;color:var(--ink2);word-break:break-word;line-height:1.3">'+esc(m.descrizione||'')+'</div>';
+      htmlScartati += '</div>';
+      htmlScartati += '<button onclick="apriCambioAbbinamentoMov(\''+esc(m.id)+'\')" style="border:none;background:#fff8ee;color:#c06000;border-radius:6px;padding:5px 8px;font-size:11px;font-weight:600;cursor:pointer;flex-shrink:0;white-space:nowrap">🔍 Riconcilia</button>';
+      htmlScartati += '</div>';
     });
-    html += '</div></div>';
+    htmlScartati += '</div>';
   }
-
-  // ═══ SEZIONE 5c: Ignorati — ripristinabili ═══
   var ignorati = movMese.filter(function(m){ return m.ignorata; });
   window._movimentiIgnorati = ignorati;
   if(ignorati.length){
-    html += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid var(--ink3)">';
-    html += '<div onclick="var d=document.getElementById(\'_ignoratiBox\');d.style.display=d.style.display===\'none\'?\'block\':\'none\'" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer">';
-    html += '<div><span style="font-size:13px;font-weight:700;color:var(--ink3)">🙈 Ignorati ('+ignorati.length+')</span></div>';
-    html += '<span style="font-size:11px;color:var(--ink3)">▼ mostra</span>';
-    html += '</div>';
-    html += '<div id="_ignoratiBox" style="display:none;margin-top:10px">';
+    htmlScartati += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid var(--ink3)">';
+    htmlScartati += '<div style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:10px">🙈 Ignorati manualmente ('+ignorati.length+')</div>';
     ignorati.forEach(function(m, i){
-      html += '<div style="padding:10px 0;border-top:1px solid var(--sep)">';
-      html += '<div style="font-size:11px;color:var(--ink3);margin-bottom:2px">'+m.data+' · <b>'+fmt(Math.abs(m.importo))+'</b>'+(m.sottotipo?' · '+m.sottotipo:'')+'</div>';
-      html += '<div style="font-size:11px;color:var(--ink2);word-break:break-word;line-height:1.3;margin-bottom:8px">'+esc(m.descrizione||'')+'</div>';
-      html += '<button onclick="_ripristinaIgnorato('+i+')" style="padding:7px 10px;border:1px solid var(--blue);border-radius:6px;background:var(--blue-light);color:var(--blue);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">↩️ Ripristina</button>';
-      html += '</div>';
+      htmlScartati += '<div style="padding:10px 0;border-top:1px solid var(--sep)">';
+      htmlScartati += '<div style="font-size:11px;color:var(--ink3);margin-bottom:2px">'+m.data+' · <b>'+fmt(Math.abs(m.importo))+'</b>'+(m.sottotipo?' · '+m.sottotipo:'')+'</div>';
+      htmlScartati += '<div style="font-size:11px;color:var(--ink2);word-break:break-word;line-height:1.3;margin-bottom:8px">'+esc(m.descrizione||'')+'</div>';
+      htmlScartati += '<button onclick="_ripristinaIgnorato('+i+')" style="padding:7px 10px;border:1px solid var(--blue);border-radius:6px;background:var(--blue-light);color:var(--blue);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">↩️ Ripristina</button>';
+      htmlScartati += '</div>';
     });
-    html += '</div></div>';
+    htmlScartati += '</div>';
   }
+  if(!htmlScartati) htmlScartati = '<div style="text-align:center;padding:30px 14px;color:var(--ink3);font-size:13px">Nessun movimento scartato per questo mese.</div>';
 
-  // ═══ SEZIONE 6: Riepilogo ═══
-  var totPag = pagamentiFatture.length;
-  if(totPag){
-    var nVerif = giaBanca.length;
-    var nAuto  = abbinatiAuto.length;
-    var nConf  = daConfermare.length;
-    var nNon   = nonAbbinati.length;
-    html += '<div style="background:var(--surface2);border-radius:10px;padding:10px 14px;margin-bottom:12px;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center">';
-    html += '<div><div style="font-size:9px;color:var(--ink3);font-weight:600;text-transform:uppercase">Verificati</div><div style="font-size:14px;font-weight:700;color:#1a7a3a">'+nVerif+'</div></div>';
-    html += '<div><div style="font-size:9px;color:var(--ink3);font-weight:600;text-transform:uppercase">Auto</div><div style="font-size:14px;font-weight:700;color:var(--blue)">'+nAuto+'</div></div>';
-    html += '<div><div style="font-size:9px;color:var(--ink3);font-weight:600;text-transform:uppercase">Da conf.</div><div style="font-size:14px;font-weight:700;color:#b36a00">'+nConf+'</div></div>';
-    html += '<div><div style="font-size:9px;color:var(--ink3);font-weight:600;text-transform:uppercase">Da class.</div><div style="font-size:14px;font-weight:700;color:var(--red)">'+nNon+'</div></div>';
-    html += '</div>';
+  // ── TAB "Tutti i movimenti": con filtri automatici per categoria ──
+  // Categorie riconosciute dalla descrizione — pensate per raggruppare voci
+  // ricorrenti (Numia, CBILL, F24, mutui, leasing/prestiti, stipendi, ecc.)
+  // così non serve più scorrere l'intero elenco per trovare un movimento.
+  function _categorizzaMovimento(m){
+    var d = (m.descrizione||'').toLowerCase();
+    if(/numia/.test(d))                                          return {key:'numia',    label:'💳 Numia (POS)'};
+    if(/cbill/.test(d))                                          return {key:'cbill',    label:'🧾 CBILL / Bollettini'};
+    if(/\bf24\b|i24\s+agenzia|agenzia\s+entrate/.test(d))        return {key:'f24',      label:'🏛️ F24 / Agenzia Entrate'};
+    if(/mutuo/.test(d))                                          return {key:'mutuo',    label:'🏦 Mutuo'};
+    if(/leasing|arval|ald\s+automotive|leasys/.test(d))          return {key:'leasing',  label:'🚗 Leasing / Noleggio'};
+    if(/vostro assegno/.test(d))                                 return {key:'assegno',  label:'📝 Assegni'};
+    if(/sdd\s+core|sdd\s+b2b/.test(d))                            return {key:'sdd',      label:'🔄 Addebiti SDD'};
+    if(/comm(issioni)?[\s.]|spese\s+e\s+comm|interessi|competenze|add\.spe|imp\.bollo|rilascio\s+carnet/.test(d))
+                                                                  return {key:'spese',    label:'💰 Commissioni e spese'};
+    if(/ceraldi\s+valerio|ceraldi\s+vincenzo|ceraldi\s+michele|pocci\s+salvatore|murolo\s+mario|parisi\s+antonio|capezzuto\s+alessandro|taiano\s+luigi|moscato\s+emanuele|guarino\s+giuliano|lesina\s+angela|russo\s+carmine|vespa\s+vincenzo|carotenuto\s+antonella|sankapala/.test(d))
+                                                                  return {key:'stipendi', label:'👤 Stipendi/collaboratori'};
+    if(/vs\.disp\.|favore/.test(d))                              return {key:'bonifico', label:'🏦 Bonifici fornitori'};
+    if(m.tipo==='entrata')                                       return {key:'entrata',  label:'↑ Entrate'};
+    return {key:'altro', label:'📦 Altro'};
   }
-
-  // ═══ SEZIONE 7: Lista movimenti completa (collassabile) ═══
-  html += '<div style="background:var(--surface);border-radius:12px;overflow:hidden;box-shadow:var(--shadow)">';
-  html += '<div onclick="_toggleMovList()" style="padding:12px 14px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;border-bottom:1px solid var(--sep)">';
-  html += '<div style="font-size:13px;font-weight:700">📋 Tutti i movimenti ('+movMese.length+')</div>';
-  html += '<span id="movListArrow" style="color:var(--ink3);transition:transform .2s">▸</span>';
-  html += '</div>';
-  html += '<div id="movListBody" style="display:none">';
+  var _catOrdine = ['bonifico','assegno','sdd','numia','cbill','f24','mutuo','leasing','stipendi','spese','entrata','altro'];
+  var _catCounts = {};
   movMese.forEach(function(m){
+    var c = _categorizzaMovimento(m);
+    m._catKey = c.key; m._catLabel = c.label;
+    if(!_catCounts[c.key]) _catCounts[c.key] = {label:c.label, n:0, tot:0};
+    _catCounts[c.key].n++; _catCounts[c.key].tot += Math.abs(m.importo||0);
+  });
+  var _filtroCat = window._movFiltroCategoria || null;
+
+  var htmlTutti = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">';
+  htmlTutti += '<button onclick="_setMovCategoria(null)" style="padding:6px 12px;border-radius:99px;border:1.5px solid '+(!_filtroCat?'var(--ink)':'var(--sep)')+';background:'+(!_filtroCat?'var(--ink)':'var(--surface)')+';color:'+(!_filtroCat?'var(--surface)':'var(--ink)')+';font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">Tutte ('+movMese.length+')</button>';
+  _catOrdine.forEach(function(key){
+    var c = _catCounts[key];
+    if(!c) return;
+    var att = _filtroCat===key;
+    htmlTutti += '<button onclick="_setMovCategoria(\''+key+'\')" style="padding:6px 12px;border-radius:99px;border:1.5px solid '+(att?'var(--blue)':'var(--sep)')+';background:'+(att?'var(--blue-light)':'var(--surface)')+';color:'+(att?'var(--blue)':'var(--ink)')+';font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">'+c.label+' ('+c.n+')</button>';
+  });
+  htmlTutti += '</div>';
+
+  var movDaMostrare = _filtroCat ? movMese.filter(function(m){ return m._catKey===_filtroCat; }) : movMese;
+  htmlTutti += '<div style="background:var(--surface);border-radius:12px;overflow:hidden;box-shadow:var(--shadow)">';
+  if(!movDaMostrare.length){
+    htmlTutti += '<div style="text-align:center;padding:30px 14px;color:var(--ink3);font-size:13px">Nessun movimento in questa categoria.</div>';
+  }
+  movDaMostrare.forEach(function(m, i){
     var col = m.tipo==='entrata' ? '#1a7a3a' : (m.abbinata ? 'var(--ink)' : 'var(--red)');
     var segno = m.tipo==='entrata' ? '+' : '−';
     var stato;
@@ -12437,16 +12466,49 @@ function renderRiconciliazione(){
     } else {
       stato = '<span onclick="apriCambioAbbinamentoMov(\''+esc(m.id)+'\')" style="font-size:10px;background:var(--green-light);color:#1a7a3a;padding:2px 6px;border-radius:99px;font-weight:600;cursor:pointer;text-decoration:underline">↑ '+(m.sottotipo||'Entrata')+' · 🔍</span>';
     }
-    html += '<div style="padding:10px 14px;border-bottom:1px solid var(--sep)"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">';
-    html += '<div style="flex:1;min-width:0"><div style="font-size:12px;color:var(--ink3);margin-bottom:2px">'+m.data+'</div>';
-    html += '<div style="font-size:13px;font-weight:500;word-break:break-word;white-space:normal;line-height:1.35">'+esc(m.descrizione||'—')+'</div>';
-    html += '<div style="margin-top:4px">'+stato+'</div></div>';
-    html += '<div style="font-size:14px;font-weight:700;color:'+col+';flex-shrink:0">'+segno+fmt(Math.abs(m.importo))+'</div>';
-    html += '</div></div>';
+    htmlTutti += '<div style="padding:10px 14px;border-bottom:1px solid var(--sep)"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">';
+    htmlTutti += '<div style="flex:1;min-width:0"><div style="font-size:12px;color:var(--ink3);margin-bottom:2px">'+m.data+' · <span style="color:var(--ink3)">'+esc(m._catLabel||'')+'</span></div>';
+    htmlTutti += '<div style="font-size:13px;font-weight:500;word-break:break-word;white-space:normal;line-height:1.35">'+esc(m.descrizione||'—')+'</div>';
+    htmlTutti += '<div style="margin-top:4px">'+stato+'</div></div>';
+    htmlTutti += '<div style="font-size:14px;font-weight:700;color:'+col+';flex-shrink:0">'+segno+fmt(Math.abs(m.importo))+'</div>';
+    htmlTutti += '</div></div>';
   });
-  html += '</div></div>';
+  htmlTutti += '</div>';
+
+  // ── Barra dei tab ──
+  var _tabAttivo = window._reconTabAttiva || 'conferma';
+  var _tabs = [
+    {key:'conferma',     label:'❓ Da confermare',   n:daConfermare.length,     color:'#b36a00'},
+    {key:'classificare', label:'⚠️ Da classificare', n:nonAbbinatiVis.length,  color:'var(--red)'},
+    {key:'riconciliati', label:'✅ Riconciliati',    n:giaBanca.length+abbinatiAuto.length, color:'#1a7a3a'},
+    {key:'scartati',     label:'🚫 Scartati',        n:nonAbbinatiHide.length+ignorati.length, color:'var(--ink3)'},
+    {key:'tutti',        label:'📋 Tutti i movimenti', n:movMese.length,       color:'var(--ink)'}
+  ];
+  html += '<div style="display:flex;gap:6px;overflow-x:auto;margin-bottom:12px;padding-bottom:2px">';
+  _tabs.forEach(function(t){
+    var att = _tabAttivo===t.key;
+    html += '<button onclick="_setReconTab(\''+t.key+'\')" style="flex-shrink:0;padding:8px 12px;border-radius:10px;border:1.5px solid '+(att?t.color:'var(--sep)')+';background:'+(att?t.color:'var(--surface)')+';color:'+(att?'#fff':'var(--ink)')+';font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">'+t.label+' ('+t.n+')</button>';
+  });
+  html += '</div>';
+
+  var _contenutoTab = {conferma:htmlConferma, classificare:htmlClassificare, riconciliati:htmlRiconciliati, scartati:htmlScartati, tutti:htmlTutti}[_tabAttivo] || htmlConferma;
+  html += '<div id="_reconTabBody">'+_contenutoTab+'</div>';
 
   wrap.innerHTML = html;
+}
+
+function _setReconTab(key){
+  window._reconTabAttiva = key;
+  var _sy = window.pageYOffset || document.documentElement.scrollTop || 0;
+  renderRiconciliazione();
+  setTimeout(function(){ window.scrollTo(0, _sy); }, 30);
+}
+
+function _setMovCategoria(key){
+  window._movFiltroCategoria = key;
+  var _sy = window.pageYOffset || document.documentElement.scrollTop || 0;
+  renderRiconciliazione();
+  setTimeout(function(){ window.scrollTo(0, _sy); }, 30);
 }
 
 function _toggleMovList(){
