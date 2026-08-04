@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.26.4</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.26.5</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -5233,6 +5233,26 @@ async function _sganciaNC(ncId){
   toast('↩️ Nota di credito sganciata');
 }
 
+// ═══ IMPORTO NETTO DI UNA FATTURA (per la riconciliazione bancaria) ═══
+// Se una fattura ha una o più note di credito agganciate (marcatore [NC→id·…]
+// salvato nelle note della nota di credito stessa), il pagamento reale fatto
+// dal fornitore/verso il fornitore è al netto di quell'importo — non ha senso
+// cercare in banca un bonifico/assegno/carta pari al lordo della fattura.
+// Usata SOLO per il matching coi movimenti bancari: altrove in app (liste,
+// export, totali per fornitore) l'importo mostrato resta sempre il lordo
+// della fattura, invariato.
+function nettoFattura(f){
+  if(!f) return 0;
+  if(f.tipo === 'nota_credito') return f.importo||0;
+  let totNc = 0;
+  for(const nc of fatture){
+    if(nc.tipo !== 'nota_credito' || !nc.note) continue;
+    const m = nc.note.match(/\[NC→(\d+)·([\d.]+)·[^\]]*\]/);
+    if(m && parseInt(m[1],10) === f.id) totNc += parseFloat(m[2]) || 0;
+  }
+  return Math.round(((f.importo||0) - totNc) * 100) / 100;
+}
+
 function closeEdit(){
   document.getElementById('editMo').classList.remove('on');
   document.body.style.overflow='';
@@ -6197,7 +6217,7 @@ function _trovaCombinazioneRate(imp){
       if(f.tipo==='ddt' || f.stato==='annullata' || f.stato==='pagata') return false;
       return (f.fornitore||'').trim().toLowerCase() === target;
     }).map(f=>{
-      const impF = f.importo||0;
+      const impF = nettoFattura(f);
       const resto = f.stato==='parziale' ? Math.max(0, impF-(f.parzPagato||0)) : impF;
       return {f, resto};
     }).filter(x=>x.resto>0.01);
@@ -9819,7 +9839,10 @@ function renderIncMese(){
         ? `<div style="font-size:12px;color:var(--ink3)">Nessun dato POS importato per questo periodo.</div>`
         : Math.abs(diffPosNumiaFiscale)<=0.50
           ? `<div style="padding:8px;border-radius:8px;background:var(--green-light);color:#1a7a3a;font-weight:600;font-size:13px;text-align:center">✓ Coincidono (${nGiorniConNumia}/${nGiorniTot} giorni con dato POS)</div>`
-          : `<div onclick="apriDettaglioScostamento('fiscale-numia','${nomeFileMese}')" style="cursor:pointer;padding:8px;border-radius:8px;background:var(--red-light);color:var(--red);font-weight:600;font-size:13px;text-align:center">⚠️ Differenza ${fmt(Math.abs(diffPosNumiaFiscale))} (${nGiorniConNumia}/${nGiorniTot} giorni con dato POS) · vedi giorni ›</div>`
+          : (diffPosNumiaFiscale > 0
+            // diffPosNumiaFiscale = Estratto POS - Pagamenti elettronici > 0 → il fiscale è SOTTO il POS
+            ? `<div onclick="apriDettaglioScostamento('fiscale-numia','${nomeFileMese}')" style="cursor:pointer;padding:8px;border-radius:8px;background:var(--red-light);color:var(--red);font-weight:600;font-size:13px;text-align:center">🔴 Pagamenti elettronici minori dell'estratto POS di ${fmt(Math.abs(diffPosNumiaFiscale))} (${nGiorniConNumia}/${nGiorniTot} giorni) · vedi giorni ›</div>`
+            : `<div onclick="apriDettaglioScostamento('fiscale-numia','${nomeFileMese}')" style="cursor:pointer;padding:8px;border-radius:8px;background:var(--green-light);color:#1a7a3a;font-weight:600;font-size:13px;text-align:center">🟢 Pagamenti elettronici maggiori dell'estratto POS di ${fmt(Math.abs(diffPosNumiaFiscale))} (${nGiorniConNumia}/${nGiorniTot} giorni) · vedi giorni ›</div>`)
       }
     </div>
 
@@ -9864,7 +9887,12 @@ function apriDettaglioScostamento(tipo, nomeFileMese){
       const numiaG = numiaDelGiorno(c.data);
       if(numiaG <= 0) return null;
       const diffG = Math.round((numiaG - (c.pos||0))*100)/100;
-      return {data:c.data, a:c.pos||0, b:numiaG, diff:diffG};
+      // diffG > 0 → Estratto POS più alto → Pagamenti elettronici (fiscale) sono
+      // SOTTO l'estratto POS → rosso. diffG < 0 → il contrario → verde.
+      const dir = diffG > 0
+        ? {colore:'var(--red)', label:"🔴 Pagamenti elettronici minori dell'estratto POS"}
+        : {colore:'#1a7a3a', label:"🟢 Pagamenti elettronici maggiori dell'estratto POS"};
+      return {data:c.data, a:c.pos||0, b:numiaG, diff:diffG, dir};
     }).filter(Boolean);
   } else {
     titolo = '🔄 Estratto conto banca vs estratto carta POS';
@@ -9893,10 +9921,13 @@ function apriDettaglioScostamento(tipo, nomeFileMese){
     html += '<div style="font-size:12px;color:var(--ink3);margin-bottom:10px">Giorni ordinati dallo scostamento più grande</div>';
     righe.forEach(r=>{
       const dLbl = new Date(r.data+'T12:00:00').toLocaleDateString('it-IT',{weekday:'short',day:'2-digit',month:'short',year:'numeric'});
-      html += '<div style="padding:9px 0;border-bottom:1px solid var(--sep);display:flex;justify-content:space-between;align-items:center">'
+      html += '<div style="padding:9px 0;border-bottom:1px solid var(--sep)">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center">'
         + '<div style="font-size:13px;color:var(--ink)">'+dLbl+'</div>'
-        + '<div style="text-align:right"><div style="font-size:13px;font-weight:700;color:'+(r.diff<0?'var(--red)':'#b36a00')+'">'+(r.diff>=0?'+':'')+fmt(r.diff)+'</div>'
+        + '<div style="text-align:right"><div style="font-size:13px;font-weight:700;color:'+(r.dir?r.dir.colore:(r.diff<0?'var(--red)':'#b36a00'))+'">'+(r.diff>=0?'+':'')+fmt(r.diff)+'</div>'
         + '<div style="font-size:11px;color:var(--ink3)">'+fmt(r.a)+' vs '+fmt(r.b)+'</div></div>'
+        + '</div>'
+        + (r.dir ? '<div style="font-size:11px;font-weight:600;margin-top:3px;color:'+r.dir.colore+'">'+r.dir.label+' di '+fmt(Math.abs(r.diff))+'</div>' : '')
         + '</div>';
     });
   }
@@ -11786,7 +11817,7 @@ function renderRiconciliazione(){
     if(_appreso[_chiaveDesc]){
       var idAppreso = _appreso[_chiaveDesc];
       var fAppresa  = fattCandidatiMov.find(function(x){ return x.id===idAppreso; });
-      if(fAppresa && !fattIdUsate.has(fAppresa.id) && Math.abs((fAppresa.importo||0)-imp)<=0.50
+      if(fAppresa && !fattIdUsate.has(fAppresa.id) && Math.abs(nettoFattura(fAppresa)-imp)<=0.50
          && (m._rifiutati||[]).indexOf(fAppresa.id)===-1 && !_rifiutatiSet.has(_chiaveDesc+'|'+fAppresa.id)){
         matchCerto = fAppresa; verificato = false;
       }
@@ -11802,7 +11833,7 @@ function renderRiconciliazione(){
         if(fattIdUsate.has(x.id)) return false;
         if((m._rifiutati||[]).indexOf(x.id) !== -1) return false;
         if(_rifiutatiSet.has(_chiaveDescEsatte+'|'+x.id)) return false;
-        if(Math.abs((x.importo||0)-imp) > 0.01) return false;
+        if(Math.abs(nettoFattura(x)-imp) > 0.01) return false;
         if(!x.data) return false;
         var dF = new Date(x.data+'T12:00:00'), dM = new Date(m.data+'T12:00:00');
         return Math.abs(dF-dM)/86400000 <= 20;
@@ -11815,7 +11846,7 @@ function renderRiconciliazione(){
     for(var i=0; i<fattCandidatiMov.length && !matchCerto; i++){
       var f = fattCandidatiMov[i];
       if(fattIdUsate.has(f.id)) continue;
-      var diffImp = Math.abs((f.importo||0) - imp);
+      var diffImp = Math.abs(nettoFattura(f) - imp);
 
       // REGOLA FONDAMENTALE: proponi solo se importo identico ±0.50€
       if(diffImp > 0.50) continue;
@@ -12350,7 +12381,7 @@ function _cercaFatturaPerMovimento(idx){
   var dataMov = new Date(m.data+'T12:00:00');
   var esatte = (fatture||[]).filter(function(f){
     if(f.tipo==='ddt' || f.stato==='annullata') return false;
-    if(Math.abs((f.importo||0)-imp) > 0.01) return false;
+    if(Math.abs(nettoFattura(f)-imp) > 0.01) return false;
     if(!f.data) return false;
     var diffGG = Math.abs(dataMov - new Date(f.data+'T12:00:00'))/86400000;
     return diffGG <= 20;
@@ -12407,7 +12438,7 @@ function _cfRender(mostraTutte, filtro){
     // Controlla se almeno una parola significativa del fornitore appare nella descrizione
     var parole = forn.split(/\s+/).filter(function(p){ return p.length>3; });
     var matchForn = parole.some(function(p){ return descLow.indexOf(p)>=0; });
-    var impF=f.importo||0;
+    var impF=nettoFattura(f);
     var resto=f.stato==='parziale'?Math.max(0,impF-(f.parzPagato||0)):impF;
     var matchImp = Math.min(Math.abs(impF-imp),Math.abs(resto-imp))<=Math.max(2,imp*0.15);
     return matchForn || matchImp;
@@ -12420,11 +12451,11 @@ function _cfRender(mostraTutte, filtro){
     var mB=paroleB.some(function(p){return descLow.indexOf(p)>=0;});
     if(mA&&!mB) return -1;
     if(!mA&&mB) return 1;
-    return Math.abs((a.importo||0)-imp)-Math.abs((b.importo||0)-imp);
+    return Math.abs(nettoFattura(a)-imp)-Math.abs(nettoFattura(b)-imp);
   }).slice(0,15);
 
   var candidati = candidatiFornitore.length ? candidatiFornitore : tuttiOrdinati.filter(function(f){
-    var impF=f.importo||0;
+    var impF=nettoFattura(f);
     var resto=f.stato==='parziale'?Math.max(0,impF-(f.parzPagato||0)):impF;
     return Math.min(Math.abs(impF-imp),Math.abs(resto-imp))<=Math.max(2,imp*0.15);
   }).slice(0,10);
@@ -12465,7 +12496,7 @@ function _cfRender(mostraTutte, filtro){
       hh+='<div style="text-align:center;padding:20px;color:var(--ink3);font-size:13px">Nessuna fattura trovata.</div>';
     } else {
       lista.forEach(function(f){
-        var impF=f.importo||0;
+        var impF=nettoFattura(f);
         var resto=f.stato==='parziale'?Math.max(0,impF-(f.parzPagato||0)):impF;
         var diff=Math.abs(impF-imp);
         var diffStr=diff<0.50?'':'diff '+fmt(diff);
@@ -12527,7 +12558,7 @@ function _cfRender(mostraTutte, filtro){
     hh+='<div style="text-align:center;padding:20px;color:var(--ink3);font-size:13px">Nessuna fattura trovata.</div>';
   } else {
     lista.forEach(function(f){
-      var impF=f.importo||0;
+      var impF=nettoFattura(f);
       var resto=f.stato==='parziale'?Math.max(0,impF-(f.parzPagato||0)):impF;
       var diff=Math.abs(impF-imp);
       var diffStr=diff<0.50?'':'diff '+fmt(diff);
