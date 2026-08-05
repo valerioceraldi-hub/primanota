@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.29.1</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.29.2</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -869,6 +869,7 @@ details[open] summary span:first-child{transform:rotate(90deg);display:inline-bl
     <button class="chip" data-preset="scadute" onclick="setPresetRegistro('scadute',this)">🔴 Scadute</button>
     <button class="chip" data-preset="prossime" onclick="setPresetRegistro('prossime',this)">🟡 Prossime 7gg</button>
     <button class="chip" data-preset="incomplete" onclick="setPresetRegistro('incomplete',this)">⚠️ Incomplete</button>
+    <button class="chip" data-preset="danonriconc" onclick="setPresetRegistro('danonriconc',this)">🏦 Da confermare pagamento</button>
   </div>
 
   <!-- Chip filtri attivi (rimovibili) -->
@@ -3891,6 +3892,13 @@ function renderLista(){
       okPreset = st!=='pagata' && !!f.scadenza && new Date(f.scadenza+'T12:00:00') >= oggi && new Date(f.scadenza+'T12:00:00') <= sette;
     } else if(preset === 'incomplete'){
       okPreset = f.incompleta && f.incompleta.length > 0;
+    } else if(preset === 'danonriconc'){
+      // Pagata con un metodo che DOVREBBE lasciare traccia in banca, ma non è
+      // mai stata riconciliata con l'estratto conto — utile per confermare che
+      // il metodo segnato sia davvero quello usato (es. segnata "bonifico" di
+      // default ma pagata in realtà in contanti o con un'altra carta).
+      const st2 = typeof f.stato==='object' ? f.stato.stato : f.stato;
+      okPreset = st2==='pagata' && !f.riconciliata && /^(bonifico|assegno|carta|sdd)$/i.test(f.pagamento||'');
     }
     // Le note di credito hanno importo negativo per costruzione (giusto così).
     // Il filtro Min/Max deve ragionare sulla "grandezza" dell'importo, non sul
@@ -12934,15 +12942,19 @@ function _cfMultiplo(){
 
   _buildOverlay();
 }
-function _impostaDatiRiconciliazione(f, mov, isParziale){
+function _impostaDatiRiconciliazione(f, mov, isParziale, importoSpecifico){
   // Prima questi dati finivano come testo tra parentesi quadre dentro le note
   // (es. "[Estratto 12/06/2026 · € 45,00] descrizione...") — utile da leggere
   // ma scomodo da gestire: si mescolava alle note libere dell'utente e non si
   // poteva "sganciare" in modo pulito. Ora è un campo a parte strutturato.
+  // BUG TROVATO: per i movimenti condivisi tra più fatture veniva sempre usato
+  // l'importo TOTALE del movimento invece della quota di QUESTA fattura —
+  // ogni fattura del gruppo mostrava lo stesso numero (quello intero), gonfiato.
+  var importoDaMostrare = (typeof importoSpecifico==='number') ? importoSpecifico : Math.abs(mov.importo);
   f.riconciliazione = {
     movId: mov.id,
     data: mov.data,
-    importo: Math.round(Math.abs(mov.importo)*100)/100,
+    importo: Math.round(importoDaMostrare*100)/100,
     descrizione: (mov.descrizione||'').slice(0,200),
     parziale: !!isParziale
   };
@@ -13618,7 +13630,7 @@ async function _applicaCambioAbbinamentoMultiplo(mov, vecchiaFattura, fattureSce
     f.stato = (f.parzPagato >= (f.importo||0) - 0.01) ? 'pagata' : 'parziale';
     if(f.stato==='pagata' && !f.dataPagamento) f.dataPagamento = mov.data;
     if(!f.pagamento) f.pagamento = /assegno/i.test(mov.sottotipo||'')?'assegno':'bonifico';
-    _impostaDatiRiconciliazione(f, mov, f.stato==='parziale');
+    _impostaDatiRiconciliazione(f, mov, f.stato==='parziale', daApplicare);
     if(typeof dbUpdate==='function') await dbUpdate(f);
 
     etichette.push((f.fornitore||'')+' N°'+(f.numero||''));
