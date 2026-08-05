@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.29.0</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.29.1</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -11233,7 +11233,7 @@ async function salvaMovimentoBanca(m){
       _bancaMovimenti = Object.values(map).sort(function(a,b){ return b.data.localeCompare(a.data); });
       _salvaBancaLocale();
     }catch(ce){ console.warn('cache banca:', ce); }
-  }catch(e){ console.warn('salvaMovimentoBanca:', e); }
+  }catch(e){ console.warn('salvaMovimentoBanca:', e); throw e; }
 }
 
 async function upsertMovimentiBanca(nuovi){
@@ -12923,7 +12923,7 @@ function _cfMultiplo(){
     m.abbinata=true;
     m.fatturaId=selezionate[0].fatt.id;
     m.fatturaLabel=selezionate.map(function(x){return (x.fatt.fornitore||'')+' N\xb0'+(x.fatt.numero||'');}).join(', ');
-    salvaMovimentoBanca(m); // persiste su Supabase
+    salvaMovimentoBanca(m).catch(function(e){console.warn('salvaMovimentoBanca:',e);}); // persiste su Supabase
     overlay.remove();
     toast('\u2713 Abbinato a '+selezionate.length+' fatture');
     // Preserva scroll PAGINA (su iOS Safari il body scrolla, non il div)
@@ -12973,7 +12973,7 @@ function _cfAbbina(movIdx, fattId, isParziale){
   if(!confirm(conf)) return;
   if(movAltrove){
     movAltrove.abbinata=false; movAltrove.fatturaId=null; movAltrove.fatturaLabel='';
-    salvaMovimentoBanca(movAltrove);
+    salvaMovimentoBanca(movAltrove).catch(function(e){console.warn('salvaMovimentoBanca:',e);});
   }
   m.abbinata=true; m.fatturaId=f.id; m.fatturaLabel=(f.fornitore||'')+' N°'+(f.numero||'');
   salvaMovimentoBanca(m); // persiste su Supabase
@@ -13008,7 +13008,7 @@ function _cfAbbina(movIdx, fattId, isParziale){
   setTimeout(function(){ window.scrollTo(0, _sy); }, 30);
 }
 
-function _segnaIgnora(idx){
+async function _segnaIgnora(idx){
   var nonAbb = window._nonAbbinati||[];
   var m = nonAbb[idx];
   if(!m) return;
@@ -13017,7 +13017,16 @@ function _segnaIgnora(idx){
   m.abbinata     = true;
   m.ignorata     = true;
   m.fatturaLabel = 'Ignorato';
-  salvaMovimentoBanca(m); // persiste su Supabase
+  try{
+    await salvaMovimentoBanca(m); // persiste su Supabase — ora atteso davvero
+  }catch(e){
+    // Prima un fallimento qui restava invisibile: sembrava ignorato ma non era
+    // mai stato salvato, e ricompariva in "Da classificare" al ricaricamento
+    // successivo senza alcun avviso.
+    toast('⚠️ Errore di salvataggio, riprova: '+(e.message||'').slice(0,60));
+    m.abbinata = false; m.ignorata = false; m.fatturaLabel = '';
+    return;
+  }
   nonAbb.splice(idx, 1);
   toast('✓ Movimento ignorato — lo trovi in "Ignorati", ripristinabile in ogni momento');
   var _sy = window.pageYOffset || document.documentElement.scrollTop || 0;
@@ -13031,7 +13040,7 @@ function _ripristinaIgnorato(idx){
   m.abbinata = false;
   m.ignorata = false;
   m.fatturaLabel = '';
-  salvaMovimentoBanca(m);
+  salvaMovimentoBanca(m).catch(function(e){console.warn('salvaMovimentoBanca:',e);});
   toast('↩️ Movimento ripristinato in "Da classificare"');
   var _sy = window.pageYOffset || document.documentElement.scrollTop || 0;
   renderRiconciliazione();
@@ -13331,7 +13340,7 @@ function _confermaPagamento(idx, conferma){
       app[_chiaveDesc] = d.fatt.id;
       localStorage.setItem('ceraldi_recon_appreso', JSON.stringify(app));
     }catch(e){}
-    salvaMovimentoBanca(d.mov); // persiste abbinamento su Supabase
+    salvaMovimentoBanca(d.mov).catch(function(e){console.warn('salvaMovimentoBanca:',e);}); // persiste abbinamento su Supabase
     toast('✓ Abbinato: '+(d.fatt.fornitore||''));
   } else {
     delete d.mov._matchProbabile;
@@ -13404,7 +13413,7 @@ async function _rimandaADaClassificare(mov, fAttuale){
   mov.fatturaId = null;
   mov.fatturaLabel = '';
   mov.ignorata = false; // esplicitamente "da classificare", non "ignorato"
-  await salvaMovimentoBanca(mov);
+  try{ await salvaMovimentoBanca(mov); }catch(e){ console.warn('salvaMovimentoBanca:',e); }
   toast('↩️ Spostato in "Da classificare"');
   var _sy = window.pageYOffset || document.documentElement.scrollTop || 0;
   renderRiconciliazione();
@@ -13619,7 +13628,7 @@ async function _applicaCambioAbbinamentoMultiplo(mov, vecchiaFattura, fattureSce
   mov.abbinata = true;
   mov.fatturaId = ordinate[0] ? ordinate[0].id : null;
   mov.fatturaLabel = ordinate.length>1 ? (ordinate.length+' fatture: '+etichette.join(', ')) : (etichette[0]||'');
-  await salvaMovimentoBanca(mov);
+  try{ await salvaMovimentoBanca(mov); }catch(e){ console.warn('salvaMovimentoBanca:',e); }
 
   var _sy = window.pageYOffset || document.documentElement.scrollTop || 0;
   renderRiconciliazione();
@@ -13650,7 +13659,7 @@ async function _applicaCambioAbbinamento(mov, vecchiaFattura, nuovaFattura, movD
     movDaSvincolare.abbinata = false;
     movDaSvincolare.fatturaId = null;
     movDaSvincolare.fatturaLabel = '';
-    await salvaMovimentoBanca(movDaSvincolare);
+    try{ await salvaMovimentoBanca(movDaSvincolare); }catch(e){ console.warn('salvaMovimentoBanca:',e); }
   }
   // La vecchia fattura non viene più proposta per questo movimento (stesso
   // meccanismo di esclusione usato da "Sbagliato")
@@ -13695,7 +13704,7 @@ async function _applicaCambioAbbinamento(mov, vecchiaFattura, nuovaFattura, movD
   mov.abbinata = true;
   mov.fatturaId = nuovaFattura.id;
   mov.fatturaLabel = (nuovaFattura.fornitore||'') + ' N°' + (nuovaFattura.numero||'');
-  salvaMovimentoBanca(mov);
+  salvaMovimentoBanca(mov).catch(function(e){console.warn('salvaMovimentoBanca:',e);});
 
   var _sy = window.pageYOffset || document.documentElement.scrollTop || 0;
   renderRiconciliazione();
@@ -13720,7 +13729,7 @@ function _confermaAbbinatoAuto(idx, giusto){
     d.mov.abbinata = true;
     d.mov.fatturaId = d.fatt.id;
     d.mov.fatturaLabel = (d.fatt.fornitore||'') + ' N°' + (d.fatt.numero||'');
-    salvaMovimentoBanca(d.mov);
+    salvaMovimentoBanca(d.mov).catch(function(e){console.warn('salvaMovimentoBanca:',e);});
     toast('✓ Confermato: '+(d.fatt.fornitore||''));
   } else {
     // Sbagliato: esclude DAVVERO questa coppia dai prossimi ricalcoli —
