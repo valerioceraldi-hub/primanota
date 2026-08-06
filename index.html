@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.1</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.2</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -12322,7 +12322,7 @@ function renderRiconciliazione(){
   // Ora mostra TUTTO ciò che è davvero abbinato, raggruppato per fornitore,
   // così si vede a colpo d'occhio se un fornitore ha più fatture riconciliate.
   window._abbinatiAutoList = abbinatiAuto;
-  var movAbbinati = movMese.filter(function(m){ return m.abbinata; });
+  var movAbbinati = movMese.filter(function(m){ return m.abbinata && !m.ignorata; });
   // Un movimento "Più fatture" collega PIÙ fatture con un solo record di
   // movimento (m.fatturaId punta solo alla prima) — prima questo faceva
   // sparire le altre dal tab Riconciliati (e i loro pulsanti documento) perché
@@ -13099,12 +13099,16 @@ function _cfMultiplo(){
   };
   window._cfMultiRemove=function(si){ selezionate.splice(si,1); _updateDynamic(); };
   window._cfMultiSetImp=function(si,v){ selezionate[si].importoPagato=parseFloat(v)||0; _updateDynamic(); };
-  window._cfMultiConferma=function(){
+  window._cfMultiConferma=async function(){
     if(!selezionate.length) return;
-    selezionate.forEach(function(x){
+    var btnConf = document.getElementById('_cfMultiBtn');
+    if(btnConf){ btnConf.textContent='Salvataggio in corso…'; btnConf.disabled=true; }
+    var errori = [];
+    for(var si=0; si<selezionate.length; si++){
+      var x = selezionate[si];
       var f=x.fatt, impPag=x.importoPagato;
       var isParz = Math.abs((f.importo||0)-impPag)>0.50;
-      _impostaDatiRiconciliazione(f, m, isParz);
+      _impostaDatiRiconciliazione(f, m, isParz, impPag);
       f.riconciliata = true;
       if(isParz){
         f.parzPagato=(f.parzPagato||0)+impPag;
@@ -13114,14 +13118,26 @@ function _cfMultiplo(){
         f.stato='pagata'; f.dataPagamento=m.data;
         if(!f.pagamento) f.pagamento='bonifico';
       }
-      if(typeof dbUpdate==='function') dbUpdate(f);
-    });
+      // Salvataggi uno alla volta e ATTESI — prima partivano tutti insieme
+      // senza aspettare né controllare l'esito, e con più fatture insieme
+      // capitava che una o più aggiornassero il collegamento ma non lo stato
+      // (rimanendo "da pagare" nonostante il riquadro di riconciliazione).
+      try{
+        if(typeof dbUpdate==='function') await dbUpdate(f);
+      }catch(e){
+        errori.push((f.numero||f.fornitore||'fattura')+': '+(e.message||'').slice(0,50));
+      }
+    }
     m.abbinata=true;
     m.fatturaId=selezionate[0].fatt.id;
     m.fatturaLabel=selezionate.map(function(x){return (x.fatt.fornitore||'')+' N\xb0'+(x.fatt.numero||'');}).join(', ');
-    salvaMovimentoBanca(m).catch(function(e){console.warn('salvaMovimentoBanca:',e);}); // persiste su Supabase
+    try{ await salvaMovimentoBanca(m); }catch(e){ errori.push('movimento: '+(e.message||'').slice(0,50)); }
     overlay.remove();
-    toast('\u2713 Abbinato a '+selezionate.length+' fatture');
+    if(errori.length){
+      alert('⚠️ Attenzione: '+errori.length+' salvataggio/i non riuscito/i:\n\n'+errori.join('\n')+'\n\nRiprova ad abbinare quelle rimaste.');
+    } else {
+      toast('\u2713 Abbinato a '+selezionate.length+' fatture');
+    }
     // Preserva scroll PAGINA (su iOS Safari il body scrolla, non il div)
     var _sy = window.pageYOffset || document.documentElement.scrollTop || 0;
     renderRiconciliazione();
