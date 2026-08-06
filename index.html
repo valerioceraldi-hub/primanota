@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.3</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.4</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -11813,6 +11813,18 @@ function renderRiconciliazione(){
       if(_rifiutatiSet.has(_chiaveDescMov+'|'+x.id)) return false;
       return true;
     });
+    // FIFO: quando più fatture dello stesso fornitore sono candidate equivalenti
+    // (stesso importo, nessun segnale forte per distinguerle), è ragionevole
+    // presumere che si paghi prima quella aperta da più tempo. Qui si ordina
+    // solo l'ORDINE DI TENTATIVO del ciclo sotto — non forza alcun abbinamento:
+    // un numero fattura o un nome trovati nella descrizione vincono comunque,
+    // qualunque sia la data. Serve solo a rendere il fallback "importo uguale
+    // e basta" meno arbitrario quando capita.
+    fattCandidatiMov.sort(function(a,b){
+      var da = a.data ? new Date(a.data+'T12:00:00').getTime() : Infinity;
+      var db = b.data ? new Date(b.data+'T12:00:00').getTime() : Infinity;
+      return da - db;
+    });
 
     // ── Movimento con fatturaId: usa ID come fonte di verità ──
     if(m.fatturaId){
@@ -11873,6 +11885,16 @@ function renderRiconciliazione(){
     // Stessa regola già usata nella ricerca manuale "Cerca fattura", estesa qui
     // al giro automatico: se non c'è ambiguità (un solo candidato a quell'importo
     // esatto), è un match sicuro anche senza nome fornitore nel testo del movimento.
+    // ATTENZIONE (bug reale trovato 06/08 su Pietro Castaldo / Serramenti Azzolino):
+    // "unico candidato per importo" NON vuol dire "sicuramente giusto" — due
+    // beneficiari diversi possono avere bonifici identici per importo e data vicina.
+    // Se il movimento è un bonifico con un beneficiario leggibile in descrizione
+    // ("FAVORE X"), qui si verifica che il nome regga un minimo di confronto col
+    // fornitore della fattura candidata; se il beneficiario è chiaramente un'altra
+    // persona/azienda, il match non viene accettato come "certo silenzioso" — cade
+    // nel giro sotto, che nella peggiore ipotesi lo manda in "da confermare" invece
+    // di agganciarlo da solo alla fattura sbagliata. Per assegni/SDD senza nome
+    // leggibile in descrizione il controllo è saltato (non c'è nulla da confrontare).
     if(!matchCerto){
       var _chiaveDescEsatte = dLow.replace(/\s+/g,'').slice(0,40);
       var _esatteUniche = fattCandidatiMov.filter(function(x){
@@ -11885,7 +11907,19 @@ function renderRiconciliazione(){
         return Math.abs(dF-dM)/86400000 <= 20;
       });
       if(_esatteUniche.length === 1){
-        matchCerto = _esatteUniche[0]; verificato = false;
+        var _candUnico = _esatteUniche[0];
+        var _benefEstratto = null;
+        var _mFav = m.descrizione.match(/favore\s+([a-zà-ù'.\s]+?)(?:\s+notprovide|\s+not\s+provid|\s+add\.tot|\s*$)/i);
+        if(_mFav) _benefEstratto = _mFav[1].trim();
+        var _nomeOk = true;
+        if(_benefEstratto && _benefEstratto.length >= 4){
+          var _tok = function(s){ return (s||'').toLowerCase().replace(/[^a-zà-ù\s]/gi,'').split(/\s+/).filter(function(w){ return w.length>=3; }); };
+          var _tB = _tok(_benefEstratto), _tF = _tok(_candUnico.fornitore);
+          _nomeOk = _tB.some(function(w){ return _tF.indexOf(w) >= 0; }) || _tF.some(function(w){ return _tB.indexOf(w) >= 0; });
+        }
+        if(_nomeOk){
+          matchCerto = _candUnico; verificato = false;
+        }
       }
     }
 
@@ -12004,8 +12038,21 @@ function renderRiconciliazione(){
     // REGOLA ASSEGNI: un assegno non viene MAI auto-confermato o abbinato in
     // automatico, anche con un match "certo" (es. numero assegno coincidente) —
     // richiede sempre una conferma manuale prima di considerarlo riconciliato.
+    // ── Controllo integrità: questa fattura ha già un ALTRO movimento agganciato? ──
+    // Bug reale trovato 06/08 (Ciervo Fabiana, Passalacqua, Castaldo, Ferrantini...):
+    // il giro automatico poteva agganciare una SECONDA fattura già chiusa senza
+    // mai controllare se un altro movimento la reclamava già — risultato due
+    // movimenti diversi entrambi "abbinati" alla stessa fattura, senza errori o
+    // avvisi visibili. Qui si controlla PRIMA di qualunque applicazione silenziosa:
+    // se un altro movimento (diverso da questo) risulta già abbinato alla stessa
+    // fattura, il match NON viene applicato in automatico — finisce in
+    // "da confermare" così l'utente decide consapevolmente.
+    var _matchCertoGiaAgganciato = matchCerto && (_bancaMovimenti||[]).some(function(x){
+      return x.abbinata && x.fatturaId===matchCerto.id && x.id!==m.id;
+    });
+
     var _defDiv1 = matchCerto ? _defaultDiverso(matchCerto.fornitore) : null;
-    if(matchCerto && verificato && matchCerto.stato==='pagata' && !_defDiv1 && !isAssegno){
+    if(matchCerto && verificato && matchCerto.stato==='pagata' && !_defDiv1 && !isAssegno && !_matchCertoGiaAgganciato){
       m.abbinata       = true;
       m.fatturaId      = matchCerto.id;
       m.fatturaLabel   = (matchCerto.fornitore||'') + ' N°' + (matchCerto.numero||'');
@@ -12017,7 +12064,7 @@ function renderRiconciliazione(){
         fornitore:matchCerto.fornitore||'', numero:matchCerto.numero||''
       });
 
-    } else if(matchCerto && !_defaultDiverso(matchCerto.fornitore) && !isAssegno){
+    } else if(matchCerto && !_defaultDiverso(matchCerto.fornitore) && !isAssegno && !_matchCertoGiaAgganciato){
       m.abbinata     = true;
       m.fatturaId    = matchCerto.id;
       m.fatturaLabel = (matchCerto.fornitore||'') + ' N°' + (matchCerto.numero||'');
@@ -12031,23 +12078,31 @@ function renderRiconciliazione(){
     } else if(matchCerto){
       // matchCerto c'è, ma finisce comunque in "da confermare" perché:
       // - il metodo reale contraddice il default del fornitore, oppure
-      // - è un assegno (mai auto-confermato, qualunque sia la certezza del match)
+      // - è un assegno (mai auto-confermato, qualunque sia la certezza del match), oppure
+      // - un ALTRO movimento risulta già agganciato a questa stessa fattura
       var _defC = _defaultDiverso(matchCerto.fornitore);
       m._matchProbabile = matchCerto;
       m._matchScore     = 100;
       daConfermare.push({mov:m, fatt:matchCerto, score:100,
         isAssegno:isAssegno, isBonifico:isBonifico, numAssStr:numAssStr,
-        avviso: _defC
-          ? '⚠️ Di solito paghi "'+matchCerto.fornitore+'" con '+_defC+', ma questo sembra un '+metodoMovimento
-          : (isAssegno ? '📝 Assegno — verifica sempre manualmente prima di confermare' : null)});
+        avviso: _matchCertoGiaAgganciato
+          ? '⚠️ Questa fattura risulta GIÀ agganciata a un altro movimento — verifica prima di confermare (potrebbe essere una seconda fattura mancante, non un doppione)'
+          : (_defC
+            ? '⚠️ Di solito paghi "'+matchCerto.fornitore+'" con '+_defC+', ma questo sembra un '+metodoMovimento
+            : (isAssegno ? '📝 Assegno — verifica sempre manualmente prima di confermare' : null))});
 
     } else if(matchProbabile){
       var _defP = _defaultDiverso(matchProbabile.fornitore);
+      var _probGiaAgganciato = (_bancaMovimenti||[]).some(function(x){
+        return x.abbinata && x.fatturaId===matchProbabile.id && x.id!==m.id;
+      });
       m._matchProbabile = matchProbabile;
       m._matchScore     = matchScore;
       daConfermare.push({mov:m, fatt:matchProbabile, score:matchScore,
         isAssegno:isAssegno, isBonifico:isBonifico, numAssStr:numAssStr,
-        avviso: _defP ? ('⚠️ Di solito paghi "'+matchProbabile.fornitore+'" con '+_defP+', ma questo sembra un '+metodoMovimento) : null});
+        avviso: _probGiaAgganciato
+          ? '⚠️ Questa fattura risulta GIÀ agganciata a un altro movimento — verifica prima di confermare (potrebbe essere una seconda fattura mancante, non un doppione)'
+          : (_defP ? ('⚠️ Di solito paghi "'+matchProbabile.fornitore+'" con '+_defP+', ma questo sembra un '+metodoMovimento) : null)});
 
     } else {
       nonAbbinati.push(m);
@@ -12201,6 +12256,13 @@ function renderRiconciliazione(){
 
   // ═══ 4. RENDERING (a tab: Da confermare / Da classificare / Riconciliati / Scartati / Tutti i movimenti) ═══
   var html = '';
+
+  // Controllo integrità — sempre visibile, non dipende dalla sessione corrente.
+  // Interroga Supabase per intero (non solo _bancaMovimenti già in memoria) e
+  // segnala fatture con più di un movimento bancario agganciato: è esattamente
+  // il tipo di errore silenzioso trovato il 06/08 (Ciervo Fabiana, Passalacqua,
+  // Castaldo, Ferrantini...) — nessuno di questi dava errore o avviso da solo.
+  html += '<button onclick="_controlloIntegritaRiconciliazioni()" style="width:100%;padding:9px 14px;border:1.5px solid var(--ink3);border-radius:10px;background:transparent;color:var(--ink2);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;margin-bottom:10px">🔍 Controllo integrità riconciliazioni</button>';
 
   // Banner Report (visibile solo se ci sono azioni in questa sessione)
   if(_hasReconActivity()){
@@ -14121,6 +14183,88 @@ function _mostraReportRiconciliazione(){
   };
   // Click fuori per chiudere
   ov.onclick = function(e){ if(e.target === ov) chiudi(); };
+}
+
+// ── CONTROLLO INTEGRITÀ RICONCILIAZIONI (06/08) ──
+// Interroga Supabase per intero (sbFetchAll, non solo i movimenti già in
+// memoria) e cerca fatture con PIÙ DI UN movimento bancario agganciato.
+// Non è di per sé un errore — una fattura grande pagata in più tranche è
+// legittima — ma è ESATTAMENTE il pattern dietro tutti gli errori reali
+// trovati il 06/08 (Ciervo Fabiana, Passalacqua, Castaldo, Ferrantini), quindi
+// merita sempre un controllo umano. Qui si distingue in automatico:
+//  - "quadra": la somma dei movimenti agganciati coincide (±0.50€) con
+//    l'importo della fattura → quasi certamente un pagamento a rate legittimo.
+//  - "da verificare": la somma NON coincide (es. supera l'importo, o un
+//    singolo movimento già copre l'intera fattura e ce n'è un altro in più)
+//    → probabile errore, come i casi già trovati.
+async function _controlloIntegritaRiconciliazioni(){
+  toast('⏳ Controllo in corso...');
+  try{
+    var movimenti = await sbFetchAll('movimenti_banca?abbinata=eq.true&select=id,data,importo,fattura_id,fattura_label');
+    var perFattura = {};
+    movimenti.forEach(function(m){
+      if(!m.fattura_id) return;
+      if(!perFattura[m.fattura_id]) perFattura[m.fattura_id] = [];
+      perFattura[m.fattura_id].push(m);
+    });
+    var idsSospetti = Object.keys(perFattura).filter(function(k){ return perFattura[k].length > 1; });
+
+    var html = '';
+    if(!idsSospetti.length){
+      html = '<div style="text-align:center;padding:24px;color:var(--ink3);font-size:13px">✓ Nessuna fattura con più di un movimento agganciato.</div>';
+    } else {
+      // Carica gli importi/stato reali delle fatture coinvolte in una sola query
+      var idsNum = idsSospetti.map(function(s){ return isNaN(+s)?s:+s; });
+      var filtroIds = idsNum.map(function(v){ return typeof v==='number'?v:'"'+v+'"'; }).join(',');
+      var fattureCoinvolte = [];
+      try{ fattureCoinvolte = await sbFetch('fatture?id=in.('+filtroIds+')&select=id,fornitore,numero,importo,stato'); }catch(e){}
+      var fMap = {}; fattureCoinvolte.forEach(function(f){ fMap[f.id] = f; });
+
+      html += '<div style="font-size:12px;color:var(--ink3);margin-bottom:12px">'+idsSospetti.length+' fattur'+(idsSospetti.length===1?'a':'e')+' con più di un movimento agganciato — controlla quelle segnate "da verificare".</div>';
+
+      idsSospetti.forEach(function(fid){
+        var movs = perFattura[fid].sort(function(a,b){ return (a.data||'').localeCompare(b.data||''); });
+        var f = fMap[fid] || {};
+        var sommaMov = movs.reduce(function(s,m){ return s+Math.abs(m.importo||0); },0);
+        var importoFatt = f.importo || 0;
+        var quadra = Math.abs(sommaMov - importoFatt) <= 0.50;
+        var colore = quadra ? 'var(--green)' : 'var(--red)';
+        var badge = quadra ? '✓ Probabile rateizzazione' : '⚠️ Da verificare';
+        html += '<div style="border-left:3px solid '+colore+';background:var(--surface2);border-radius:10px;padding:10px 12px;margin-bottom:10px">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">';
+        html += '<div style="font-size:13px;font-weight:700">'+esc((f.fornitore||movs[0].fattura_label||'')+(f.numero?' N°'+f.numero:''))+'</div>';
+        html += '<div style="font-size:11px;font-weight:700;color:'+colore+'">'+badge+'</div>';
+        html += '</div>';
+        html += '<div style="font-size:12px;color:var(--ink2)">Fattura: '+fmt(importoFatt)+' · Movimenti agganciati: '+fmt(sommaMov)+' ('+movs.length+')</div>';
+        movs.forEach(function(m){
+          html += '<div style="font-size:11px;color:var(--ink3);padding-top:2px">· '+(m.data||'')+'  '+fmt(Math.abs(m.importo||0))+'</div>';
+        });
+        html += '</div>';
+      });
+    }
+
+    var ov = document.createElement('div');
+    ov.id = 'integritaOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:800;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);padding:14px';
+    ov.innerHTML = '<div style="background:var(--surface);border-radius:18px;width:100%;max-width:480px;max-height:88vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 28px rgba(0,0,0,.25)">'
+      + '<div style="padding:16px 18px;border-bottom:1px solid var(--sep);display:flex;justify-content:space-between;align-items:center">'
+      + '<div style="font-size:16px;font-weight:700">🔍 Controllo integrità</div>'
+      + '<button id="integritaClose" style="background:transparent;border:none;font-size:22px;color:var(--ink3);cursor:pointer;padding:0;line-height:1">×</button>'
+      + '</div>'
+      + '<div style="overflow-y:auto;padding:16px 18px;flex:1">'+html+'</div>'
+      + '<div style="padding:12px 18px;border-top:1px solid var(--sep)">'
+      + '<button id="integritaOk" style="width:100%;padding:11px;border:none;border-radius:10px;background:var(--ink);color:var(--surface);font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">Chiudi</button>'
+      + '</div>'
+      + '</div>';
+    document.body.appendChild(ov);
+    var chiudi = function(){ try{ document.body.removeChild(ov); }catch(e){} };
+    document.getElementById('integritaClose').onclick = chiudi;
+    document.getElementById('integritaOk').onclick = chiudi;
+    ov.onclick = function(e){ if(e.target === ov) chiudi(); };
+  }catch(err){
+    console.error('_controlloIntegritaRiconciliazioni:', err);
+    toast('❌ Controllo fallito: '+(err.message||err));
+  }
 }
 
 // Versione testuale del report (per copia/incolla in WhatsApp/email/note)
