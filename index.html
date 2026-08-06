@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.29.2</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.1</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -6234,37 +6234,87 @@ function renderFornRateList(){
 // la cui somma corrisponde all'importo del movimento bancario (±0,50€).
 // Ricerca esaustiva ma limitata (max 12 fatture candidate per fornitore = max 4096 combinazioni),
 // più che sufficiente per un caso reale di pagamento a tranche.
-function _trovaCombinazioneRate(imp){
-  const listaRate = cacheGet(KFORN_RATE, []);
-  if(!listaRate.length) return null;
-  for(const nomeForn of listaRate){
-    const target = nomeForn.trim().toLowerCase();
-    const outstanding = (fatture||[]).filter(f=>{
-      if(f.tipo==='ddt' || f.stato==='annullata' || f.stato==='pagata') return false;
-      return (f.fornitore||'').trim().toLowerCase() === target;
-    }).map(f=>{
-      const impF = nettoFattura(f);
-      const resto = f.stato==='parziale' ? Math.max(0, impF-(f.parzPagato||0)) : impF;
-      return {f, resto};
-    }).filter(x=>x.resto>0.01);
-    if(outstanding.length < 2 || outstanding.length > 12) continue;
-    const n = outstanding.length;
-    let migliore = null;
-    for(let mask=1; mask < (1<<n); mask++){
-      let somma=0, count=0;
-      for(let i=0;i<n;i++){ if(mask & (1<<i)){ somma+=outstanding[i].resto; count++; } }
-      if(count<2) continue;
-      if(Math.abs(somma-imp)<=0.50 && (!migliore || count<migliore.count)){
-        migliore = {count, mask, somma};
-      }
-    }
-    if(migliore){
-      const fatt = [];
-      for(let i=0;i<n;i++){ if(migliore.mask & (1<<i)) fatt.push(outstanding[i].f); }
-      return {fornitore:nomeForn, fatture:fatt, somma:migliore.somma};
-    }
+// Cerca tutte le combinazioni di fatture non pagate (stesso fornitore, datate
+// entro pochi giorni dal movimento) la cui somma corrisponde ESATTAMENTE
+// all'importo del movimento. A differenza della vecchia versione (tolleranza
+// di 50 centesimi, sceglieva la prima combinazione trovata senza controllare
+// se ce ne fossero altre), questa: 1) cerca la somma esatta al centesimo,
+// 2) trova FINO A 5 combinazioni distinte se esistono, invece di fermarsi
+// alla prima — perché con tante fatture piccole possono esistere più
+// combinazioni diverse che sommano allo stesso importo per puro caso, e
+// scegliere quella sbagliata senza avvisare è un errore reale già successo.
+function _trovaCombinazioniEsatte(imp, fornitoriAmmessi, dataMovimento){
+  const targetCents = Math.round(imp*100);
+  const dataLimite = dataMovimento ? new Date(new Date(dataMovimento+'T12:00:00').getTime()+5*86400000) : null;
+  // Accetta sia un array di fornitori ammessi (caso normale) sia una singola
+  // stringa (compatibilità) — SEMPRE richiesto, mai una ricerca su tutti i
+  // fornitori insieme: con tante fatture piccole in giro, il rischio di
+  // trovare una combinazione che torna per puro caso ma è sbagliata è reale.
+  const listaAmmessi = (Array.isArray(fornitoriAmmessi) ? fornitoriAmmessi : [fornitoriAmmessi])
+    .filter(Boolean).map(function(s){ return s.trim().toLowerCase(); });
+
+  const outstanding = (fatture||[]).filter(f=>{
+    if(f.tipo==='ddt' || f.stato==='annullata' || f.stato==='pagata') return false;
+    const fn = (f.fornitore||'').trim().toLowerCase();
+    if(!fn) return false;
+    const match = listaAmmessi.some(function(fg){ return fn.indexOf(fg)>=0 || fg.indexOf(fn)>=0; });
+    if(!match) return false;
+    if(dataLimite && f.data && new Date(f.data+'T12:00:00') > dataLimite) return false;
+    return true;
+  }).map(function(f){
+    const impF = nettoFattura(f);
+    const resto = f.stato==='parziale' ? Math.max(0, impF-(f.parzPagato||0)) : impF;
+    return {f:f, resto:resto};
+  }).filter(function(x){ return Math.abs(x.resto)>0.01; });
+
+  if(outstanding.length < 2) return {combinazioni:[], troppiCandidati:false, candidatiUsati:outstanding.length};
+  if(outstanding.length > 35) return {combinazioni:[], troppiCandidati:true, candidatiUsati:outstanding.length};
+
+  const cents = outstanding.map(function(x){ return Math.round(x.resto*100); });
+  const n = cents.length;
+
+  // Suffissi raggiungibili: suffixReach[i] = Set di tutte le somme ottenibili
+  // usando SOLO gli elementi da i in poi. Calcolato una volta con DP (veloce,
+  // anche per n=35), poi usato per tagliare i rami del backtracking che non
+  // potranno mai raggiungere il target — senza questo, con più di ~20 fatture
+  // il backtracking ingenuo rischia di non fare in tempo a esplorare tutto.
+  const suffixReach = new Array(n+1);
+  suffixReach[n] = new Set([0]);
+  for(let i=n-1;i>=0;i--){
+    const prev = suffixReach[i+1];
+    const cur = new Set(prev);
+    for(const s of prev) cur.add(s+cents[i]);
+    suffixReach[i] = cur;
   }
-  return null;
+  if(!suffixReach[0].has(targetCents)){
+    return {combinazioni:[], troppiCandidati:false, candidatiUsati:outstanding.length};
+  }
+
+  const soluzioni = [];
+  const MAX_SOLUZIONI = 5;
+  let passi = 0;
+  const MAX_PASSI = 2000000;
+
+  function backtrack(idx, rimanente, scelti){
+    passi++;
+    if(passi > MAX_PASSI || soluzioni.length >= MAX_SOLUZIONI) return;
+    if(rimanente === 0 && scelti.length > 0){ soluzioni.push(scelti.slice()); return; }
+    if(idx >= n) return;
+    if(!suffixReach[idx].has(rimanente)) return; // potatura: da qui non si arriva più al target
+    scelti.push(idx);
+    backtrack(idx+1, rimanente-cents[idx], scelti);
+    scelti.pop();
+    backtrack(idx+1, rimanente, scelti);
+  }
+  backtrack(0, targetCents, []);
+
+  const combinazioni = soluzioni.map(function(sol){
+    return {
+      fatture: sol.map(function(i){ return outstanding[i].f; }),
+      somma: sol.reduce(function(s,i){ return s+outstanding[i].resto; }, 0)
+    };
+  });
+  return {combinazioni:combinazioni, troppiCandidati:false, candidatiUsati:outstanding.length, incompleta: passi>=MAX_PASSI};
 }
 
 async function applicaPagDefaultFornitore(forn){
@@ -12309,10 +12359,19 @@ function renderRiconciliazione(){
       righe.sort(function(a,b){ return (b.mov.data||'').localeCompare(a.mov.data||''); }).forEach(function(d){
         var m=d.mov, f=d.fatt;
         var hasDocG = f && ((f.fatturaAllegata&&f.fatturaAllegata.length>0)||(f.xmlGithubPath&&f.xmlGithubPath.length>0)||(f.source==='aruba')||f.hasAllegata);
+        var ric = f && f.riconciliazione;
+        var importoRiconciliato = ric && typeof ric.importo==='number' ? ric.importo : Math.abs(m.importo);
+        var eParziale = ric && ric.parziale;
         htmlRiconciliati += '<div style="padding:8px 0;border-top:1px solid var(--sep);display:flex;justify-content:space-between;align-items:flex-start;gap:8px">';
         htmlRiconciliati += '<div style="flex:1;min-width:0">';
-        htmlRiconciliati += '<div style="font-size:11px;color:var(--ink3)">'+m.data+' · '+fmt(f?(f.importo||0):Math.abs(m.importo))+'</div>';
+        htmlRiconciliati += '<div style="font-size:11px;color:var(--ink3)">'+m.data+'</div>';
         htmlRiconciliati += '<div style="font-size:12px;font-weight:600">'+(f?('N°'+esc(f.numero||'')):esc(m.fatturaLabel||''))+'</div>';
+        if(ric && ric.descrizione) htmlRiconciliati += '<div style="font-size:10px;color:var(--ink3);margin-top:1px;word-break:break-word;line-height:1.3">'+esc(ric.descrizione)+'</div>';
+        htmlRiconciliati += '<div style="font-size:11px;margin-top:3px">'
+          + (eParziale
+              ? '<span style="color:var(--orange,#c06000);font-weight:700">⚠ Parziale: '+fmt(importoRiconciliato)+' di '+fmt(f?(f.importo||0):0)+'</span>'
+              : '<span style="color:#1a7a3a;font-weight:700">✓ Totale: '+fmt(f?(f.importo||0):importoRiconciliato)+'</span>')
+          + '</div>';
         htmlRiconciliati += '</div>';
         htmlRiconciliati += '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">';
         if(hasDocG) htmlRiconciliati += '<button onclick="aprifatturaAllegata('+f.id+')" style="border:none;background:var(--blue-light);color:var(--blue);border-radius:6px;padding:5px 8px;font-size:11px;font-weight:600;cursor:pointer">📄</button>';
@@ -12382,10 +12441,33 @@ function renderRiconciliazione(){
     htmlClassificare += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid var(--red)">';
     htmlClassificare += '<div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:4px">⚠️ Da classificare ('+nonAbbinatiVis.length+')</div>';
     htmlClassificare += '<div style="font-size:11px;color:var(--ink3);margin-bottom:10px">Uscite non abbinate a nessuna fattura — scegli come registrarle</div>';
-    nonAbbinatiVis.forEach(function(m, i){
+
+    // Chip di categoria anche qui — prima la lista era piatta e senza modo di
+    // filtrare per tipo di movimento, a differenza della vista "Altro".
+    var _catCountsClass = {};
+    nonAbbinatiVis.forEach(function(m){
+      var c = _categorizzaMovimento(m);
+      m._catKeyClass = c.key; m._catLabelClass = c.label;
+      if(!_catCountsClass[c.key]) _catCountsClass[c.key] = {label:c.label, n:0};
+      _catCountsClass[c.key].n++;
+    });
+    var _filtroCatClass = window._movFiltroCategoriaClass || null;
+    if(Object.keys(_catCountsClass).length > 1){
+      htmlClassificare += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">';
+      htmlClassificare += '<button onclick="_setMovCategoriaClass(null)" style="padding:5px 11px;border-radius:99px;border:1.5px solid '+(!_filtroCatClass?'var(--red)':'var(--sep)')+';background:'+(!_filtroCatClass?'var(--red)':'var(--surface)')+';color:'+(!_filtroCatClass?'#fff':'var(--ink)')+';font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">Tutte ('+nonAbbinatiVis.length+')</button>';
+      Object.keys(_catCountsClass).sort(function(a,b){return _catCountsClass[b].n-_catCountsClass[a].n;}).forEach(function(key){
+        var c = _catCountsClass[key];
+        var att = _filtroCatClass===key;
+        htmlClassificare += '<button onclick="_setMovCategoriaClass(\''+key+'\')" style="padding:5px 11px;border-radius:99px;border:1.5px solid '+(att?'var(--blue)':'var(--sep)')+';background:'+(att?'var(--blue-light)':'var(--surface)')+';color:'+(att?'var(--blue)':'var(--ink)')+';font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap">'+c.label+' ('+c.n+')</button>';
+      });
+      htmlClassificare += '</div>';
+    }
+
+    var _daMostrareClass = _filtroCatClass ? nonAbbinatiVis.filter(function(m){return m._catKeyClass===_filtroCatClass;}) : nonAbbinatiVis;
+    _daMostrareClass.forEach(function(m, i){
       var origIdx = nonAbbinati.indexOf(m);
       htmlClassificare += '<div style="padding:10px 0;border-top:1px solid var(--sep)">';
-      htmlClassificare += '<div style="font-size:11px;color:var(--ink3);margin-bottom:2px">'+m.data+' · <b>'+fmt(Math.abs(m.importo))+'</b>'+(m.sottotipo?' · '+m.sottotipo:'')+'</div>';
+      htmlClassificare += '<div style="font-size:11px;color:var(--ink3);margin-bottom:2px">'+m.data+' · <b>'+fmt(Math.abs(m.importo))+'</b>'+(m.sottotipo?' · '+m.sottotipo:'')+' · '+esc(m._catLabelClass||'')+'</div>';
       htmlClassificare += '<div style="font-size:11px;font-weight:500;line-height:1.4;word-break:break-word;white-space:pre-wrap;color:var(--ink);margin-bottom:8px">'+esc(m.descrizione||'')+'</div>';
       htmlClassificare += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
       htmlClassificare += '<button onclick="_cercaFatturaPerMovimento('+origIdx+')" style="flex:1;min-width:100px;padding:7px 10px;border:1px solid var(--blue);border-radius:6px;background:var(--blue-light);color:var(--blue);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">🔍 Cerca fattura</button>';
@@ -12454,12 +12536,13 @@ function renderRiconciliazione(){
   var _catOrdine = ['numia','cbill','f24','mutuo','leasing','stipendi','spese','entrata','altro'];
   var _catCounts = {};
   // "Tutti i movimenti" (ora "Altro") mostra solo le categorie che non hanno
-  // mai bisogno di un abbinamento a fattura — bonifici fornitori/assegni/SDD
+  // mai bisogno di un abbinamento a fattura — bonifici fornitori/assegni/SDD/
+  // leasing (ALD/Arval, che vengono davvero abbinati a fatture specifiche)
   // restano gestiti da "Riconciliati"/"Da confermare"/"Da classificare",
   // qui altrimenti finivano mescolati e la sezione perdeva senso.
   var movMeseAltro = movMese.filter(function(m){
     var k = _categorizzaMovimento(m).key;
-    return k!=='bonifico' && k!=='assegno' && k!=='sdd';
+    return k!=='bonifico' && k!=='assegno' && k!=='sdd' && k!=='leasing';
   });
   movMeseAltro.forEach(function(m){
     var c = _categorizzaMovimento(m);
@@ -12542,6 +12625,13 @@ function _setMovCategoria(key){
   setTimeout(function(){ window.scrollTo(0, _sy); }, 30);
 }
 
+function _setMovCategoriaClass(key){
+  window._movFiltroCategoriaClass = key;
+  var _sy = window.pageYOffset || document.documentElement.scrollTop || 0;
+  renderRiconciliazione();
+  setTimeout(function(){ window.scrollTo(0, _sy); }, 30);
+}
+
 function _toggleMovList(){
   var b = document.getElementById('movListBody');
   var a = document.getElementById('movListArrow');
@@ -12570,27 +12660,11 @@ function _cercaFatturaPerMovimento(idx){
     var diffGG = Math.abs(dataMov - new Date(f.data+'T12:00:00'))/86400000;
     return diffGG <= 20;
   });
-  // Anche con un solo importo esatto, NON saltiamo più dritti alla conferma
-  // nativa senza alternative: alcuni fornitori (es. leasing con rata fissa
-  // mensile) hanno più fatture con lo STESSO importo in mesi diversi, quindi
-  // "unico importo esatto entro 20 giorni" non garantisce che sia quella giusta.
-  // Mostriamo comunque la lista completa, con quella più probabile in cima.
-  var combo = _trovaCombinazioneRate(imp);
-  if(combo){
-    var elenco = combo.fatture.map(function(f){
-      return '· N°'+(f.numero||'—')+' del '+f.data+' ('+fmt(f.importo||0)+')';
-    }).join('\n');
-    var msg = '🧩 Trovata una possibile combinazione:\n\n'+combo.fatture.length+' fatture di '+combo.fornitore+'\n'+elenco+
-      '\n\nTotale: '+fmt(combo.somma)+' — Banca: '+fmt(imp)+' del '+m.data+
-      '\n\nAprire la selezione già pronta da confermare?';
-    if(confirm(msg)){
-      window._cfaIdx=idx; window._cfaImp=imp; window._cfaMov=m;
-      _cfMultiplo();
-      combo.fatture.forEach(function(f){ if(typeof window._cfMultiAdd==='function') window._cfMultiAdd(f.id); });
-      return;
-    }
-    // Se rifiuta la combinazione, prosegue con la ricerca normale sotto
-  }
+  // La ricerca di combinazioni multi-fattura ora è un bottone esplicito dentro
+  // il picker qui sotto ("🧮 Cerca combinazione"), non più qualcosa che parte
+  // da sola e propone una sola scelta — con poche fatture piccole possono
+  // esistere più combinazioni diverse che sommano allo stesso importo per
+  // puro caso, e scegliere quella sbagliata senza avvisare è già successo.
 
   if(!document.getElementById('_cfOv')){
     var ov=document.createElement('div');
@@ -12728,6 +12802,7 @@ function _cfRender(mostraTutte, filtro){
     hh+='<button id="_cfBtnToggle" onclick="_cfRender(false,\'\')" style="flex:1;padding:8px;border:1.5px solid var(--sep);border-radius:8px;background:var(--surface);color:var(--ink3);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">Solo simili</button>';
   }
   hh+='<button onclick="_cfMultiplo()" style="padding:8px 10px;border:1.5px solid var(--orange);border-radius:8px;background:#fff8ec;color:#b36a00;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer" title="Abbina a più fatture">+2</button>';
+  hh+='<button onclick="_cfCercaCombinazioni()" style="padding:8px 10px;border:1.5px solid var(--blue);border-radius:8px;background:var(--blue-light);color:var(--blue);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer" title="Cerca automaticamente una combinazione di più fatture che sommi a questo importo">🧮</button>';
   hh+='<button onclick="document.getElementById(\'_cfOv\').remove()" style="padding:8px 14px;border:1px solid var(--sep);border-radius:8px;background:var(--surface);color:var(--ink3);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">X</button>';
   hh+='</div>';
   // Campo ricerca con oninput che aggiorna SOLO la lista, non l'intero overlay
@@ -12781,6 +12856,119 @@ function _cfRender(mostraTutte, filtro){
   }
 }
 function _abbinaManualeMovimento(movIdx, fattId, isParziale){ _cfAbbina(movIdx, fattId, isParziale); }
+
+function _cfCercaCombinazioni(){
+  var imp=window._cfaImp, m=window._cfaMov;
+  if(!m) return;
+
+  var eAssegno = /assegno/i.test(m.sottotipo||'') || /assegno/i.test(m.tipo||'');
+  var fornitoriAmmessi = null; // null = nessun vincolo trovato -> non si procede
+
+  if(eAssegno){
+    // Gli assegni non hanno un beneficiario scritto nel movimento — non c'è
+    // niente da leggere in descrizione. Restringiamo ai fornitori che hanno
+    // "assegno" come metodo di pagamento predefinito, invece di guardare
+    // tutti i fornitori (troppo rischio di falsi positivi con importi piccoli).
+    var db = cacheGet(KDP, {});
+    fornitoriAmmessi = Object.keys(db).filter(function(k){
+      var v = db[k];
+      var pag = typeof v==='string' ? v : (v&&v.pagamento);
+      return pag==='assegno';
+    });
+    if(!fornitoriAmmessi.length){
+      alert('Nessun fornitore ha "assegno" impostato come metodo di pagamento predefinito (Impostazioni → Pagamento default). Senza questo la ricerca automatica per assegni non ha un punto di partenza sicuro — usa "+2" per selezionare a mano.');
+      return;
+    }
+  } else {
+    // Bonifico/SDD: il beneficiario è scritto nella descrizione del
+    // movimento — la ricerca deve limitarsi SOLO a quel fornitore, mai
+    // "a tutti" (con tante fatture piccole in giro, il rischio di trovare
+    // una combinazione che torna per puro caso ma è quella sbagliata è reale
+    // e già successo).
+    var descLow=(m.descrizione||'').toLowerCase();
+    var candidatiForn = fatture.filter(function(f){
+      var forn=(f.fornitore||'').toLowerCase();
+      if(!forn) return false;
+      var parole=forn.split(/\s+/).filter(function(p){return p.length>3;});
+      return parole.some(function(p){return descLow.indexOf(p)>=0;});
+    });
+    var fornitoreGuess = candidatiForn.length ? candidatiForn[0].fornitore : null;
+    if(!fornitoreGuess){
+      alert('Non riesco a riconoscere il beneficiario dalla descrizione di questo movimento, quindi non posso restringere la ricerca a un fornitore preciso. Digita il nome del fornitore nel campo di ricerca qui sopra, poi riprova.');
+      return;
+    }
+    fornitoriAmmessi = [fornitoreGuess];
+  }
+
+  toast('🧮 Ricerca combinazioni in corso…', 2000);
+  setTimeout(function(){
+    var esito = _trovaCombinazioniEsatte(imp, fornitoriAmmessi, m.data);
+    if(esito.troppiCandidati){
+      alert('Troppe fatture da controllare ('+esito.candidatiUsati+') per una ricerca automatica sicura. Usa "+2" per selezionarle a mano.');
+      return;
+    }
+    if(!esito.combinazioni.length){
+      alert('Nessuna combinazione esatta trovata tra i fornitori ammessi ('+fornitoriAmmessi.join(', ')+') su '+esito.candidatiUsati+' fatture aperte controllate.\n\nProva "+2" per selezionare a mano.');
+      return;
+    }
+    if(esito.combinazioni.length === 1){
+      _cfApplicaCombinazione(esito.combinazioni[0]);
+      return;
+    }
+    // Più combinazioni possibili: MAI sceglierne una da sola — le mostriamo
+    // tutte e aspettiamo che sia l'utente a decidere quale è quella vera.
+    _cfMostraCombinazioni(esito.combinazioni, imp, m);
+  }, 50);
+}
+
+function _cfMostraCombinazioni(combinazioni, imp, m){
+  var ov=document.getElementById('_cfOv');
+  if(ov) ov.remove();
+  var overlay=document.createElement('div');
+  overlay.id='_cfComboOv';
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99999;display:flex;align-items:flex-end';
+  document.body.appendChild(overlay);
+
+  var hh='<div style="background:#fff;border-radius:16px 16px 0 0;padding:16px;width:100%;max-height:88vh;overflow-y:auto;font-family:inherit">';
+  hh+='<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:3px">';
+  hh+='<div style="font-size:15px;font-weight:700">⚠️ Trovate '+combinazioni.length+' combinazioni possibili</div>';
+  hh+='<button onclick="document.getElementById(\'_cfComboOv\').remove()" style="background:var(--surface2);border:none;border-radius:99px;width:30px;height:30px;font-size:17px;cursor:pointer;flex-shrink:0;margin-left:8px">&#215;</button>';
+  hh+='</div>';
+  hh+='<div style="font-size:12px;color:var(--ink3);margin-bottom:12px">Più gruppi di fatture sommano esattamente a '+fmt(imp)+' — scegli quello giusto, nessuna scelta è stata fatta in automatico.</div>';
+  combinazioni.forEach(function(combo, ci){
+    hh+='<div style="border:1.5px solid var(--sep);border-radius:10px;padding:12px;margin-bottom:10px">';
+    hh+='<div style="font-size:12px;font-weight:700;margin-bottom:6px">Opzione '+(ci+1)+' — '+combo.fatture.length+' fatture · '+fmt(combo.somma)+'</div>';
+    combo.fatture.slice().sort(function(a,b){return (a.data||'').localeCompare(b.data||'');}).forEach(function(f){
+      hh+='<div style="font-size:11px;color:var(--ink2);padding:2px 0">· '+esc(f.fornitore||'')+' N°'+esc(f.numero||'')+' del '+f.data+' ('+fmt(f.importo||0)+')</div>';
+    });
+    hh+='<button onclick="_cfSceltaCombinazione('+ci+')" style="width:100%;margin-top:8px;padding:9px;border:none;border-radius:8px;background:var(--blue);color:#fff;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer">Usa questa combinazione</button>';
+    hh+='</div>';
+  });
+  hh+='<button onclick="document.getElementById(\'_cfComboOv\').remove()" style="width:100%;padding:9px;border:1px solid var(--sep);border-radius:8px;background:var(--surface);color:var(--ink3);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">Nessuna di queste</button>';
+  hh+='</div>';
+  overlay.innerHTML=hh;
+  window._cfComboOpzioni = combinazioni;
+}
+
+function _cfSceltaCombinazione(ci){
+  var combo = (window._cfComboOpzioni||[])[ci];
+  if(!combo) return;
+  var ov=document.getElementById('_cfComboOv');
+  if(ov) ov.remove();
+  _cfApplicaCombinazione(combo);
+}
+
+function _cfApplicaCombinazione(combo){
+  // Riusa il picker "+2" già esistente, pre-riempito con la combinazione
+  // trovata — l'utente vede comunque tutto prima di confermare, il tasto
+  // "Conferma abbinamento" resta un passaggio esplicito, mai automatico.
+  _cfMultiplo();
+  setTimeout(function(){
+    combo.fatture.forEach(function(f){
+      if(typeof window._cfMultiAdd==='function') window._cfMultiAdd(f.id);
+    });
+  }, 50);
+}
 
 function _cfMultiplo(){
   var idx=window._cfaIdx, imp=window._cfaImp, m=window._cfaMov;
