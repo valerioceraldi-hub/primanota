@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.4</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.5</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -2173,6 +2173,12 @@ async function dbInsert(f){
           }
         });
         patch.ts = Date.now();
+        // Se la riga trovata era stata cancellata (soft-delete) e la si sta
+        // re-inserendo, il salvataggio va reso visibile — altrimenti sembra
+        // "non salvare niente" perché il PATCH riesce ma la fattura resta
+        // nascosta con deleted_at ancora valorizzato (bug reale trovato 06/08
+        // sul reinserimento manuale di Serramenti Azzolino).
+        patch.deleted_at = null;
         const upd = await sbFetch('fatture?id=eq.'+esistente.id, {
           method:'PATCH',
           headers:Object.assign({}, SB_H, {'Prefer':'return=representation'}),
@@ -12372,6 +12378,15 @@ function renderRiconciliazione(){
   // qui si guardava solo m.fatturaId. Recuperiamo tutte tramite il campo
   // strutturato f.riconciliazione.movId, scritto su ciascuna fattura coinvolta.
   var _righeRiconciliate = [];
+  // Formatta una data ISO (YYYY-MM-DD) in gg/mm breve per le card di "Riconciliati"
+  // — usata per mostrare sia la data della fattura sia quella del pagamento,
+  // richiesto esplicitamente da Valerio (06/08): prima si vedeva solo una data
+  // e non era chiaro se fosse quella della fattura o del movimento.
+  function _fmtDataBreve(iso){
+    if(!iso) return '';
+    try{ return new Date(iso+'T12:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit'}); }
+    catch(e){ return iso; }
+  }
   movAbbinati.forEach(function(m){
     var eMulti = /^\d+ fatture:/.test(m.fatturaLabel||'');
     if(eMulti){
@@ -12407,7 +12422,11 @@ function renderRiconciliazione(){
         var eParziale = ric && ric.parziale;
         htmlRiconciliati += '<div style="padding:8px 0;border-top:1px solid var(--sep);display:flex;justify-content:space-between;align-items:flex-start;gap:8px">';
         htmlRiconciliati += '<div style="flex:1;min-width:0">';
-        htmlRiconciliati += '<div style="font-size:11px;color:var(--ink3)">'+m.data+'</div>';
+        htmlRiconciliati += '<div style="font-size:11px;color:var(--ink3)">'
+          + (f && f.data ? 'Fattura '+_fmtDataBreve(f.data) : '')
+          + (f && f.data && m.data ? ' · ' : '')
+          + (m.data ? 'Pagata '+_fmtDataBreve(m.data) : '')
+          + '</div>';
         htmlRiconciliati += '<div style="font-size:12px;font-weight:600">'+(f?('N°'+esc(f.numero||'')):esc(m.fatturaLabel||''))+'</div>';
         if(ric && ric.descrizione) htmlRiconciliati += '<div style="font-size:10px;color:var(--ink3);margin-top:1px;word-break:break-word;line-height:1.3">'+esc(ric.descrizione)+'</div>';
         htmlRiconciliati += '<div style="font-size:11px;margin-top:3px">'
