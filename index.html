@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.2</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.3</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -11296,7 +11296,9 @@ async function salvaMovimentoBanca(m){
 
 async function upsertMovimentiBanca(nuovi){
   if(!nuovi || !nuovi.length) return;
-  try{
+  // Nota: nessun try/catch qui — l'errore deve propagarsi a chi chiama
+  // (onBancaPDFSelected), che lo mostra esplicitamente invece di inghiottirlo.
+  {
     // Carica abbinamenti esistenti da Supabase per non perderli
     const esistenti = await sbFetch('movimenti_banca?select=id,abbinata,fattura_id,fattura_label,verificata_banca,ignorata');
     var mapEsistenti = {};
@@ -11339,7 +11341,7 @@ async function upsertMovimentiBanca(nuovi){
     // Persisti localStorage con flag aggiornati: al prossimo caricamento o
     // re-import, i movimenti già abbinati non ricompaiono come "da classificare"
     _salvaBancaLocale();
-  }catch(e){ console.warn('upsertMovimentiBanca:', e); }
+  }
 }
 
 // ── REPORT DELLE AZIONI DI RICONCILIAZIONE ──
@@ -11456,6 +11458,9 @@ async function _parseBancoBPM(arrayBuffer){
   var reEstraiNum= /(-\s*[\d\.]+,\d{2}|[\d\.]+,\d{2})/g;
 
   var movimenti = [];
+  var _idUsatiCount = {}; // dedup id: movimenti realmente identici (stessa data+importo+descrizione)
+                            // generano altrimenti lo stesso id e mandano in errore l'upsert su Supabase
+                            // (ON CONFLICT DO UPDATE non può toccare due volte la stessa riga nello stesso batch)
   var oltreFineTabellaMovimenti = false; // una volta vista RIASSUNTO SCALARE (o tabelle successive), non ci sono più veri movimenti
 
   for(var p = 1; p <= pdf.numPages; p++){
@@ -11608,8 +11613,23 @@ async function _parseBancoBPM(arrayBuffer){
 
       if(/saldo\s+(iniziale|finale|a vostro)|riassunto\s+scalare|imp\.bollo\s+cc|commissioni\s+\d{2}\/\d{2}|comm\.sdd|spese e comm\b|rilascio carnet|interessi e comp/i.test(descCompleta)) return;
 
+      var _idBase = dataISO + '_' + (isUscita ? -val : val).toFixed(2) + '_' + descCompleta.slice(0,30).replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_\-]/g,'');
+      // Due movimenti realmente distinti ma con stessa data+importo+descrizione (es. due
+      // "VERSAMENTO CONTANTI" uguali lo stesso giorno) genererebbero altrimenti lo stesso id:
+      // in tal caso l'upsert su Supabase fallisce per l'intero batch (non solo per la riga
+      // duplicata) con "ON CONFLICT DO UPDATE command cannot affect row a second time",
+      // e l'errore veniva finora inghiottito silenziosamente. Qui si distingue ogni
+      // occorrenza successiva con un suffisso progressivo, così restano righe separate.
+      var _idFinale = _idBase;
+      if(_idUsatiCount[_idBase] !== undefined){
+        _idUsatiCount[_idBase]++;
+        _idFinale = _idBase + '_dup' + _idUsatiCount[_idBase];
+      } else {
+        _idUsatiCount[_idBase] = 0;
+      }
+
       movimenti.push({
-        id: dataISO + '_' + (isUscita ? -val : val).toFixed(2) + '_' + descCompleta.slice(0,30).replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_\-]/g,''),
+        id: _idFinale,
         data: dataISO,
         descrizione: descCompleta,
         importo: isUscita ? -val : val,
@@ -11654,60 +11674,21 @@ async function onBancaPDFSelected(input){
     var bm = document.getElementById('bancaMese');
     if(bm && !bm.value) bm.value = _bancaMovimenti[0].data.slice(0,7);
     _resetReconReport(file.name, bm ? bm.value : '');
-    if(info) info.textContent = '✓ ' + mov.length + ' movimenti dal PDF';
-    // Salva su Supabase preservando abbinamenti esistenti
-    upsertMovimentiBanca(_bancaMovimenti).then(function(){ renderRiconciliazione(); });
-    toast('✓ ' + mov.length + ' movimenti');
-
-  }catch(err){
-    if(info) info.textContent = '❌ ' + (err.message||err);
-    toast('❌ ' + (err.message||err));
-    console.error('Parser Banco BPM:', err);
-  }
-}
-// ══════════════════════════════════════════════════════
-async function _caricaPdfJs(){
-  if(typeof pdfjsLib !== 'undefined') return;
-  await new Promise(function(res, rej){
-    var s = document.createElement('script');
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-    s.onload = function(){
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      res();
-    };
-    s.onerror = function(){ rej(new Error('PDF.js non caricabile')); };
-    document.head.appendChild(s);
-  });
-}
-
-function _pIta(s){
-  if(!s) return NaN;
-  return parseFloat(s.replace(/\./g,'').replace(',','.'));
-}
-
-async function onBancaPDFSelected(input){
-  if(!input.files||!input.files[0]) return;
-  var file = input.files[0];
-  input.value = '';
-  var info = document.getElementById('bancaImportInfo');
-  if(info) info.textContent = '⏳ Lettura PDF...';
-
-  try{
-    if(info) info.textContent = '⏳ Analisi struttura PDF...';
-    var arrayBuffer = await file.arrayBuffer();
-    var mov = await _parseBancoBPM(arrayBuffer);
-
-    if(!mov.length) throw new Error('Nessun movimento trovato — controlla che sia un estratto Banco BPM');
-
-    _bancaMovimenti = mov.sort(function(a,b){ return b.data.localeCompare(a.data); });
-    var bm = document.getElementById('bancaMese');
-    if(bm && !bm.value) bm.value = _bancaMovimenti[0].data.slice(0,7);
-    _resetReconReport(file.name, bm ? bm.value : '');
-    if(info) info.textContent = '✓ ' + mov.length + ' movimenti dal PDF';
-    // Salva su Supabase preservando abbinamenti esistenti
-    upsertMovimentiBanca(_bancaMovimenti).then(function(){ renderRiconciliazione(); });
-    toast('✓ ' + mov.length + ' movimenti');
+    if(info) info.textContent = '⏳ Salvataggio ' + mov.length + ' movimenti su Supabase...';
+    // Salva su Supabase preservando abbinamenti esistenti — il toast di successo parte
+    // SOLO dopo conferma reale del salvataggio (prima partiva subito dopo il parsing,
+    // mascherando eventuali fallimenti silenziosi dell'upsert — vedi upsertMovimentiBanca).
+    try{
+      await upsertMovimentiBanca(_bancaMovimenti);
+      renderRiconciliazione();
+      if(info) info.textContent = '✓ ' + mov.length + ' movimenti salvati';
+      toast('✓ ' + mov.length + ' movimenti salvati su Supabase');
+    }catch(saveErr){
+      var saveMsg = 'Letti ' + mov.length + ' movimenti dal PDF ma SALVATAGGIO SU SUPABASE FALLITO: ' + (saveErr.message||saveErr);
+      if(info) info.textContent = '❌ ' + saveMsg;
+      alert('⚠️ ATTENZIONE — import NON salvato\n\n' + saveMsg + '\n\nI movimenti letti dal PDF non sono stati scritti su Supabase. Riprova; se l\'errore persiste segnalalo.');
+      console.error('upsertMovimentiBanca fallito:', saveErr);
+    }
 
   }catch(err){
     if(info) info.textContent = '❌ ' + (err.message||err);
