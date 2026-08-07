@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.6</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.8</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -14234,6 +14234,15 @@ async function _controlloIntegritaRiconciliazioni(){
     });
     var idsSospetti = Object.keys(perFattura).filter(function(k){ return perFattura[k].length > 1; });
 
+    // Stessa formattazione data usata nel resto dell'app (gg/mm/aaaa) — prima qui
+    // si vedeva la data grezza del database (es. "2026-05-28"), poco leggibile
+    // e diversa dal resto dell'app; Valerio l'ha segnalato il 07/08.
+    var fmtDataIntegrita = function(d){
+      if(!d) return '';
+      try{ return new Date(d+'T12:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'}); }
+      catch(e){ return d; }
+    };
+
     var html = '';
     if(!idsSospetti.length){
       html = '<div style="text-align:center;padding:24px;color:var(--ink3);font-size:13px">✓ Nessuna fattura con più di un movimento agganciato.</div>';
@@ -14242,10 +14251,20 @@ async function _controlloIntegritaRiconciliazioni(){
       var idsNum = idsSospetti.map(function(s){ return isNaN(+s)?s:+s; });
       var filtroIds = idsNum.map(function(v){ return typeof v==='number'?v:'"'+v+'"'; }).join(',');
       var fattureCoinvolte = [];
-      try{ fattureCoinvolte = await sbFetch('fatture?id=in.('+filtroIds+')&select=id,fornitore,numero,importo,stato'); }catch(e){}
+      try{ fattureCoinvolte = await sbFetch('fatture?id=in.('+filtroIds+')&select=id,fornitore,numero,importo,stato,data'); }catch(e){}
       var fMap = {}; fattureCoinvolte.forEach(function(f){ fMap[f.id] = f; });
 
-      html += '<div style="font-size:12px;color:var(--ink3);margin-bottom:12px">'+idsSospetti.length+' fattur'+(idsSospetti.length===1?'a':'e')+' con più di un movimento agganciato — controlla quelle segnate "da verificare".</div>';
+      // Istruzioni d'uso esplicite in cima — prima non c'era alcuna spiegazione
+      // di come leggere i due badge né che le righe sotto sono cliccabili
+      // (segnalato poco chiaro da Valerio il 07/08).
+      html += '<div style="background:var(--surface2);border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--ink2);line-height:1.5">';
+      html += '<b>Come si legge:</b> ogni riquadro è UNA fattura con più di un movimento bancario agganciato.<br>';
+      html += '<span style="color:var(--green)">✓ Probabile rateizzazione</span> = i movimenti sommati tornano esatti all\'importo della fattura (pagamento a rate, di solito nessun errore).<br>';
+      html += '<span style="color:var(--red)">⚠️ Da verificare</span> = la somma NON torna con l\'importo della fattura — quasi sempre uno dei movimenti appartiene a un\'ALTRA fattura (mancante o da agganciare altrove).<br>';
+      html += '<b>Tocca una riga movimento (sotto, in blu) per aprirla e correggere l\'abbinamento.</b>';
+      html += '</div>';
+
+      html += '<div style="font-size:12px;color:var(--ink3);margin-bottom:12px">'+idsSospetti.length+' fattur'+(idsSospetti.length===1?'a':'e')+' con più di un movimento agganciato.</div>';
 
       idsSospetti.forEach(function(fid){
         var movs = perFattura[fid].sort(function(a,b){ return (a.data||'').localeCompare(b.data||''); });
@@ -14260,9 +14279,11 @@ async function _controlloIntegritaRiconciliazioni(){
         html += '<div style="font-size:13px;font-weight:700">'+esc((f.fornitore||movs[0].fattura_label||'')+(f.numero?' N°'+f.numero:''))+'</div>';
         html += '<div style="font-size:11px;font-weight:700;color:'+colore+'">'+badge+'</div>';
         html += '</div>';
-        html += '<div style="font-size:12px;color:var(--ink2)">Fattura: '+fmt(importoFatt)+' · Movimenti agganciati: '+fmt(sommaMov)+' ('+movs.length+')</div>';
+        if(f.data) html += '<div style="font-size:11px;color:var(--ink3)">Data fattura: '+fmtDataIntegrita(f.data)+'</div>';
+        html += '<div style="font-size:12px;color:var(--ink2);margin-top:2px">Importo fattura: <b>'+fmt(importoFatt)+'</b> &nbsp;·&nbsp; Movimenti agganciati: <b>'+fmt(sommaMov)+'</b> ('+movs.length+')</div>';
+        html += '<div style="font-size:10px;color:var(--ink3);margin-top:2px">Tocca un movimento per correggere ↓</div>';
         movs.forEach(function(m){
-          html += '<div class="_integritaMovRiga" data-movid="'+esc(m.id)+'" style="font-size:11px;color:var(--blue);padding-top:2px;cursor:pointer;text-decoration:underline dotted">· '+(m.data||'')+'  '+fmt(Math.abs(m.importo||0))+'  →</div>';
+          html += '<div class="_integritaMovRiga" data-movid="'+esc(m.id)+'" style="font-size:12px;color:var(--blue);padding:3px 0;cursor:pointer;text-decoration:underline dotted;font-weight:600">· '+fmtDataIntegrita(m.data)+'  —  '+fmt(Math.abs(m.importo||0))+'  →</div>';
         });
         html += '</div>';
       });
