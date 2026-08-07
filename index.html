@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.5</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.6</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -11724,6 +11724,12 @@ function renderRiconciliazione(){
   var altri = [];
 
   movMese.forEach(function(m){
+    // Un movimento marcato ignorata (es. storno/duplicato bancario già chiarito,
+    // vedi caso S.Passalacqua 06/08) non deve MAI rientrare nel giro di
+    // auto-match: prima non veniva escluso qui, quindi bastava riaprire la
+    // schermata perché il giro automatico lo riagganciasse da capo alla
+    // fattura sbagliata, annullando silenziosamente la correzione manuale.
+    if(m.ignorata) return;
     var d = (m.descrizione||'').toLowerCase();
     if(/versamento contanti/.test(d) && m.tipo==='entrata'){
       versamentiBanca.push(m);
@@ -14256,7 +14262,7 @@ async function _controlloIntegritaRiconciliazioni(){
         html += '</div>';
         html += '<div style="font-size:12px;color:var(--ink2)">Fattura: '+fmt(importoFatt)+' · Movimenti agganciati: '+fmt(sommaMov)+' ('+movs.length+')</div>';
         movs.forEach(function(m){
-          html += '<div style="font-size:11px;color:var(--ink3);padding-top:2px">· '+(m.data||'')+'  '+fmt(Math.abs(m.importo||0))+'</div>';
+          html += '<div class="_integritaMovRiga" data-movid="'+esc(m.id)+'" style="font-size:11px;color:var(--blue);padding-top:2px;cursor:pointer;text-decoration:underline dotted">· '+(m.data||'')+'  '+fmt(Math.abs(m.importo||0))+'  →</div>';
         });
         html += '</div>';
       });
@@ -14276,6 +14282,12 @@ async function _controlloIntegritaRiconciliazioni(){
       + '</div>'
       + '</div>';
     document.body.appendChild(ov);
+    // Click su una riga movimento → chiude questo pannello e apre direttamente
+    // il picker "Cambia abbinamento" su quel movimento/fattura, per rivedere
+    // o correggere la scelta senza dover cercare a mano (richiesto 07/08).
+    Array.prototype.forEach.call(ov.querySelectorAll('._integritaMovRiga'), function(el){
+      el.onclick = function(){ _apriDaControlloIntegrita(el.getAttribute('data-movid')); };
+    });
     var chiudi = function(){ try{ document.body.removeChild(ov); }catch(e){} };
     document.getElementById('integritaClose').onclick = chiudi;
     document.getElementById('integritaOk').onclick = chiudi;
@@ -14284,6 +14296,29 @@ async function _controlloIntegritaRiconciliazioni(){
     console.error('_controlloIntegritaRiconciliazioni:', err);
     toast('❌ Controllo fallito: '+(err.message||err));
   }
+}
+
+// Apre il picker "Cambia abbinamento" per un movimento trovato dal controllo
+// integrità, anche se quel movimento non è ancora caricato in _bancaMovimenti
+// (es. appartiene a un mese non ancora importato in questa sessione) — in tal
+// caso lo scarica al volo da Supabase e lo inserisce in memoria prima di aprire
+// il picker, così funziona sempre, non solo per il mese corrente.
+async function _apriDaControlloIntegrita(movId){
+  try{ document.getElementById('integritaOverlay').remove(); }catch(e){}
+  var m = (_bancaMovimenti||[]).find(function(x){ return x.id===movId; });
+  if(!m){
+    toast('⏳ Carico il movimento...');
+    try{
+      var rows = await sbFetch('movimenti_banca?id=eq.'+encodeURIComponent(movId)+'&select=*');
+      if(!rows || !rows.length){ alert('Movimento non trovato (potrebbe essere stato cancellato).'); return; }
+      m = _bancaNorm(rows[0]);
+      _bancaMovimenti = (_bancaMovimenti||[]).concat([m]);
+    }catch(e){
+      alert('Errore nel caricare il movimento: '+(e.message||e));
+      return;
+    }
+  }
+  apriCambioAbbinamentoMov(m.id);
 }
 
 // Versione testuale del report (per copia/incolla in WhatsApp/email/note)
