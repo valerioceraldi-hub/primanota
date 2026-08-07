@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.8</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.9</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -11468,6 +11468,13 @@ async function _parseBancoBPM(arrayBuffer){
                             // generano altrimenti lo stesso id e mandano in errore l'upsert su Supabase
                             // (ON CONFLICT DO UPDATE non può toccare due volte la stessa riga nello stesso batch)
   var oltreFineTabellaMovimenti = false; // una volta vista RIASSUNTO SCALARE (o tabelle successive), non ci sono più veri movimenti
+  // Saldo iniziale/finale letti dal testo dell'estratto stesso — servono per il
+  // controllo di quadratura richiesto esplicitamente da Valerio più volte (07/08):
+  // "il saldo iniziale + entrate - uscite deve tornare esatto al saldo finale,
+  // altrimenti vuol dire che manca qualche riga". Prima questo controllo non
+  // esisteva affatto nell'app — veniva fatto solo a mano, fuori dall'app, quando
+  // richiesto esplicitamente. Ora gira automaticamente ad ogni import.
+  var _saldoInizialeEstratto = null, _saldoFinaleEstratto = null;
 
   for(var p = 1; p <= pdf.numPages; p++){
     if(oltreFineTabellaMovimenti) break; // pagine successive: solo riepiloghi/interessi, nessuna transazione reale
@@ -11477,6 +11484,36 @@ async function _parseBancoBPM(arrayBuffer){
     var tokens = tc.items
       .filter(function(i){ return i.str && i.str.trim(); })
       .map(function(i){ return { x: i.transform[4], y: i.transform[5], t: i.str.trim() }; });
+
+    // ── Saldo iniziale/finale (per il controllo di quadratura a fine import) ──
+    // Riga tipica: "31/12/25   SALDO INIZIALE A VOSTRO CREDITO   3.341,55"
+    // (o "...A VOSTRO DEBITO" quando negativo). Si cercano i token "INIZIALE"/
+    // "FINALE" e si legge il primo importo sulla STESSA riga (stessa y arrotondata).
+    (function(){
+      var righeY = {};
+      tokens.forEach(function(tok){
+        var yk = Math.round(tok.y/3)*3;
+        (righeY[yk] = righeY[yk] || []).push(tok);
+      });
+      Object.keys(righeY).forEach(function(yk){
+        var riga = righeY[yk].sort(function(a,b){ return a.x-b.x; });
+        var testoRiga = riga.map(function(t){ return t.t; }).join(' ');
+        if(/SALDO\s+INIZIALE/i.test(testoRiga) && _saldoInizialeEstratto===null){
+          var mIni = testoRiga.match(/([\d\.]+,\d{2})/);
+          if(mIni){
+            var v = parseFloat(mIni[1].replace(/\./g,'').replace(',','.'));
+            _saldoInizialeEstratto = /DEBITO/i.test(testoRiga) ? -v : v;
+          }
+        }
+        if(/SALDO\s+FINALE/i.test(testoRiga)){
+          var mFin = testoRiga.match(/([\d\.]+,\d{2})/);
+          if(mFin){
+            var v2 = parseFloat(mFin[1].replace(/\./g,'').replace(',','.'));
+            _saldoFinaleEstratto = /DEBITO/i.test(testoRiga) ? -v2 : v2;
+          }
+        }
+      });
+    })();
 
     // ── Individua dove finisce la tabella dei movimenti veri su questa pagina ──
     // Dopo "SALDO FINALE" seguono tabelle di riepilogo (RIASSUNTO SCALARE, INTERESSI
@@ -11646,6 +11683,8 @@ async function _parseBancoBPM(arrayBuffer){
     });
   }
 
+  movimenti._saldoIniziale = _saldoInizialeEstratto;
+  movimenti._saldoFinale = _saldoFinaleEstratto;
   return movimenti;
 }
 
@@ -11676,6 +11715,26 @@ async function onBancaPDFSelected(input){
 
     if(!mov.length) throw new Error('Nessun movimento trovato — controlla che sia un estratto Banco BPM');
 
+    // ── Controllo di quadratura: saldo iniziale + movimenti deve tornare al saldo
+    // finale letto dallo stesso estratto — se non torna, mancano righe (richiesto
+    // esplicitamente da Valerio più volte, 07/08). Prima questo controllo non
+    // esisteva nell'app, andava fatto a mano fuori dall'app ogni volta.
+    var _saldoIni = mov._saldoIniziale, _saldoFin = mov._saldoFinale;
+    var _quadraturaMsg = '';
+    if(_saldoIni !== null && _saldoFin !== null){
+      var _sommaMovimenti = mov.reduce(function(s,m){ return s + (m.importo||0); }, 0);
+      var _attesa = _saldoFin - _saldoIni;
+      var _diff = Math.round((_sommaMovimenti - _attesa) * 100) / 100;
+      if(Math.abs(_diff) > 0.02){
+        _quadraturaMsg = '⚠️ ATTENZIONE — l\'estratto non quadra.\n\n'
+          + 'Saldo iniziale: ' + _saldoIni.toFixed(2).replace('.',',') + '€\n'
+          + 'Saldo finale: ' + _saldoFin.toFixed(2).replace('.',',') + '€\n'
+          + 'Movimenti letti dal PDF: ' + _sommaMovimenti.toFixed(2).replace('.',',') + '€\n'
+          + 'Differenza: ' + _diff.toFixed(2).replace('.',',') + '€\n\n'
+          + 'Probabile causa: il parser non è riuscito a leggere correttamente una o più righe di questo PDF. Controlla l\'estratto originale pagina per pagina prima di fidarti di questo import.';
+      }
+    }
+
     _bancaMovimenti = mov.sort(function(a,b){ return b.data.localeCompare(a.data); });
     var bm = document.getElementById('bancaMese');
     if(bm && !bm.value) bm.value = _bancaMovimenti[0].data.slice(0,7);
@@ -11687,8 +11746,16 @@ async function onBancaPDFSelected(input){
     try{
       await upsertMovimentiBanca(_bancaMovimenti);
       renderRiconciliazione();
-      if(info) info.textContent = '✓ ' + mov.length + ' movimenti salvati';
-      toast('✓ ' + mov.length + ' movimenti salvati su Supabase');
+      if(_quadraturaMsg){
+        if(info) info.textContent = '⚠️ ' + mov.length + ' movimenti salvati — ma L\'ESTRATTO NON QUADRA (vedi avviso)';
+        alert(_quadraturaMsg);
+      } else if(_saldoIni !== null && _saldoFin !== null){
+        if(info) info.textContent = '✓ ' + mov.length + ' movimenti salvati — quadratura verificata ✓';
+        toast('✓ ' + mov.length + ' movimenti — quadra al centesimo');
+      } else {
+        if(info) info.textContent = '✓ ' + mov.length + ' movimenti salvati (saldo iniziale/finale non trovati nel PDF, quadratura non verificabile)';
+        toast('✓ ' + mov.length + ' movimenti salvati su Supabase');
+      }
     }catch(saveErr){
       var saveMsg = 'Letti ' + mov.length + ' movimenti dal PDF ma SALVATAGGIO SU SUPABASE FALLITO: ' + (saveErr.message||saveErr);
       if(info) info.textContent = '❌ ' + saveMsg;
