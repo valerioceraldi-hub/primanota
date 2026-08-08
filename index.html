@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.25</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.26</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -4886,6 +4886,21 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 function _estraiNumeroAssegnoDaDescrizione(descrizione){
   var m = /assegno\s+n\.?\s*(\d+)/i.exec(descrizione||'');
   return m ? m[1] : null;
+}
+
+// BUG CORRETTO (08/08): questa era rimasta l'unica copia non ancora sistemata
+// dell'id numerico per gli incassi SumUp — le due Edge Function erano già
+// state corrette (incassi.id è bigint, non testo), ma il pulsante manuale
+// "🔄 SumUp" nell'app usava ancora un id stringa che Postgres avrebbe rifiutato
+// (mai notato perché finora la sincronizzazione notturna ha sempre "vinto" per
+// prima). Stesso hash deterministico usato lato server, per restare coerenti.
+function sumupIdBigint(str){
+  var h = 2166136261;
+  for(var i=0;i<str.length;i++){
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return 2000000000000 + (h>>>0);
 }
 // Ricerca condivisa fornitore/numero + importo, usata in tutte le barre di
 // ricerca fatture (Registro, picker "Aggancia DDT", "Aggancia nota di credito",
@@ -9663,13 +9678,14 @@ async function _eseguiSyncSumUp(){
     var successi = items.filter(function(t){ return t.status==='SUCCESSFUL'; });
     var nuoviRecord = successi.map(function(t){
       return {
-        id: 'sumup_' + (t.id || t.transaction_code),
+        id: sumupIdBigint(t.transaction_code || t.id),
         data: (t.timestamp||'').slice(0,10),
         importo: t.amount || 0,
         esito: 'ok',
         tipo: t.payment_type || '',
         idTrans: t.transaction_code || t.id || '',
-        source: 'sumup'
+        source: 'sumup',
+        payoutDate: t.payout_date || null
       };
     }).filter(function(r){ return r.data && r.importo>0; });
 
@@ -9756,6 +9772,7 @@ async function upsertIncassi(nuovi){
         id_trans: x.idTrans||'',
         source: x.source||'numia',
         dedup: x._dedup||null,
+        payout_date: x.payoutDate||null,
         updated_at: new Date().toISOString()
       };
     });
@@ -9956,17 +9973,29 @@ function renderIncLista(){
     const detailId = `chiusura-detail-${i}`;
     // Riepilogo cassa/POS nella riga: se manca uno dei due, lo segnalo invece di scrivere €0
     const posBanca = +(c.pos_banca||0);
-    // Confronto banca vs estratto carta Numia (transazione per transazione,
-    // importato separatamente con "Import POS Numia") — due fonti indipendenti
-    // che devono coincidere se tutto è stato accreditato correttamente.
-    const totNumiaCard = (typeof incassi!=='undefined' ? incassi : []).filter(function(x){return x.data===c.data && (x.source==='numia'||x.source==='sumup') && x.esito==='ok';}).reduce(function(s,x){return s+(x.importo||0);},0);
+    // Confronto banca vs estratto carta POS (transazione per transazione,
+    // importato separatamente con "Import POS" o sincronizzato da SumUp) — due
+    // fonti indipendenti che devono coincidere se tutto è stato accreditato
+    // correttamente. Numia e SumUp mostrati DISTINTI (richiesto da Valerio
+    // 08/08: durante una transizione tra fornitori serve vedere le due fonti
+    // separate, non solo il totale combinato) — il totale resta comunque
+    // disponibile per il confronto di quadratura sotto.
+    const _incassiGiorno = (typeof incassi!=='undefined' ? incassi : []).filter(function(x){return x.data===c.data && x.esito==='ok';});
+    const totNumiaSolo = _incassiGiorno.filter(function(x){return x.source==='numia';}).reduce(function(s,x){return s+(x.importo||0);},0);
+    const totSumupSolo = _incassiGiorno.filter(function(x){return x.source==='sumup';}).reduce(function(s,x){return s+(x.importo||0);},0);
+    const totNumiaCard = totNumiaSolo + totSumupSolo;
     // Riga in linea con "Pagamenti elettronici": qui confrontiamo col CSV Numia
     // (non con la banca) — stessa logica del riepilogo mensile/annuale. L'estratto
     // conto banca riconcilia SEPARATAMENTE contro Numia nel blocco sottostante.
     const scostPOS = totNumiaCard > 0 ? totNumiaCard - pos : null;
     const coincide = totNumiaCard > 0 && Math.abs(scostPOS) < 0.01;
+    const _righeFontiPOS = (totNumiaSolo>0 && totSumupSolo>0)
+      ? `<tr><td style="padding:2px 0;color:var(--ink3);padding-left:12px;font-size:12px">· Numia</td><td style="padding:2px 0;text-align:right;font-size:12px;color:var(--ink3)">${fmt(totNumiaSolo)}</td></tr>
+         <tr><td style="padding:2px 0;color:var(--ink3);padding-left:12px;font-size:12px">· SumUp</td><td style="padding:2px 0;text-align:right;font-size:12px;color:var(--ink3)">${fmt(totSumupSolo)}</td></tr>`
+      : '';
     const rigaPosBanca = totNumiaCard > 0 ? `
       <tr><td style="padding:5px 0;color:#0066cc">💳 Estratto carta POS</td><td style="padding:5px 0;text-align:right;color:#0066cc">${fmt(totNumiaCard)} ${coincide?'✅':''}</td></tr>
+      ${_righeFontiPOS}
       ${coincide ? '' : `<tr><td style="padding:5px 0;color:${scostPOS<0?'var(--red)':'#b36a00'};padding-left:12px">· Differenza vs Pagamenti elettronici</td><td style="padding:5px 0;text-align:right;font-weight:600;color:${scostPOS<0?'var(--red)':'#b36a00'}">${scostPOS>=0?'+':''}${fmt(scostPOS)}</td></tr>`}`
       : (posBanca > 0 ? `<tr><td style="padding:5px 0;color:#0066cc">🏦 Estratto conto banca</td><td style="padding:5px 0;text-align:right;color:#0066cc">${fmt(posBanca)}</td></tr>` : '');
     const scostBancaNumia = (posBanca > 0 && totNumiaCard > 0) ? Math.round((posBanca - totNumiaCard)*100)/100 : null;
@@ -10134,6 +10163,17 @@ function renderIncMese(){
   const nGiorniConNumia = giorniConNumia.length;
   const nGiorniTot = inMese.length;
   const diffPosNumiaFiscale = Math.round((totNumiaCSV - totPosFiscaleConNumia) * 100) / 100;
+  // Split Numia/SumUp per lo storico (08/08, richiesto da Valerio: "ho bisogno
+  // di avere il dato storico diviso per entrambi i fornitori per avere un
+  // raffronto") — stessi giorni di giorniConNumia, ma sommati per singola fonte.
+  const totNumiaSoloCSV = giorniConNumia.reduce((s,c)=>{
+    const totG = (typeof incassi!=='undefined'?incassi:[]).filter(x=>x.data===c.data && x.source==='numia' && x.esito==='ok').reduce((s2,x)=>s2+(x.importo||0),0);
+    return s+totG;
+  },0);
+  const totSumupSoloCSV = giorniConNumia.reduce((s,c)=>{
+    const totG = (typeof incassi!=='undefined'?incassi:[]).filter(x=>x.data===c.data && x.source==='sumup' && x.esito==='ok').reduce((s2,x)=>s2+(x.importo||0),0);
+    return s+totG;
+  },0);
   // Confronto banca vs estratto carta Numia (transazione per transazione) per
   // l'intero periodo — solo sui giorni dove entrambi i dati sono disponibili.
   const giorniConEntrambi = inMese.filter(c=>{
@@ -10148,6 +10188,16 @@ function renderIncMese(){
   },0);
   const nGiorniEntrambi = giorniConEntrambi.length;
   const diffBancaNumia = Math.round((totBancaConEntrambi - totNumiaConEntrambi)*100)/100;
+  // Split Numia/SumUp anche per il confronto con la banca (stessi giorni di
+  // giorniConEntrambi, sommati per singola fonte) — richiesto da Valerio 08/08.
+  const totNumiaSoloEntrambi = giorniConEntrambi.reduce((s,c)=>{
+    const totG = (typeof incassi!=='undefined'?incassi:[]).filter(x=>x.data===c.data && x.source==='numia' && x.esito==='ok').reduce((s2,x)=>s2+(x.importo||0),0);
+    return s+totG;
+  },0);
+  const totSumupSoloEntrambi = giorniConEntrambi.reduce((s,c)=>{
+    const totG = (typeof incassi!=='undefined'?incassi:[]).filter(x=>x.data===c.data && x.source==='sumup' && x.esito==='ok').reduce((s2,x)=>s2+(x.importo||0),0);
+    return s+totG;
+  },0);
   // Totale incassato/quadratura: si basa sulla Chiusura POS fiscale (quello che è
   // successo davvero in giornata), non sul dato banca che arriva con ritardo.
   // Il non riscosso NON è "incassato" (i soldi non ci sono ancora), ma va incluso
@@ -10181,6 +10231,8 @@ function renderIncMese(){
       <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px">
         <tr><td style="padding:4px 0;color:var(--ink3)">💳 Pagamenti elettronici (${nGiorniConNumia}gg)</td><td style="padding:4px 0;text-align:right">${fmt(totPosFiscaleConNumia)}</td></tr>
         <tr><td style="padding:4px 0;color:var(--ink3)">💳 Estratto carta POS (${nGiorniConNumia}gg)</td><td style="padding:4px 0;text-align:right">${fmt(totNumiaCSV)}</td></tr>
+        ${totNumiaSoloCSV>0 ? `<tr><td style="padding:2px 0 4px;color:var(--ink3);padding-left:16px;font-size:12px">· Numia</td><td style="padding:2px 0 4px;text-align:right;font-size:12px;color:var(--ink3)">${fmt(totNumiaSoloCSV)}</td></tr>` : ''}
+        ${totSumupSoloCSV>0 ? `<tr><td style="padding:2px 0 4px;color:var(--ink3);padding-left:16px;font-size:12px">· SumUp</td><td style="padding:2px 0 4px;text-align:right;font-size:12px;color:var(--ink3)">${fmt(totSumupSoloCSV)}</td></tr>` : ''}
       </table>
       ${nGiorniConNumia===0
         ? `<div style="font-size:12px;color:var(--ink3)">Nessun dato POS importato per questo periodo.</div>`
@@ -10198,6 +10250,8 @@ function renderIncMese(){
       <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px">
         <tr><td style="padding:4px 0;color:var(--ink3)">🏦 Estratto conto banca (${nGiorniEntrambi}gg)</td><td style="padding:4px 0;text-align:right">${fmt(totBancaConEntrambi)}</td></tr>
         <tr><td style="padding:4px 0;color:var(--ink3)">💳 Estratto carta POS (${nGiorniEntrambi}gg)</td><td style="padding:4px 0;text-align:right">${fmt(totNumiaConEntrambi)}</td></tr>
+        ${totNumiaSoloEntrambi>0 ? `<tr><td style="padding:2px 0 4px;color:var(--ink3);padding-left:16px;font-size:12px">· Numia</td><td style="padding:2px 0 4px;text-align:right;font-size:12px;color:var(--ink3)">${fmt(totNumiaSoloEntrambi)}</td></tr>` : ''}
+        ${totSumupSoloEntrambi>0 ? `<tr><td style="padding:2px 0 4px;color:var(--ink3);padding-left:16px;font-size:12px">· SumUp</td><td style="padding:2px 0 4px;text-align:right;font-size:12px;color:var(--ink3)">${fmt(totSumupSoloEntrambi)}</td></tr>` : ''}
       </table>
       ${nGiorniEntrambi===0
         ? `<div style="font-size:12px;color:var(--ink3)">Nessun giorno con entrambi i dati disponibili in questo periodo.</div>`
