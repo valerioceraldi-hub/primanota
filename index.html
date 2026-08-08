@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.12</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.14</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -12071,6 +12071,7 @@ function renderRiconciliazione(){
 
     var isAssegno  = /vostro assegno/i.test(m.descrizione);
     var isBonifico = /vs\.disp\.|favore/i.test(m.descrizione);
+    var isSDD      = /sdd\s+core|sdd\s+b2b/i.test(m.descrizione);
     var numAssStr  = '';
     var mAssNum    = m.descrizione.match(/assegno\s+n\.?\s*(\d+)/i);
     if(mAssNum) numAssStr = mAssNum[1];
@@ -12108,8 +12109,22 @@ function renderRiconciliazione(){
         if(_rifiutatiSet.has(_chiaveDescEsatte+'|'+x.id)) return false;
         if(Math.abs(nettoFattura(x)-imp) > 0.01) return false;
         if(!x.data) return false;
+        // BUG CORRETTO (08/08, segnalato da Valerio su Fastweb): questo ramo
+        // controllava solo la vicinanza ASSOLUTA (±20gg), senza applicare la
+        // REGOLA SDD "la fattura deve essere sempre antecedente (o dello stesso
+        // giorno) rispetto al movimento" già rispettata più sotto nel loop di
+        // matchCerto — quindi con importi ricorrenti identici (bollette mensili
+        // come Fastweb) poteva scegliere come "unico candidato" una fattura
+        // emessa DOPO il pagamento, illogico per un addebito diretto.
+        if(isSDD && new Date(x.data+'T12:00:00') > new Date(m.data+'T12:00:00')) return false;
         var dF = new Date(x.data+'T12:00:00'), dM = new Date(m.data+'T12:00:00');
-        return Math.abs(dF-dM)/86400000 <= 20;
+        // Finestra allargata per SDD (35gg invece di 20): un addebito diretto
+        // ricorrente (es. Fastweb) arriva tipicamente ~24-26gg DOPO la data della
+        // fattura, non entro 20 — con la regola antecedente appena sopra (mai una
+        // fattura futura), allargare qui è sicuro: non si può più riagganciare per
+        // errore al mese sbagliato "più vicino", solo a una fattura passata reale.
+        var _finestraGG = isSDD ? 35 : 20;
+        return Math.abs(dF-dM)/86400000 <= _finestraGG;
       });
       if(_esatteUniche.length === 1){
         var _candUnico = _esatteUniche[0];
@@ -12139,7 +12154,6 @@ function renderRiconciliazione(){
       // REGOLA SDD: per un addebito diretto la fattura deve essere sempre
       // antecedente (o dello stesso giorno) rispetto alla data dell'addebito —
       // non ha senso abbinare in automatico una fattura non ancora emessa.
-      var isSDD = /sdd\s+core|sdd\s+b2b/i.test(m.descrizione);
       if(isSDD && new Date(f.data+'T12:00:00') > new Date(m.data+'T12:00:00')) continue;
 
       // REGOLA SPECIALE ALD Automotive / Arval: gli addebiti mensili (canone
@@ -12648,8 +12662,21 @@ function renderRiconciliazione(){
   } else {
     Object.keys(_gruppiForn).sort(function(a,b){ return _gruppiForn[b].length-_gruppiForn[a].length; }).forEach(function(forn){
       var righe = _gruppiForn[forn];
+      // Conteggio corretto in intestazione (08/08, segnalato da Valerio su DI
+      // MASSA N°20): "righe.length" conta i MOVIMENTI, non le fatture distinte —
+      // con un pagamento a rate (più assegni sulla stessa fattura) l'etichetta
+      // diceva "2 fatture" quando in realtà era 1 fattura pagata con 2 rate.
+      var _fattIdsDistinte = {}; var _fattSenzaId = 0;
+      righe.forEach(function(d){
+        if(d.fatt && d.fatt.id!=null) _fattIdsDistinte[d.fatt.id] = true;
+        else _fattSenzaId++;
+      });
+      var _nFattDistinte = Object.keys(_fattIdsDistinte).length + _fattSenzaId;
+      var _labelConteggio = (_nFattDistinte === righe.length)
+        ? righe.length+' fattur'+(righe.length===1?'a':'e')
+        : righe.length+' moviment'+(righe.length===1?'o':'i')+' · '+_nFattDistinte+' fattur'+(_nFattDistinte===1?'a':'e');
       htmlRiconciliati += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid var(--green)">';
-      htmlRiconciliati += '<div style="font-size:13px;font-weight:700;color:#1a7a3a;margin-bottom:8px">'+esc(forn)+' · '+righe.length+' fattur'+(righe.length===1?'a':'e')+'</div>';
+      htmlRiconciliati += '<div style="font-size:13px;font-weight:700;color:#1a7a3a;margin-bottom:8px">'+esc(forn)+' · '+_labelConteggio+'</div>';
       righe.sort(function(a,b){ return (b.mov.data||'').localeCompare(a.mov.data||''); }).forEach(function(d){
         var m=d.mov, f=d.fatt;
         var hasDocG = f && ((f.fatturaAllegata&&f.fatturaAllegata.length>0)||(f.xmlGithubPath&&f.xmlGithubPath.length>0)||(f.source==='aruba')||f.hasAllegata);
@@ -12672,7 +12699,16 @@ function renderRiconciliazione(){
           + (m.data ? 'Pagata '+_fmtDataBreve(m.data) : '')
           + '</div>';
         htmlRiconciliati += '<div style="font-size:12px;font-weight:600">'+(f?('N°'+esc(f.numero||'')):esc(m.fatturaLabel||''))+'</div>';
-        if(ric && ric.descrizione) htmlRiconciliati += '<div style="font-size:10px;color:var(--ink3);margin-top:1px;word-break:break-word;line-height:1.3">'+esc(ric.descrizione)+'</div>';
+        // Descrizione di QUESTA riga: stessa regola dell'importo sopra — se questo
+        // NON è il movimento "ufficiale" (ric.movId), la descrizione va presa dal
+        // movimento vero di questa riga (m.descrizione), non da quella condivisa
+        // di f.riconciliazione. BUG CORRETTO (08/08, segnalato da Valerio su DI
+        // MASSA N°20): l'importo per riga era già stato corretto ieri, ma la
+        // descrizione no — quindi righe di assegni DIVERSI (0208770761, 762, 763,
+        // 764, tutti dati reali distinti e corretti su Supabase) mostravano tutte
+        // lo stesso numero assegno (quello dell'ultimo salvato in f.riconciliazione).
+        var descrizioneRiga = (ric && ric.movId===m.id && ric.descrizione) ? ric.descrizione : (m.descrizione||'');
+        if(descrizioneRiga) htmlRiconciliati += '<div style="font-size:10px;color:var(--ink3);margin-top:1px;word-break:break-word;line-height:1.3">'+esc(descrizioneRiga)+'</div>';
         // ETICHETTA PIÙ ANALITICA (08/08, richiesta da Valerio): prima "Parziale:
         // €X di €Y" non chiariva se X fosse il pagamento di QUESTA riga/movimento
         // o il totale pagato finora sulla fattura, né se Y fosse il totale
