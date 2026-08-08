@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.14</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.15</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -991,6 +991,7 @@ details[open] summary span:first-child{transform:rotate(90deg);display:inline-bl
   <!-- SOTTO-TAB BANCA -->
   <div class="chip-row" id="incgrpsub-banca" style="margin-bottom:12px;display:none">
     <button class="chip" id="inctab-banca" onclick="setIncTab('banca',this)">🏦 Riconciliazione bancaria</button>
+    <button class="chip" id="inctab-carta" onclick="setIncTab('carta',this)">💳 Carta di credito</button>
   </div>
 
   <!-- SEZIONE: CHIUSURA GIORNALIERA -->
@@ -1187,6 +1188,21 @@ details[open] summary span:first-child{transform:rotate(90deg);display:inline-bl
         </div>
       </div>
       <div id="bancaContenuto"></div>
+    </div>
+  </div>
+
+  <!-- RICONCILIAZIONE CARTA DI CREDITO AZIENDALE (Nexi) — 08/08, richiesta da Valerio -->
+  <div id="inc-carta" class="inc-sec" style="display:none">
+    <div style="background:var(--surface);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);margin-bottom:12px">
+      <div style="font-size:16px;font-weight:700;margin-bottom:2px">💳 Carta di credito aziendale</div>
+      <div style="font-size:12px;color:var(--ink3);margin-bottom:12px">Importa l'estratto conto Nexi e abbina le spese alle fatture</div>
+      <div style="display:flex;gap:8px;flex-direction:column;margin-bottom:12px">
+        <button onclick="document.getElementById('inputCartaPDF').click()" class="btn btn-s" style="width:100%;padding:12px;color:var(--red)">📄 Carica estratto Nexi (PDF)</button>
+      </div>
+      <input type="file" id="inputCartaPDF" accept=".pdf" style="display:none" onchange="onCartaPDFSelected(this)">
+      <div id="cartaImportInfo" style="font-size:12px;color:var(--ink3);text-align:center;margin-bottom:8px"></div>
+      <input type="month" id="cartaMese" onchange="renderRiconciliazioneCarta()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:10px;font-size:14px;font-family:inherit;background:var(--surface2);margin-bottom:12px;-webkit-appearance:none">
+      <div id="cartaContenuto"></div>
     </div>
   </div>
 </div>
@@ -2492,6 +2508,7 @@ const KINCASSI    = 'ceraldi_incassi_v1';
 const KCHIUSURE   = 'ceraldi_chiusure_v1';
 // KVERSAMENTI definita in cima
 const KBANCA      = 'ceraldi_banca_v1';
+const KCARTA       = 'ceraldi_carta_v1';
 
 function getLayout(fornitore){
   if(!fornitore) return null;
@@ -8695,6 +8712,7 @@ async function init(){
   try{ const c = JSON.parse(localStorage.getItem(KVERSAMENTI)||'[]'); if(Array.isArray(c) && c.length) versamenti = c; }catch(e){}
   try{ const c = JSON.parse(localStorage.getItem(KINCASSI)||'[]'); if(Array.isArray(c) && c.length) incassi = c; }catch(e){}
   try{ const c = JSON.parse(localStorage.getItem(KBANCA)||'[]'); if(Array.isArray(c) && c.length) _bancaMovimenti = c; }catch(e){}
+  try{ const c = JSON.parse(localStorage.getItem(KCARTA)||'[]'); if(Array.isArray(c) && c.length) _cartaMovimenti = c; }catch(e){}
 
   // Reset alertBanner
   document.getElementById('alertBanner').innerHTML='<span class="alert-banner-ico">&#9888;</span><div id="alertBannerTxt">Hai fatture scadute non pagate</div><span style="font-size:18px;color:var(--accent)">&#8250;</span>';
@@ -8709,6 +8727,7 @@ async function init(){
       aggiornaDL(); renderLista(); aggiornaAlertBanner();
       await caricaIncassi(); aggiornaSaldoCassa();
       await caricaMovimentiBanca();
+      await caricaMovimentiCarta();
     })().catch(()=>{});
   } else {
     // ── PRIMO AVVIO: aspetta Supabase poi mostra ──
@@ -8726,6 +8745,7 @@ async function init(){
     avviaSyncAutomatico();
     caricaIncassi().then(()=>{ aggiornaSaldoCassa(); }).catch(()=>{});
     caricaMovimentiBanca().catch(()=>{});
+    caricaMovimentiCarta().catch(()=>{});
   }
 
   // Carica versamenti da locale subito come cache veloce
@@ -8820,6 +8840,7 @@ async function sincronizzaOra(){
   // chiusure/versamenti/POS/movimenti banca — solo le fatture.
   await caricaIncassi();
   await caricaMovimentiBanca();
+  await caricaMovimentiCarta();
   aggiornaSaldoCassa();
   if(document.getElementById('view-banca') && document.getElementById('view-banca').classList.contains('active')){
     renderRiconciliazione();
@@ -9158,6 +9179,11 @@ function setIncTab(t, btn){
     var bm = document.getElementById('bancaMese');
     if(bm && !bm.value) bm.value = new Date().toISOString().slice(0,7);
     renderRiconciliazione();
+  }
+  if(t==='carta'){
+    var cm = document.getElementById('cartaMese');
+    if(cm && !cm.value) cm.value = new Date().toISOString().slice(0,7);
+    renderRiconciliazioneCarta();
   }
 }
 
@@ -11453,6 +11479,487 @@ async function upsertMovimentiBanca(nuovi){
     // re-import, i movimenti già abbinati non ricompaiono come "da classificare"
     _salvaBancaLocale();
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ── CARTA DI CREDITO AZIENDALE (Nexi) — 08/08, richiesta esplicita di Valerio ──
+// Stesso schema concettuale della riconciliazione bancaria (movimenti + fatture),
+// ma per gli acquisti fatti con la carta di credito aziendale: tabella dedicata
+// movimenti_carta (NON movimenti_banca, per non toccare la logica di quadratura
+// saldo iniziale/finale che è specifica dell'estratto conto bancario).
+// Richiede una volta sola su Supabase (SQL Editor):
+//   create table movimenti_carta (
+//     id text primary key, data date not null, descrizione text, importo numeric not null,
+//     titolare text, carta_ultime4 text, tipo text default 'acquisto',
+//     abbinata boolean default false, fattura_id bigint, fattura_label text,
+//     ignorata boolean default false, updated_at timestamptz default now()
+//   );
+// ═══════════════════════════════════════════════════════════════════════════
+var _cartaMovimenti = [];
+
+function _cartaNorm(r){
+  return {
+    id: r.id, data: r.data, descrizione: r.descrizione||'',
+    importo: r.importo||0, titolare: r.titolare||'', cartaUltime4: r.carta_ultime4||'',
+    tipo: r.tipo||'acquisto',
+    abbinata: r.abbinata||false, fatturaId: r.fattura_id||null,
+    fatturaLabel: r.fattura_label||'', ignorata: r.ignorata||false,
+    updated_at: r.updated_at||''
+  };
+}
+function _salvaCartaLocale(){ try{ localStorage.setItem(KCARTA, JSON.stringify(_cartaMovimenti)); }catch(e){} }
+
+async function caricaMovimentiCarta(){
+  try{
+    const c = JSON.parse(localStorage.getItem(KCARTA)||'[]');
+    if(Array.isArray(c) && c.length){
+      _cartaMovimenti = c;
+      var cm = document.getElementById('cartaMese');
+      if(cm && !cm.value && _cartaMovimenti.length) cm.value = _cartaMovimenti[0].data.slice(0,7);
+    }
+  }catch(e){}
+  try{
+    var lastUpd = _cartaMovimenti.reduce(function(m,r){ return r.updated_at > m ? r.updated_at : m; }, '');
+    var url = lastUpd
+      ? 'movimenti_carta?select=*&updated_at=gt.'+encodeURIComponent(lastUpd)+'&order=data.desc'
+      : 'movimenti_carta?select=*&order=data.desc';
+    const rows = await sbFetchAll(url);
+    if(Array.isArray(rows) && rows.length){
+      if(!lastUpd){
+        _cartaMovimenti = rows.map(_cartaNorm);
+      } else {
+        var map = {}; _cartaMovimenti.forEach(function(r){ map[r.id]=r; });
+        rows.map(_cartaNorm).forEach(function(r){ map[r.id]=r; });
+        _cartaMovimenti = Object.values(map).sort(function(a,b){ return b.data.localeCompare(a.data); });
+      }
+      _salvaCartaLocale();
+      var cm = document.getElementById('cartaMese');
+      if(cm && !cm.value && _cartaMovimenti.length) cm.value = _cartaMovimenti[0].data.slice(0,7);
+    }
+  }catch(e){
+    // Tabella non ancora creata su Supabase (primo utilizzo) — nessun errore
+    // bloccante, semplicemente non ci sono dati; l'errore reale (es. tabella
+    // mancante) resta visibile in console per diagnosi.
+    console.warn('caricaMovimentiCarta:', e);
+  }
+}
+
+async function salvaMovimentoCarta(m){
+  if(!m || !m.id) return;
+  try{
+    var payload = {
+      id: m.id, data: m.data, descrizione: m.descrizione||'', importo: m.importo||0,
+      titolare: m.titolare||'', carta_ultime4: m.cartaUltime4||'', tipo: m.tipo||'acquisto',
+      abbinata: m.abbinata||false, fattura_id: m.fatturaId||null, fattura_label: m.fatturaLabel||'',
+      ignorata: m.ignorata||false, updated_at: new Date().toISOString()
+    };
+    await sbFetch('movimenti_carta', {
+      method:'POST',
+      headers: Object.assign({}, SB_H, {'Prefer':'resolution=merge-duplicates,return=minimal'}),
+      body: JSON.stringify(payload)
+    });
+    var map = {}; _cartaMovimenti.forEach(function(r){ map[r.id]=r; });
+    map[m.id] = _cartaNorm(payload);
+    _cartaMovimenti = Object.values(map).sort(function(a,b){ return b.data.localeCompare(a.data); });
+    _salvaCartaLocale();
+  }catch(e){ console.warn('salvaMovimentoCarta:', e); throw e; }
+}
+
+async function upsertMovimentiCarta(nuovi){
+  if(!nuovi || !nuovi.length) return;
+  const esistenti = await sbFetch('movimenti_carta?select=id,abbinata,fattura_id,fattura_label,ignorata');
+  var mapEsistenti = {};
+  if(Array.isArray(esistenti)) esistenti.forEach(function(r){ mapEsistenti[r.id] = r; });
+  var payload = nuovi.map(function(m){
+    var ex = mapEsistenti[m.id] || {};
+    return {
+      id: m.id, data: m.data, descrizione: m.descrizione||'', importo: m.importo||0,
+      titolare: m.titolare||'', carta_ultime4: m.cartaUltime4||'', tipo: m.tipo||'acquisto',
+      abbinata: ex.abbinata || m.abbinata || false,
+      fattura_id: ex.fattura_id || m.fatturaId || null,
+      fattura_label: ex.fattura_label || m.fatturaLabel || '',
+      ignorata: ex.ignorata || m.ignorata || false,
+      updated_at: new Date().toISOString()
+    };
+  });
+  await sbFetch('movimenti_carta', {
+    method:'POST',
+    headers: Object.assign({}, SB_H, {'Prefer':'resolution=merge-duplicates,return=minimal'}),
+    body: JSON.stringify(payload)
+  });
+  nuovi.forEach(function(m){
+    var ex = mapEsistenti[m.id];
+    if(ex){
+      m.abbinata = ex.abbinata || m.abbinata;
+      m.fatturaId = ex.fattura_id || m.fatturaId;
+      m.fatturaLabel = ex.fattura_label || m.fatturaLabel;
+      m.ignorata = ex.ignorata || m.ignorata;
+    }
+  });
+  _salvaCartaLocale();
+}
+
+// ── PARSER ESTRATTO CONTO NEXI (carta di credito aziendale) ──
+// Struttura reale verificata sul PDF di esempio fornito da Valerio (08/08):
+// pagina con "QUESTO MESE HA SPESO"/"TOTALE ADDEBITO SUL SUO C/C"/"In data" (il
+// vero addebito sul c/c, per il confronto con l'estratto banca), una sezione
+// "RIEPILOGO DEI SUOI MOVIMENTI" con "Imposta di bollo", e una o più sezioni
+// "TITOLARE"/"DETTAGLIO DEI SUOI MOVIMENTI" (una per ciascuna carta aziendale,
+// se ce n'è più di una) con le singole transazioni Data/Descrizione/Importo.
+// Ogni riga viene identificata controllando SOLO il primo campo (mai l'intera
+// riga concatenata) — bug trovato in fase di test: il footer del documento
+// ripete la frase "Imposta di bollo assolta in modo virtuale", che con un
+// controllo meno preciso veniva scambiata per la riga di riepilogo vera.
+var _MESI_ITA = {gennaio:1,febbraio:2,marzo:3,aprile:4,maggio:5,giugno:6,luglio:7,agosto:8,settembre:9,ottobre:10,novembre:11,dicembre:12};
+function _dataItalianaLunga(s){
+  var m = /(\d{1,2})\s+([a-zàéìòù]+)\s+(\d{4})/i.exec(s||'');
+  if(!m) return null;
+  var mese = _MESI_ITA[m[2].toLowerCase()];
+  if(!mese) return null;
+  return m[3]+'-'+String(mese).padStart(2,'0')+'-'+String(m[1]).padStart(2,'0');
+}
+function _dataBreveNexi(s){
+  var m = /^(\d{2})\/(\d{2})\/(\d{2})$/.exec(s||'');
+  if(!m) return null;
+  var yy = parseInt(m[3],10);
+  var yyyy = yy<=50 ? 2000+yy : 1900+yy;
+  return yyyy+'-'+m[2]+'-'+m[1];
+}
+async function _parseNexiCartaCredito(arrayBuffer){
+  await _caricaPdfJs();
+  var pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+  var reImportoNexi = /^[\d.]+,\d{2}$/;
+
+  var righeGlobali = [];
+  for(var p=1; p<=pdf.numPages; p++){
+    var page = await pdf.getPage(p);
+    var tc = await page.getTextContent();
+    var rowsMap = {};
+    tc.items.forEach(function(it){
+      if(!it.str || !it.str.trim()) return;
+      var yk = Math.round(it.transform[5]/3)*3;
+      (rowsMap[yk] = rowsMap[yk] || []).push({x: it.transform[4], t: it.str.trim()});
+    });
+    Object.keys(rowsMap).map(Number).sort(function(a,b){return b-a;}).forEach(function(yk){
+      var row = rowsMap[yk].sort(function(a,b){return a.x-b.x;});
+      righeGlobali.push(row.map(function(r){return r.t;}));
+    });
+  }
+
+  var risultato = {
+    questoMeseHaSpeso: null, totaleAddebitoCC: null, dataAddebito: null,
+    impostaBollo: 0, transazioni: []
+  };
+  var titolareCorrente = null, cartaCorrente = null, inDettaglio = false;
+  var _idUsatiCartaCount = {};
+
+  righeGlobali.forEach(function(items){
+    if(items[0]==='QUESTO MESE HA SPESO' && items[1]){
+      var mmS = items[1].match(/([\d.]+,\d{2})/);
+      if(mmS) risultato.questoMeseHaSpeso = _pIta(mmS[1]);
+      return;
+    }
+    if(items[0]==='In data' && items[1]){ risultato.dataAddebito = _dataItalianaLunga(items[1]); return; }
+    if(items[0]==='Imposta di bollo' && items.length===2 && reImportoNexi.test(items[1])){
+      risultato.impostaBollo = _pIta(items[1]); return;
+    }
+    if(items[0]==='TOTALE ADDEBITO SUL SUO C/C' && items[1]){
+      risultato.totaleAddebitoCC = _pIta(items[1]); return;
+    }
+    if(items[0]==='TITOLARE' && items.length===1){
+      titolareCorrente = null; cartaCorrente = null; inDettaglio = false; return;
+    }
+    if(items.length>=2 && /CARTA NUMERO/i.test(items[1]||'')){
+      titolareCorrente = items[0];
+      var cmN = (items[1]||'').match(/(\d{4})\s*(?:A SALDO|A RATE)?\s*$/i) || (items[1]||'').match(/(\d{4})/);
+      cartaCorrente = cmN ? cmN[1] : '';
+      return;
+    }
+    if(items[0]==='DETTAGLIO DEI SUOI MOVIMENTI' && items.length===1){ inDettaglio = true; return; }
+    if(inDettaglio && items[0]==='Data' && items[1]==='Descrizione') return;
+    if(items[0]==='TOTALE SPESE'){ inDettaglio = false; return; }
+
+    if(inDettaglio && items.length>=3){
+      var dataISO = _dataBreveNexi(items[0]);
+      if(dataISO){
+        var importoStr = items[items.length-1];
+        if(reImportoNexi.test(importoStr)){
+          var importo = _pIta(importoStr);
+          var descrizione = items.slice(1, items.length-1).join(' ').trim();
+          // Id stabile e deterministico (data+importo+descrizione+carta), con
+          // dedup per eventuali transazioni realmente identiche nello stesso
+          // giorno — stesso schema già usato per i movimenti banca.
+          var idBase = 'nexi_'+dataISO+'_'+importo.toFixed(2)+'_'+(cartaCorrente||'xxxx')+'_'+descrizione.replace(/[^a-z0-9]/gi,'').slice(0,30).toLowerCase();
+          var n = (_idUsatiCartaCount[idBase]||0); _idUsatiCartaCount[idBase]=n+1;
+          var idFinale = n>0 ? idBase+'_dup'+n : idBase;
+          risultato.transazioni.push({
+            id: idFinale, data: dataISO, descrizione: descrizione, importo: importo,
+            titolare: titolareCorrente||'', cartaUltime4: cartaCorrente||'',
+            tipo: 'acquisto', abbinata:false, fatturaId:null, fatturaLabel:'', ignorata:false
+          });
+        }
+      }
+    }
+  });
+
+  return risultato;
+}
+
+async function onCartaPDFSelected(input){
+  if(!input.files||!input.files[0]) return;
+  var file = input.files[0];
+  input.value = '';
+  var info = document.getElementById('cartaImportInfo');
+  if(info) info.textContent = '⏳ Lettura PDF...';
+
+  try{
+    var arrayBuffer = await file.arrayBuffer();
+    var res = await _parseNexiCartaCredito(arrayBuffer);
+
+    if(!res.transazioni.length) throw new Error('Nessuna transazione trovata — controlla che sia un estratto conto Nexi');
+
+    // Controllo di quadratura (stesso principio dell'estratto banca, v9.30.9):
+    // somma transazioni + imposta di bollo deve tornare esatto al TOTALE
+    // ADDEBITO SUL SUO C/C dichiarato nel documento stesso.
+    var _somma = Math.round(res.transazioni.reduce(function(s,t){return s+t.importo;},0)*100)/100;
+    var _atteso = _somma + (res.impostaBollo||0);
+    var _quadraturaMsg = '';
+    if(res.totaleAddebitoCC !== null){
+      var _diff = Math.round((_atteso - res.totaleAddebitoCC)*100)/100;
+      if(Math.abs(_diff) > 0.02){
+        _quadraturaMsg = '⚠️ ATTENZIONE — l\'estratto carta non quadra.\n\n'
+          + 'Transazioni lette: ' + _somma.toFixed(2).replace('.',',') + '€\n'
+          + 'Imposta di bollo: ' + (res.impostaBollo||0).toFixed(2).replace('.',',') + '€\n'
+          + 'Totale calcolato: ' + _atteso.toFixed(2).replace('.',',') + '€\n'
+          + 'Totale addebito dichiarato: ' + res.totaleAddebitoCC.toFixed(2).replace('.',',') + '€\n'
+          + 'Differenza: ' + _diff.toFixed(2).replace('.',',') + '€\n\n'
+          + 'Probabile causa: il parser non ha letto correttamente una o più righe (es. più carte/titolari nello stesso estratto). Controlla il PDF originale prima di fidarti di questo import.';
+      }
+    }
+
+    if(info) info.textContent = '⏳ Salvataggio ' + res.transazioni.length + ' transazioni su Supabase...';
+    try{
+      await upsertMovimentiCarta(res.transazioni);
+      var map = {}; _cartaMovimenti.forEach(function(r){ map[r.id]=r; });
+      res.transazioni.forEach(function(r){ map[r.id]=r; });
+      _cartaMovimenti = Object.values(map).sort(function(a,b){ return b.data.localeCompare(a.data); });
+      _salvaCartaLocale();
+      var cm = document.getElementById('cartaMese');
+      if(cm && !cm.value) cm.value = res.transazioni[0].data.slice(0,7);
+      renderRiconciliazioneCarta();
+
+      var _addebitoInfo = res.totaleAddebitoCC!==null
+        ? (' — addebito sul c/c: '+fmt(res.totaleAddebitoCC)+(res.dataAddebito?' il '+_fmtDataBreveCarta(res.dataAddebito):''))
+        : '';
+      if(_quadraturaMsg){
+        if(info) info.textContent = '⚠️ ' + res.transazioni.length + ' transazioni salvate — ma L\'ESTRATTO NON QUADRA (vedi avviso)';
+        alert(_quadraturaMsg);
+      } else if(res.totaleAddebitoCC !== null){
+        if(info) info.textContent = '✓ ' + res.transazioni.length + ' transazioni salvate — quadratura verificata ✓' + _addebitoInfo;
+        toast('✓ ' + res.transazioni.length + ' transazioni — quadra al centesimo');
+      } else {
+        if(info) info.textContent = '✓ ' + res.transazioni.length + ' transazioni salvate (totale addebito non trovato nel PDF, quadratura non verificabile)';
+        toast('✓ ' + res.transazioni.length + ' transazioni salvate su Supabase');
+      }
+    }catch(saveErr){
+      var saveMsg = 'Lette ' + res.transazioni.length + ' transazioni dal PDF ma SALVATAGGIO SU SUPABASE FALLITO: ' + (saveErr.message||saveErr);
+      if(info) info.textContent = '❌ ' + saveMsg;
+      alert('⚠️ ATTENZIONE — import NON salvato\n\n' + saveMsg + '\n\nSe l\'errore parla di tabella mancante, va creata una volta sola su Supabase (chiedi a Claude lo script SQL).');
+      console.error('upsertMovimentiCarta fallito:', saveErr);
+    }
+  }catch(err){
+    if(info) info.textContent = '❌ ' + (err.message||err);
+    toast('❌ ' + (err.message||err));
+    console.error('Parser Nexi:', err);
+  }
+}
+
+function _fmtDataBreveCarta(iso){
+  if(!iso) return '';
+  try{ return new Date(iso+'T12:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'numeric'}); }
+  catch(e){ return iso; }
+}
+
+// ── RENDERING RICONCILIAZIONE CARTA ──
+// Volutamente PIÙ SEMPLICE del motore bancario: nessun auto-match silenzioso.
+// È una fonte dati nuova e mai testata su volumi reali — meglio partire
+// prudenti (tutto passa da conferma manuale) e aggiungere automatismi più
+// avanti sulla base di pattern reali osservati, stesso approccio già seguito
+// per Fastweb/ALD-Arval (mai assumere una regola prima di averla verificata).
+function renderRiconciliazioneCarta(){
+  var wrap = document.getElementById('cartaContenuto');
+  if(!wrap) return;
+  var mese = (document.getElementById('cartaMese')||{}).value||'';
+  if(!_cartaMovimenti.length){
+    wrap.innerHTML = '<div style="text-align:center;padding:24px;color:var(--ink3);font-size:13px">📂 Importa prima un estratto conto Nexi qui sopra</div>';
+    return;
+  }
+  var movMese = mese ? _cartaMovimenti.filter(function(m){return m.data.indexOf(mese)===0;}) : _cartaMovimenti;
+  if(!movMese.length){
+    wrap.innerHTML = '<div style="text-align:center;padding:16px;color:var(--ink3);font-size:13px">Nessuna transazione nel mese</div>';
+    return;
+  }
+
+  var nonAbbinati = movMese.filter(function(m){ return !m.abbinata && !m.ignorata; });
+  var abbinati    = movMese.filter(function(m){ return m.abbinata && !m.ignorata; });
+  var ignorati    = movMese.filter(function(m){ return m.ignorata; });
+
+  var tot = movMese.reduce(function(s,m){return s+(m.importo||0);},0);
+  var html = '<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--ink3);margin-bottom:12px;padding:0 2px">'
+    + '<span>Transazioni nel mese: <b>'+movMese.length+'</b></span><span>Totale: <b>'+fmt(tot)+'</b></span></div>';
+
+  if(nonAbbinati.length){
+    html += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid #FFB800">';
+    html += '<div style="font-size:13px;font-weight:700;color:#b36a00;margin-bottom:8px">❓ Da abbinare ('+nonAbbinati.length+')</div>';
+    window._cartaNonAbbinati = nonAbbinati;
+    nonAbbinati.forEach(function(m,idx){
+      html += '<div style="padding:9px 0;border-top:1px solid var(--sep)">';
+      html += '<div style="font-size:11px;color:var(--ink3)">'+_fmtDataBreveCarta(m.data)+(m.titolare?' · '+esc(m.titolare):'')+'</div>';
+      html += '<div style="font-size:12px;font-weight:600;margin:2px 0">'+esc(m.descrizione)+'</div>';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">';
+      html += '<span style="font-size:13px;font-weight:700">'+fmt(m.importo)+'</span>';
+      html += '<div style="display:flex;gap:6px">';
+      html += '<button onclick="_apriPickerAbbinamentoCarta('+idx+')" style="padding:6px 10px;border:1px solid var(--blue);border-radius:6px;background:var(--blue-light);color:var(--blue);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">🔍 Abbina</button>';
+      html += '<button onclick="_ignoraCarta(\''+esc(m.id)+'\')" style="padding:6px 10px;border:1px solid var(--ink3);border-radius:6px;background:transparent;color:var(--ink2);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">🚫 Ignora</button>';
+      html += '</div></div></div>';
+    });
+    html += '</div>';
+  }
+
+  if(abbinati.length){
+    var gruppi = {};
+    abbinati.forEach(function(m){
+      var k = m.fatturaLabel || 'Fattura';
+      (gruppi[k]=gruppi[k]||[]).push(m);
+    });
+    html += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid var(--green)">';
+    html += '<div style="font-size:13px;font-weight:700;color:#1a7a3a;margin-bottom:8px">✓ Abbinate ('+abbinati.length+')</div>';
+    Object.keys(gruppi).forEach(function(k){
+      gruppi[k].forEach(function(m){
+        html += '<div style="padding:8px 0;border-top:1px solid var(--sep);display:flex;justify-content:space-between;align-items:center;gap:8px">';
+        html += '<div style="flex:1;min-width:0"><div style="font-size:11px;color:var(--ink3)">'+_fmtDataBreveCarta(m.data)+'</div>';
+        html += '<div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(m.descrizione)+'</div>';
+        html += '<div style="font-size:11px;color:#1a7a3a">→ '+esc(k)+'</div></div>';
+        html += '<span style="font-size:13px;font-weight:700;flex-shrink:0">'+fmt(m.importo)+'</span></div>';
+      });
+    });
+    html += '</div>';
+  }
+
+  if(ignorati.length){
+    html += '<div style="background:var(--surface);border-radius:12px;padding:14px;box-shadow:var(--shadow);border-left:3px solid var(--ink3)">';
+    html += '<div style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:8px">🚫 Ignorate ('+ignorati.length+')</div>';
+    ignorati.forEach(function(m){
+      html += '<div style="padding:6px 0;border-top:1px solid var(--sep);display:flex;justify-content:space-between;font-size:11px;color:var(--ink3)">'
+        + '<span>'+_fmtDataBreveCarta(m.data)+' · '+esc(m.descrizione)+'</span><span>'+fmt(m.importo)+'</span></div>';
+    });
+    html += '</div>';
+  }
+
+  wrap.innerHTML = html;
+}
+
+async function _ignoraCarta(movId){
+  var m = _cartaMovimenti.find(function(x){ return x.id===movId; });
+  if(!m) return;
+  m.ignorata = true;
+  try{ await salvaMovimentoCarta(m); }catch(e){ console.warn('salvaMovimentoCarta:',e); }
+  toast('🚫 Transazione ignorata');
+  renderRiconciliazioneCarta();
+}
+
+// Picker di abbinamento: ricerca fatture per fornitore/numero/importo, stesso
+// helper già usato per i picker della riconciliazione bancaria.
+function _apriPickerAbbinamentoCarta(idx){
+  var m = (window._cartaNonAbbinati||[])[idx];
+  if(!m) return;
+  var existing = document.getElementById('cartaAbbMo');
+  if(existing) existing.remove();
+
+  var mo = document.createElement('div');
+  mo.id = 'cartaAbbMo';
+  mo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:900;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)';
+  var sheet = document.createElement('div');
+  sheet.style.cssText = 'background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:80vh;display:flex;flex-direction:column;animation:slideUp .3s cubic-bezier(.32,.72,0,1)';
+
+  var hdr = document.createElement('div');
+  hdr.style.cssText = 'padding:16px 20px 10px;border-bottom:1px solid var(--sep);display:flex;align-items:center;justify-content:space-between;flex-shrink:0';
+  hdr.innerHTML = '<div><div style="font-size:17px;font-weight:700">🔍 Abbina a una fattura</div><div style="font-size:12px;color:var(--ink3)">'+esc(m.descrizione)+' · '+fmt(m.importo)+'</div></div>';
+  var closeBtn = document.createElement('button');
+  closeBtn.innerHTML = '&#215;';
+  closeBtn.style.cssText = 'background:var(--surface2);border:none;border-radius:99px;width:32px;height:32px;font-size:18px;cursor:pointer';
+  closeBtn.onclick = function(){ mo.remove(); };
+  hdr.appendChild(closeBtn);
+  sheet.appendChild(hdr);
+
+  var sw = document.createElement('div');
+  sw.style.cssText = 'padding:10px 16px;flex-shrink:0';
+  sw.innerHTML = '<input type="text" id="cartaAbbSearch" placeholder="🔍 Cerca fornitore, numero o importo..." style="width:100%;padding:10px 14px;border:1.5px solid var(--sep);border-radius:99px;font-size:14px;font-family:Inter,-apple-system,sans-serif;background:var(--surface)">';
+  sheet.appendChild(sw);
+
+  var lista = document.createElement('div');
+  lista.id = 'cartaAbbLista';
+  lista.style.cssText = 'overflow-y:auto;flex:1;padding:0 16px 20px';
+  sheet.appendChild(lista);
+  mo.appendChild(sheet);
+  mo.onclick = function(e){ if(e.target===mo) mo.remove(); };
+  document.body.appendChild(mo);
+
+  function render(filtro){
+    var s = (filtro||'').toLowerCase();
+    var candidati = fatture.filter(function(f){
+      return f.tipo==='fattura' && _fattMatchTestoImporto(f, s);
+    }).sort(function(a,b){
+      // Fornitore il cui nome compare nella descrizione della transazione prima di tutto
+      var descN = (m.descrizione||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+      var aIn = descN.indexOf((a.fornitore||'').toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,8))>=0 ? 0 : 1;
+      var bIn = descN.indexOf((b.fornitore||'').toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,8))>=0 ? 0 : 1;
+      if(aIn!==bIn) return aIn-bIn;
+      var diffA = Math.abs(new Date((a.data||m.data)+'T12:00:00') - new Date(m.data+'T12:00:00'));
+      var diffB = Math.abs(new Date((b.data||m.data)+'T12:00:00') - new Date(m.data+'T12:00:00'));
+      return diffA-diffB;
+    });
+    lista.innerHTML = '';
+    if(!candidati.length){
+      lista.innerHTML = '<div style="text-align:center;padding:20px;color:var(--ink3);font-size:14px">Nessuna fattura trovata</div>';
+      return;
+    }
+    candidati.slice(0,50).forEach(function(f){
+      var df = f.data?new Date(f.data).toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'numeric'}):'';
+      var eStessoImporto = Math.abs((f.importo||0)-m.importo)<0.02;
+      var row = document.createElement('div');
+      row.style.cssText = 'padding:11px 12px;border-radius:10px;margin-bottom:5px;background:'+(eStessoImporto?'var(--green-light)':'var(--surface2)')+';cursor:pointer;display:flex;justify-content:space-between;align-items:center';
+      row.innerHTML = '<div style="flex:1;min-width:0">'
+        +'<div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(f.fornitore)+'</div>'
+        +'<div style="font-size:12px;color:var(--ink3)">N° '+esc(f.numero||'—')+' · '+df+'</div></div>'
+        +'<div style="font-weight:700;font-size:14px;margin-left:8px;flex-shrink:0">'+fmt(f.importo)+(eStessoImporto?' ✓':'')+'</div>';
+      row.onclick = function(){ _abbinaCarta(m.id, f.id); mo.remove(); };
+      lista.appendChild(row);
+    });
+  }
+  render('');
+  document.getElementById('cartaAbbSearch').addEventListener('input', function(){ render(this.value); });
+}
+
+async function _abbinaCarta(movId, fattId){
+  var m = _cartaMovimenti.find(function(x){ return x.id===movId; });
+  var f = fatture.find(function(x){ return String(x.id)===String(fattId); });
+  if(!m || !f) return;
+  m.abbinata = true;
+  m.fatturaId = f.id;
+  m.fatturaLabel = (f.fornitore||'') + ' N°' + (f.numero||'');
+  _impostaDatiRiconciliazione(f, {id:'carta:'+m.id, data:m.data, importo:m.importo, descrizione:'Carta di credito: '+m.descrizione}, false);
+  f.riconciliata = true;
+  if(f.stato!=='pagata'){ f.stato = 'pagata'; f.dataPagamento = m.data; if(!f.pagamento) f.pagamento = 'carta'; }
+  try{
+    if(typeof dbUpdate==='function') await dbUpdate(f);
+    await salvaMovimentoCarta(m);
+    toast('✓ Abbinato: '+(f.fornitore||''));
+  }catch(e){
+    console.warn('_abbinaCarta:', e);
+    alert('⚠️ Errore nel salvare l\'abbinamento: '+(e.message||e));
+  }
+  renderRiconciliazioneCarta();
 }
 
 // ── REPORT DELLE AZIONI DI RICONCILIAZIONE ──
@@ -14876,7 +15383,7 @@ function setIncGroup(grp){
 var _incTabGroup = {
   giorno: 'quot', versamenti: 'quot', lista: 'quot', mese: 'quot', chiusuramese: 'quot',
   saldoiva: 'iva', registroiva: 'iva', liquidazione: 'iva',
-  banca: 'banca'
+  banca: 'banca', carta: 'banca'
 };
 
 // Hook su setIncTab: quando cambia tab, attiva anche il gruppo giusto
