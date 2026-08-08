@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.17</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.18</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -11823,18 +11823,66 @@ function renderRiconciliazioneCarta(){
   var abbinati    = movMese.filter(function(m){ return m.abbinata && !m.ignorata; });
   var ignorati    = movMese.filter(function(m){ return m.ignorata; });
 
+  // ── SUGGERIMENTI PER IMPORTO ESATTO (08/08, corretto su segnalazione di
+  // Valerio) ── Prima non c'era NESSUN tentativo di abbinamento automatico,
+  // nemmeno un suggerimento — sbagliato: per gli acquisti con carta l'importo
+  // è quasi sempre univoco (a differenza dei bonifici arrotondati), e il nome
+  // fornitore sulla fattura può benissimo differire dal nome del negozio sullo
+  // scontrino della carta (es. "Leroy Merlin" in fattura vs "Leroy Merlin
+  // Afragola I" sull'estratto) — quindi l'importo deve pesare PIÙ del testo,
+  // non l'inverso. Qui si cerca, per ogni transazione non abbinata, l'UNICA
+  // fattura con importo identico al centesimo e non ancora pagata: se è
+  // univoca, va in "Consigliati" con un tap per confermare (non silenzioso —
+  // prudenza sulla fonte dati nuova, ma almeno visibile, a differenza di prima).
+  var _fattUsateSuggerimenti = {};
+  var consigliati = [];
+  var nonAbbinatiVeri = [];
+  window._cartaNonAbbinati = nonAbbinati;
+  nonAbbinati.forEach(function(m){
+    var candidati = fatture.filter(function(f){
+      return f.tipo==='fattura' && !f.riconciliata && !_fattUsateSuggerimenti[f.id]
+        && Math.abs((f.importo||0) - m.importo) < 0.02;
+    });
+    if(candidati.length === 1){
+      _fattUsateSuggerimenti[candidati[0].id] = true;
+      consigliati.push({mov:m, fatt:candidati[0]});
+    } else {
+      m._nCandidatiStessoImporto = candidati.length; // 0 o >1, usato sotto per un suggerimento testuale
+      nonAbbinatiVeri.push(m);
+    }
+  });
+
   var tot = movMese.reduce(function(s,m){return s+(m.importo||0);},0);
   var html = '<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--ink3);margin-bottom:12px;padding:0 2px">'
     + '<span>Transazioni nel mese: <b>'+movMese.length+'</b></span><span>Totale: <b>'+fmt(tot)+'</b></span></div>';
 
-  if(nonAbbinati.length){
+  if(consigliati.length){
+    html += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid var(--blue)">';
+    html += '<div style="font-size:13px;font-weight:700;color:var(--blue);margin-bottom:8px">🎯 Abbinamenti consigliati ('+consigliati.length+') — stesso importo esatto</div>';
+    window._cartaConsigliati = consigliati;
+    consigliati.forEach(function(d,idx){
+      html += '<div style="padding:9px 0;border-top:1px solid var(--sep)">';
+      html += '<div style="font-size:11px;color:var(--ink3)">'+_fmtDataBreveCarta(d.mov.data)+' · '+esc(d.mov.descrizione)+'</div>';
+      html += '<div style="font-size:12px;font-weight:600;margin:2px 0">→ '+esc(d.fatt.fornitore)+' N°'+esc(d.fatt.numero||'')+'</div>';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">';
+      html += '<span style="font-size:13px;font-weight:700;color:var(--blue)">'+fmt(d.mov.importo)+' ✓</span>';
+      html += '<div style="display:flex;gap:6px">';
+      html += '<button onclick="_confermaCartaConsigliato('+idx+')" style="padding:6px 10px;border:none;border-radius:6px;background:var(--blue);color:#fff;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✓ Conferma</button>';
+      html += '<button onclick="_apriPickerAbbinamentoCarta(_cartaNonAbbinati.indexOf(_cartaConsigliati['+idx+'].mov))" style="padding:6px 10px;border:1px solid var(--ink3);border-radius:6px;background:transparent;color:var(--ink2);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">Altra</button>';
+      html += '</div></div></div>';
+    });
+    html += '</div>';
+  }
+
+  if(nonAbbinatiVeri.length){
     html += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid #FFB800">';
-    html += '<div style="font-size:13px;font-weight:700;color:#b36a00;margin-bottom:8px">❓ Da abbinare ('+nonAbbinati.length+')</div>';
-    window._cartaNonAbbinati = nonAbbinati;
-    nonAbbinati.forEach(function(m,idx){
+    html += '<div style="font-size:13px;font-weight:700;color:#b36a00;margin-bottom:8px">❓ Da abbinare ('+nonAbbinatiVeri.length+')</div>';
+    nonAbbinatiVeri.forEach(function(m){
+      var idx = nonAbbinati.indexOf(m);
       html += '<div style="padding:9px 0;border-top:1px solid var(--sep)">';
       html += '<div style="font-size:11px;color:var(--ink3)">'+_fmtDataBreveCarta(m.data)+(m.titolare?' · '+esc(m.titolare):'')+'</div>';
       html += '<div style="font-size:12px;font-weight:600;margin:2px 0">'+esc(m.descrizione)+'</div>';
+      if(m._nCandidatiStessoImporto>1) html += '<div style="font-size:11px;color:#b36a00;margin-bottom:3px">⚠️ '+m._nCandidatiStessoImporto+' fatture non pagate hanno lo stesso importo — scegli quella giusta a mano</div>';
       html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">';
       html += '<span style="font-size:13px;font-weight:700">'+fmt(m.importo)+'</span>';
       html += '<div style="display:flex;gap:6px">';
@@ -11876,6 +11924,12 @@ function renderRiconciliazioneCarta(){
   }
 
   wrap.innerHTML = html;
+}
+
+async function _confermaCartaConsigliato(idx){
+  var d = (window._cartaConsigliati||[])[idx];
+  if(!d) return;
+  await _abbinaCarta(d.mov.id, d.fatt.id);
 }
 
 async function _ignoraCarta(movId){
@@ -11929,7 +11983,14 @@ function _apriPickerAbbinamentoCarta(idx){
     var candidati = fatture.filter(function(f){
       return f.tipo==='fattura' && _fattMatchTestoImporto(f, s);
     }).sort(function(a,b){
-      // Fornitore il cui nome compare nella descrizione della transazione prima di tutto
+      // PRIORITÀ CORRETTA (08/08, segnalato da Valerio): l'importo esatto conta
+      // più del nome fornitore nella descrizione — l'intestazione in fattura può
+      // legittimamente differire dal nome negozio sull'estratto carta (es.
+      // "Leroy Merlin" in fattura vs "Leroy Merlin Afragola I" sulla carta),
+      // mentre l'importo di un acquisto con carta è quasi sempre univoco.
+      var aImp = Math.abs((a.importo||0)-m.importo)<0.02 ? 0 : 1;
+      var bImp = Math.abs((b.importo||0)-m.importo)<0.02 ? 0 : 1;
+      if(aImp!==bImp) return aImp-bImp;
       var descN = (m.descrizione||'').toLowerCase().replace(/[^a-z0-9]/g,'');
       var aIn = descN.indexOf((a.fornitore||'').toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,8))>=0 ? 0 : 1;
       var bIn = descN.indexOf((b.fornitore||'').toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,8))>=0 ? 0 : 1;
