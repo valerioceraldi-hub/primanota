@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.9</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.11</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -1152,6 +1152,40 @@ details[open] summary span:first-child{transform:rotate(90deg);display:inline-bl
       <input type="file" id="inputBancaPDF" accept=".pdf" style="display:none" onchange="onBancaPDFSelected(this)">
       <div id="bancaImportInfo" style="font-size:12px;color:var(--ink3);text-align:center;margin-bottom:8px"></div>
       <input type="month" id="bancaMese" onchange="renderRiconciliazione()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:10px;font-size:14px;font-family:inherit;background:var(--surface2);margin-bottom:12px;-webkit-appearance:none">
+      <!-- FILTRI ESTRATTO CONTO (08/08, richiesti da Valerio): periodo esteso (oltre
+           il singolo mese sopra), metodo di pagamento, stato riconciliato/non
+           riconciliato — si applicano a TUTTE le tab sotto (Da confermare/Da
+           classificare/Riconciliati/Scartati), non solo a una. Se "Dal"/"Al" sono
+           vuoti il filtro mese sopra resta l'unico criterio temporale. -->
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;padding:10px;border:1px solid var(--sep);border-radius:10px;background:var(--surface2)">
+        <div style="font-size:11px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.5px">Filtri estratto conto</div>
+        <div style="display:flex;gap:6px">
+          <input type="date" id="bancaFiltroDal" onchange="renderRiconciliazione()" placeholder="Dal" style="flex:1;padding:8px;border:1.5px solid var(--sep);border-radius:8px;font-size:12px;font-family:inherit;background:var(--surface);-webkit-appearance:none;min-width:0">
+          <input type="date" id="bancaFiltroAl" onchange="renderRiconciliazione()" placeholder="Al" style="flex:1;padding:8px;border:1.5px solid var(--sep);border-radius:8px;font-size:12px;font-family:inherit;background:var(--surface);-webkit-appearance:none;min-width:0">
+        </div>
+        <div style="display:flex;gap:6px">
+          <select id="bancaFiltroMetodo" onchange="renderRiconciliazione()" style="flex:1;padding:8px;border:1.5px solid var(--sep);border-radius:8px;font-size:12px;font-family:inherit;background:var(--surface);min-width:0">
+            <option value="">Metodo: tutti</option>
+            <option value="bonifico">Bonifico</option>
+            <option value="assegno">Assegno</option>
+            <option value="sdd">SDD</option>
+            <option value="leasing">Leasing</option>
+            <option value="numia">POS/Numia</option>
+            <option value="cbill">CBILL</option>
+            <option value="f24">F24</option>
+            <option value="mutuo">Mutuo</option>
+            <option value="stipendi">Stipendi</option>
+            <option value="spese">Commissioni/spese</option>
+            <option value="entrata">Entrata</option>
+            <option value="altro">Altro</option>
+          </select>
+          <select id="bancaFiltroStato" onchange="renderRiconciliazione()" style="flex:1;padding:8px;border:1.5px solid var(--sep);border-radius:8px;font-size:12px;font-family:inherit;background:var(--surface);min-width:0">
+            <option value="">Stato: tutti</option>
+            <option value="riconciliati">Solo riconciliati</option>
+            <option value="non_riconciliati">Solo non riconciliati</option>
+          </select>
+        </div>
+      </div>
       <div id="bancaContenuto"></div>
     </div>
   </div>
@@ -4821,6 +4855,33 @@ function closeMo(){
 function oggi(){return new Date().toISOString().split('T')[0];}
 function fmt(n){return '\u20ac '+(n||0).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+// Ricerca condivisa fornitore/numero + importo, usata in tutte le barre di
+// ricerca fatture (Registro, picker "Aggancia DDT", "Aggancia nota di credito",
+// "Cambia abbinamento") — richiesto da Valerio (08/08): prima solo il Registro
+// principale supportava la ricerca per importo, le altre barre erano rimaste
+// indietro e cercavano solo su fornitore/numero.
+function _fattMatchTestoImporto(f, s){
+  if(!s) return true;
+  var sl = s.toLowerCase().trim();
+  if((f.fornitore||'').toLowerCase().includes(sl) || (f.numero||'').toLowerCase().includes(sl)) return true;
+  var num = parseFloat(sl.replace(',','.'));
+  if(!isNaN(num) && sl!==''){
+    return Math.abs(Math.abs(f.importo||0) - num) < 1;
+  }
+  return false;
+}
+// Stessa idea per i movimenti bancari (usata nella ricerca di "Da classificare"/
+// "Tutti i movimenti" in Riconciliazione) — testo su descrizione oppure importo.
+function _movMatchTestoImporto(m, s){
+  if(!s) return true;
+  var sl = s.toLowerCase().trim();
+  if((m.descrizione||'').toLowerCase().includes(sl)) return true;
+  var num = parseFloat(sl.replace(',','.'));
+  if(!isNaN(num) && sl!==''){
+    return Math.abs(Math.abs(m.importo||0) - num) < 1;
+  }
+  return false;
+}
 function sv(id,v){const el=document.getElementById(id);if(el)el.value=v;}
 function gv(id){const el=document.getElementById(id);return el?el.value:'';}
 let tT;
@@ -5071,7 +5132,7 @@ function _apriListaAggancio(ddtId, ddt){
     const s=(filter||'').toLowerCase();
     const candidati = fatture.filter(f=>
       f.tipo==='fattura' &&
-      (!s || f.fornitore.toLowerCase().includes(s) || (f.numero||'').toLowerCase().includes(s))
+      _fattMatchTestoImporto(f, s)
     ).sort((a,b)=>{
       // Prima quelle dello stesso fornitore
       const normS=x=>String(x||'').trim().toLowerCase();
@@ -5174,7 +5235,7 @@ function apriAgganciaNC(ncId){
     const numRif = rifMatch ? normS(rifMatch[1]) : '';
     const candidati = fatture.filter(f=>
       f.tipo==='fattura' && (f.stato==='da_pagare'||f.stato==='parziale') &&
-      (!s || f.fornitore.toLowerCase().includes(s) || (f.numero||'').toLowerCase().includes(s))
+      _fattMatchTestoImporto(f, s)
     ).sort((a,b)=>{
       const aRif = numRif && normS(a.numero)===numRif ? 0 : 1;
       const bRif = numRif && normS(b.numero)===numRif ? 0 : 1;
@@ -5719,6 +5780,27 @@ async function analizzaXML(file){
       // <ImportoPagamento> (uno per rata) — prendere il primo che capita registrava
       // solo l'importo di UNA rata invece del totale reale della fattura.
       const importoRaw=getIn('DatiGeneraliDocumento','ImportoTotaleDocumento')||get('ImportoTotaleDocumento')||get('ImportoPagamento');
+      // BUG CORRETTO (08/08): il codice sopra ignorava completamente <DatiRitenuta>
+      // — per i professionisti soggetti a ritenuta d'acconto (commercialisti,
+      // consulenti del lavoro, ecc.) l'importo salvato era sempre il TOTALE LORDO
+      // di fattura (es. 1332,24€), mai il netto realmente pagato/bonificato
+      // (1122,24€ = totale - ritenuta) — quindi la riconciliazione con l'estratto
+      // conto falliva sempre per un importo esatto pari alla ritenuta (casi reali:
+      // Rosaria Marotta, Fulvio Ferrantini). Fix: si somma ogni <ImportoPagamento>
+      // presente nell'XML (una per rata, se il pagamento è rateale) — quella somma
+      // è SEMPRE il netto realmente movimentato in banca, sia che manchi la
+      // ritenuta (somma = totale) sia che ci sia (somma = totale - ritenuta) sia
+      // che ci siano più rate (somma = tutte le rate, non solo la prima).
+      const _sommaImportiPagamento = (()=>{
+        var els = doc.getElementsByTagName('ImportoPagamento');
+        if(!els.length){ var all=doc.getElementsByTagName('*'),f=[]; for(var i=0;i<all.length;i++){ if(all[i].localName==='ImportoPagamento') f.push(all[i]); } els=f; }
+        var tot=0, n=0;
+        for(var i=0;i<els.length;i++){ var v=parseFloat((els[i].textContent||'').trim().replace(',','.')); if(!isNaN(v)){ tot+=v; n++; } }
+        return n>0 ? tot : null;
+      })();
+      const importoTotaleDoc = parseFloat((importoRaw||'0').replace(',','.'))||0;
+      const importoNettoDaUsare = (_sommaImportiPagamento!==null && _sommaImportiPagamento>0 && _sommaImportiPagamento<=importoTotaleDoc+0.02)
+        ? _sommaImportiPagamento : importoTotaleDoc;
       const iban=get('IBAN');
       const modalita=get('ModalitaPagamento'); // MP01=contanti, MP05=bonifico, ecc.
       const pagMap={'MP01':'contanti','MP05':'bonifico','MP02':'assegno','MP12':'assegno','MP19':'bonifico'};
@@ -5734,7 +5816,7 @@ async function analizzaXML(file){
         numero_fattura:numero,
         numero_ddt:numDdtXml,
         data:dataRaw,
-        importo:parseFloat(importoRaw?.replace(',','.'))||0,
+        importo:importoNettoDaUsare,
         pagamento:pagMap[modalita]||'',
         numero_assegno:'', intestatario_assegno:'', banca_assegno:'',
         tipo_documento: NC_S.indexOf(tipoDocXmlS)>=0 ? tipoDocXmlS : (tipoDocXmlS||'fattura'),
@@ -5889,7 +5971,22 @@ async function importaMassivoXml(input){
       // il 29/07 su fatture con pagamento rateale, es. DI MASSA N°20: 3000€ invece di
       // 12000,01€ reali).
       const importoRaw= getIn('DatiGeneraliDocumento','ImportoTotaleDocumento') || get('ImportoTotaleDocumento') || get('ImportoPagamento');
-      const importo   = parseFloat((importoRaw||'0').replace(',','.')) || 0;
+      // BUG CORRETTO (08/08): stesso motivo del punto gemello in analizzaXML() —
+      // <DatiRitenuta> non veniva mai considerato, quindi l'importo salvato era
+      // sempre il lordo, mai il netto realmente bonificato (casi reali: Rosaria
+      // Marotta, Fulvio Ferrantini). Si somma ogni <ImportoPagamento> (una per
+      // rata) — il totale è sempre il netto vero, con o senza ritenuta, con o
+      // senza rate multiple.
+      const _sommaImportiPagamento2 = (()=>{
+        var els = doc.getElementsByTagName('ImportoPagamento');
+        if(!els.length){ var all=doc.getElementsByTagName('*'),f=[]; for(var i=0;i<all.length;i++){ if(all[i].localName==='ImportoPagamento') f.push(all[i]); } els=f; }
+        var tot=0, n=0;
+        for(var i=0;i<els.length;i++){ var v=parseFloat((els[i].textContent||'').trim().replace(',','.')); if(!isNaN(v)){ tot+=v; n++; } }
+        return n>0 ? tot : null;
+      })();
+      const importoTotaleDoc2 = parseFloat((importoRaw||'0').replace(',','.'))||0;
+      const importo   = (_sommaImportiPagamento2!==null && _sommaImportiPagamento2>0 && _sommaImportiPagamento2<=importoTotaleDoc2+0.02)
+        ? _sommaImportiPagamento2 : importoTotaleDoc2;
       const modalita  = get('ModalitaPagamento');
       const pagamento = pagMap[modalita] || '';
       const iban      = get('IBAN');
@@ -8193,6 +8290,12 @@ function renderFatturaXML(xmlText, ddt){
   const dataFatt  = g('Data') || '';
   const dataFmtd  = dataFatt ? new Date(dataFatt+'T12:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'long',year:'numeric'}) : '—';
   const totale    = g('ImportoTotaleDocumento') || g('ImportoPagamento');
+  // Ritenuta d'acconto — mai letta prima in questa anteprima (bug corretto 08/08,
+  // stesso motivo per cui l'importo salvato in Supabase era sbagliato per i
+  // professionisti soggetti a ritenuta): mostrarla esplicitamente qui rende
+  // subito visibile la differenza tra totale fiscale e netto realmente bonificato.
+  const importoRitenuta = g('DatiRitenuta ImportoRitenuta') || '';
+  const nettoAPagare = importoRitenuta ? (parseFloat(totale.replace(',','.'))||0) - (parseFloat(importoRitenuta.replace(',','.'))||0) : null;
   const imponibile= g('ImponibileImporto') || '';
   const iva       = g('Imposta') || '';
   const modalPag  = g('ModalitaPagamento');
@@ -8296,8 +8399,10 @@ function renderFatturaXML(xmlText, ddt){
       ${imponibile?`<div style="display:flex;justify-content:space-between;font-size:14px;color:rgba(255,255,255,.7);margin-bottom:8px"><span>Imponibile</span><span>${fmtE(imponibile)}</span></div>`:''}
       ${iva?`<div style="display:flex;justify-content:space-between;font-size:14px;color:rgba(255,255,255,.7);margin-bottom:12px"><span>IVA</span><span>${fmtE(iva)}</span></div>`:''}
       <div style="display:flex;justify-content:space-between;font-size:20px;font-weight:700;color:#fff;padding-top:10px;border-top:1px solid rgba(255,255,255,.15)">
-        <span>Totale</span><span style="color:#4fc3f7">${fmtE(totale)}</span>
+        <span>Totale documento</span><span style="color:#4fc3f7">${fmtE(totale)}</span>
       </div>
+      ${importoRitenuta?`<div style="display:flex;justify-content:space-between;font-size:13px;color:#FF9500;margin-top:10px"><span>Ritenuta d'acconto</span><span>−${fmtE(importoRitenuta)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700;color:#4cd964;margin-top:6px;padding-top:8px;border-top:1px dashed rgba(255,255,255,.15)"><span>Netto a pagare</span><span>${fmt(nettoAPagare)}</span></div>`:''}
     </div>
 
     <!-- PAGAMENTO -->
@@ -11363,7 +11468,10 @@ var _reconReport = {
   posCorretti: [],          // {data, vecchio, nuovo}
   fattureAbbinateAuto: [],  // {data, importo, fornitore, numero} - gia abbinate da renderRiconciliazione
   fattureConfermate: [],    // {data, importo, fornitore, numero}
-  fattureRifiutate: []      // {data, importo, descrizione}
+  fattureRifiutate: [],     // {data, importo, descrizione}
+  _giaSegnalatiAuto: {}     // {movId: true} — evita che lo stesso movimento venga rimesso nel
+                            // report ogni volta che renderRiconciliazione() gira di nuovo nella
+                            // stessa sessione (causa del doppione "Levigazione Marmi", 08/08)
 };
 function _resetReconReport(fileName, mese){
   _reconReport = {
@@ -11375,7 +11483,8 @@ function _resetReconReport(fileName, mese){
     posCorretti: [],
     fattureAbbinateAuto: [],
     fattureConfermate: [],
-    fattureRifiutate: []
+    fattureRifiutate: [],
+    _giaSegnalatiAuto: {}
   };
 }
 function _hasReconActivity(){
@@ -11784,6 +11893,23 @@ function renderRiconciliazione(){
     return;
   }
 
+  // ── FILTRI ESTRATTO CONTO (08/08, richiesti da Valerio) ──────────────
+  // Periodo esteso (oltre il singolo mese sopra), metodo di pagamento, stato
+  // riconciliato/non riconciliato — si applicano PRIMA della classificazione,
+  // quindi valgono su tutte le tab sotto (Da confermare/Da classificare/
+  // Riconciliati/Scartati), non solo su una.
+  var _fDal = gv('bancaFiltroDal')||'', _fAl = gv('bancaFiltroAl')||'';
+  var _fMetodo = gv('bancaFiltroMetodo')||'', _fStato = gv('bancaFiltroStato')||'';
+  if(_fDal) movMese = movMese.filter(function(m){ return m.data >= _fDal; });
+  if(_fAl)  movMese = movMese.filter(function(m){ return m.data <= _fAl; });
+  if(_fMetodo) movMese = movMese.filter(function(m){ return _categorizzaMovimento(m).key === _fMetodo; });
+  if(_fStato==='riconciliati')     movMese = movMese.filter(function(m){ return m.abbinata && !m.ignorata; });
+  if(_fStato==='non_riconciliati') movMese = movMese.filter(function(m){ return !m.abbinata && !m.ignorata; });
+  if(!movMese.length){
+    wrap.innerHTML = '<div style="text-align:center;padding:16px;color:var(--ink3);font-size:13px">Nessun movimento corrisponde ai filtri selezionati.</div>';
+    return;
+  }
+
   // ═══ 1. ANALISI: classifica i movimenti ═══
   var versamentiBanca = []; // VERSAMENTO CONTANTI dall'estratto
   var posNumiaBanca = {};   // {data: totale POS}
@@ -12138,10 +12264,30 @@ function renderRiconciliazione(){
       m.verificataBanca= true;
       fattIdUsate.add(matchCerto.id);
       giaBanca.push({mov:m, fatt:matchCerto, verificato:true});
-      if(_reconReport) _reconReport.fattureAbbinateAuto.push({
-        data:m.data, importo:imp, fattData:matchCerto.data||'',
-        fornitore:matchCerto.fornitore||'', numero:matchCerto.numero||''
-      });
+      // BUG CORRETTO (08/08): fino a qui si aggiornava solo l'oggetto movimento
+      // in memoria — la fattura non veniva mai marcata riconciliata=true né
+      // salvata su Supabase (né _impostaDatiRiconciliazione né dbUpdate). Il
+      // risultato: sembrava "riconciliato" solo nella schermata Riconciliazione
+      // per la sessione corrente, ma il Registro/Cassa mostrava ancora la
+      // fattura come "da pagare" perché il dato vero non era mai stato scritto
+      // (caso reale: Levigazione Marmi). Ora si persiste sempre, come fa già
+      // _confermaPagamento per la conferma manuale.
+      if(!matchCerto.riconciliata){
+        _impostaDatiRiconciliazione(matchCerto, m, false);
+        matchCerto.riconciliata = true;
+        if(typeof dbUpdate==='function') dbUpdate(matchCerto);
+      }
+      salvaMovimentoBanca(m).catch(function(e){console.warn('salvaMovimentoBanca:',e);});
+      // Dedup report: un movimento già segnalato in questa sessione (perché
+      // renderRiconciliazione gira di nuovo, es. cambio mese/tab) non va
+      // rimesso una seconda volta — causa reale del doppione nel report.
+      if(_reconReport && !_reconReport._giaSegnalatiAuto[m.id]){
+        _reconReport._giaSegnalatiAuto[m.id] = true;
+        _reconReport.fattureAbbinateAuto.push({
+          data:m.data, importo:imp, fattData:matchCerto.data||'',
+          fornitore:matchCerto.fornitore||'', numero:matchCerto.numero||''
+        });
+      }
 
     } else if(matchCerto && !_defaultDiverso(matchCerto.fornitore) && !isAssegno && !_matchCertoGiaAgganciato){
       m.abbinata     = true;
@@ -12149,10 +12295,27 @@ function renderRiconciliazione(){
       m.fatturaLabel = (matchCerto.fornitore||'') + ' N°' + (matchCerto.numero||'');
       fattIdUsate.add(matchCerto.id);
       abbinatiAuto.push({mov:m, fatt:matchCerto, verificato:verificato});
-      if(_reconReport) _reconReport.fattureAbbinateAuto.push({
-        data:m.data, importo:imp, fattData:matchCerto.data||'',
-        fornitore:matchCerto.fornitore||'', numero:matchCerto.numero||''
-      });
+      // Stesso bug e stesso fix del ramo sopra: qui la fattura è spesso ancora
+      // "da_pagare" (non è mai passata per stato='pagata' prima), quindi senza
+      // questo blocco NON veniva MAI persistita — è il caso esatto di
+      // Levigazione Marmi segnalato da Valerio.
+      if(!matchCerto.riconciliata){
+        _impostaDatiRiconciliazione(matchCerto, m, false);
+        matchCerto.riconciliata = true;
+        if(matchCerto.stato!=='pagata'){
+          matchCerto.stato = 'pagata';
+          matchCerto.dataPagamento = matchCerto.dataPagamento || m.data;
+        }
+        if(typeof dbUpdate==='function') dbUpdate(matchCerto);
+      }
+      salvaMovimentoBanca(m).catch(function(e){console.warn('salvaMovimentoBanca:',e);});
+      if(_reconReport && !_reconReport._giaSegnalatiAuto[m.id]){
+        _reconReport._giaSegnalatiAuto[m.id] = true;
+        _reconReport.fattureAbbinateAuto.push({
+          data:m.data, importo:imp, fattData:matchCerto.data||'',
+          fornitore:matchCerto.fornitore||'', numero:matchCerto.numero||''
+        });
+      }
 
     } else if(matchCerto){
       // matchCerto c'è, ma finisce comunque in "da confermare" perché:
@@ -12566,8 +12729,13 @@ function renderRiconciliazione(){
 
   // ═══ Classificazione movimenti non abbinati: visibili vs filtrati automaticamente ═══
   var _escludiClassifica = /commissioni?\s*(numia|pagobancomat|internazionale|carta)|^commissioni$|comm\.sdd|comm\.bon|telematico\s+sct|ns\s+rif\.|rif\.[a-z0-9]+\s+comm|rif\.[a-z0-9]+\s+perc|spese\s+e\s+comm|imp\.bollo|rilascio\s+carnet|interessi\s+e\s+comp|interessi|^competenze$|worldpay|boll\.cbill|pag\.to\s+telematico|fattura\s+numia|numia-|sdd\s+core:\s+49rj2252|paypal\s+europe|ceraldi\s+valerio|ceraldi\s+vincenzo|ceraldi\s+michele|pocci\s+salvatore|murolo\s+mario|parisi\s+antonio|capezzuto\s+alessandro|taiano\s+luigi|moscato\s+emanuele|guarino\s+giuliano|lesina\s+angela|russo\s+carmine|vespa\s+vincenzo|carotenuto\s+antonella|sankapala|mutuo\s+n\.|i24\s+agenzia|agenzia\s+entrate|spesa\s+con\s+carta|add\.spe/i;
-  var nonAbbinatiVis  = nonAbbinati.filter(function(m){ return !_escludiClassifica.test((m.descrizione||'').toLowerCase()); });
-  var nonAbbinatiHide = nonAbbinati.filter(function(m){ return  _escludiClassifica.test((m.descrizione||'').toLowerCase()); });
+  // _classificaManuale (impostato da _rimandaADaClassificare, vedi sotto) forza
+  // la visibilità in "Da classificare" anche se la descrizione assomiglia a una
+  // commissione/voce tecnica — bug corretto 08/08: un movimento spostato
+  // esplicitamente dall'utente con "Nessuna di queste" poteva finire filtrato
+  // automaticamente in "Scartati" senza nessun avviso, sembrando sparito nel nulla.
+  var nonAbbinatiVis  = nonAbbinati.filter(function(m){ return m._classificaManuale || !_escludiClassifica.test((m.descrizione||'').toLowerCase()); });
+  var nonAbbinatiHide = nonAbbinati.filter(function(m){ return !m._classificaManuale && _escludiClassifica.test((m.descrizione||'').toLowerCase()); });
   window._nonAbbinati = nonAbbinati;
 
   // ── TAB "Da classificare" ──
@@ -13764,6 +13932,16 @@ async function _rimandaADaClassificare(mov, fAttuale){
   mov.fatturaId = null;
   mov.fatturaLabel = '';
   mov.ignorata = false; // esplicitamente "da classificare", non "ignorato"
+  // BUG CORRETTO (08/08): il movimento tornava correttamente "non abbinato" ma
+  // poteva comunque restare invisibile in "Da classificare" per due motivi mai
+  // gestiti prima: 1) se la descrizione assomigliava a una voce tecnica (regex
+  // _escludiClassifica) finiva silenziosamente in "Scartati > Filtrati
+  // automaticamente"; 2) se era attivo un filtro per categoria (chip) diverso
+  // dalla categoria di questo movimento, restava nascosto finché l'utente non
+  // cliccava "Tutte". _classificaManuale forza la visibilità (punto 1);
+  // resettare il filtro a "Tutte" risolve il punto 2.
+  mov._classificaManuale = true;
+  window._movFiltroCategoriaClass = null;
   try{ await salvaMovimentoBanca(mov); }catch(e){ console.warn('salvaMovimentoBanca:',e); }
   toast('↩️ Spostato in "Da classificare"');
   var _sy = window.pageYOffset || document.documentElement.scrollTop || 0;
@@ -13861,7 +14039,7 @@ function _apriPickerCambioAbbinamento(m, fAttuale){
     const s = (filtro||'').toLowerCase();
     const candidati = fatture.filter(f=>
       f.tipo==='fattura' &&
-      (!s || f.fornitore.toLowerCase().includes(s) || (f.numero||'').toLowerCase().includes(s))
+      _fattMatchTestoImporto(f, s)
     ).sort((a,b)=>{
       // Stesso fornitore dell'abbinamento attuale prima di tutto, poi per data (più vicina al movimento prima)
       const aSame = normS(a.fornitore)===normS(fAttuale.fornitore)?0:1;
