@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.15</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.17</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -4676,7 +4676,9 @@ function _quickPayConfirmDialog(id){
   document.getElementById('qpcConfermaBtn').onclick = function(){
     if(selectedMetodo === 'assegno'){
       var numAss = (document.getElementById('qpcAssNum').value||'').trim();
-      if(!numAss){ toast('\u26a0\ufe0f Inserisci il numero assegno'); return; }
+      // Non più obbligatorio (08/08, richiesta di Valerio): il numero assegno può
+      // arrivare dopo, in automatico, quando l'estratto conto viene riconciliato
+      // (vedi Match su numero assegno + avviso di discrepanza in renderRiconciliazione).
     }
     _qpcMostraSceltaData(id, f, mo, selectedMetodo, backup);
   };
@@ -4815,7 +4817,8 @@ async function _quickPayAssegnoDialog(id, metodo, backup){
   document.getElementById('qpaConferma').onclick = async ()=>{
     const numAssegno = document.getElementById('qpaNum').value.trim();
     const intestatario = document.getElementById('qpaInt').value.trim();
-    if(!numAssegno){ toast('⚠️ Inserisci il numero assegno'); return; }
+    // Non più obbligatorio (08/08, richiesta di Valerio): il numero assegno può
+    // arrivare dopo, in automatico, quando l'estratto conto viene riconciliato.
     mo.remove();
     await _applicaQuickPay(id, metodo, {numAssegno, intestatario}, backup);
   };
@@ -4872,6 +4875,14 @@ function closeMo(){
 function oggi(){return new Date().toISOString().split('T')[0];}
 function fmt(n){return '\u20ac '+(n||0).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+// Estrae il numero assegno dalla descrizione di un movimento bancario tipo
+// "VOSTRO ASSEGNO N. 0208770762" — usata per compilare in automatico il numero
+// assegno sulla fattura quando la riconciliazione trova il movimento giusto,
+// così non è più necessario scriverlo a mano (richiesto da Valerio, 08/08).
+function _estraiNumeroAssegnoDaDescrizione(descrizione){
+  var m = /assegno\s+n\.?\s*(\d+)/i.exec(descrizione||'');
+  return m ? m[1] : null;
+}
 // Ricerca condivisa fornitore/numero + importo, usata in tutte le barre di
 // ricerca fatture (Registro, picker "Aggancia DDT", "Aggancia nota di credito",
 // "Cambia abbinamento") — richiesto da Valerio (08/08): prima solo il Registro
@@ -11745,7 +11756,13 @@ async function onCartaPDFSelected(input){
       _cartaMovimenti = Object.values(map).sort(function(a,b){ return b.data.localeCompare(a.data); });
       _salvaCartaLocale();
       var cm = document.getElementById('cartaMese');
-      if(cm && !cm.value) cm.value = res.transazioni[0].data.slice(0,7);
+      // BUG CORRETTO (08/08, segnalato da Valerio: "l'import va a buon fine ma
+      // non trovo i movimenti"): il selettore mese si preimposta al mese
+      // CORRENTE non appena si apre la tab "Carta di credito" (vedi setIncTab) —
+      // se poi importi un estratto di un mese diverso, il filtro restava bloccato
+      // su quello vecchio e la lista appariva vuota, senza nessun errore. Ora dopo
+      // un import riuscito il filtro salta SEMPRE al mese dei dati appena letti.
+      if(cm) cm.value = res.transazioni[0].data.slice(0,7);
       renderRiconciliazioneCarta();
 
       var _addebitoInfo = res.totaleAddebitoCC!==null
@@ -11796,7 +11813,9 @@ function renderRiconciliazioneCarta(){
   }
   var movMese = mese ? _cartaMovimenti.filter(function(m){return m.data.indexOf(mese)===0;}) : _cartaMovimenti;
   if(!movMese.length){
-    wrap.innerHTML = '<div style="text-align:center;padding:16px;color:var(--ink3);font-size:13px">Nessuna transazione nel mese</div>';
+    wrap.innerHTML = '<div style="text-align:center;padding:16px;color:var(--ink3);font-size:13px">Nessuna transazione nel mese selezionato'
+      + (_cartaMovimenti.length ? ('.<br><br>Ci sono comunque <b>'+_cartaMovimenti.length+'</b> transazioni caricate in altri mesi — prova a cambiare il selettore data sopra.') : '')
+      + '</div>';
     return;
   }
 
@@ -12757,6 +12776,19 @@ function renderRiconciliazione(){
       if(metodoDef && metodoDef !== metodoMovimento) return metodoDef;
       return null;
     }
+    // Discrepanza numero assegno (08/08, richiesta esplicita di Valerio): se ha
+    // già scritto un numero assegno sulla fattura (a mano, quando l'ha segnata
+    // pagata dalla foto) e l'estratto conto mostra un numero DIVERSO per questo
+    // movimento, avvisa esplicitamente invece di lasciare che passi inosservato
+    // — gli assegni non vengono comunque mai auto-confermati (vedi sotto), ma
+    // finora nessun avviso specifico segnalava il disallineamento tra i due numeri.
+    function _assegnoNumeroDiscrepante(f, numAss){
+      if(!f || !f.assegno || !numAss) return null;
+      var assClean = String(f.assegno).replace(/\D/g,'');
+      if(!assClean) return null;
+      if(numAss.endsWith(assClean.slice(-6))) return null;
+      return '⚠️ Numero assegno registrato sulla fattura ('+f.assegno+') diverso da quello nell\'estratto conto ('+numAss+') — controlla prima di confermare, potrebbe essere un assegno diverso.';
+    }
 
     // Se matchCerto con verificato = già in app → spunta silenzioso
     // (a meno che il metodo reale non contraddica il pagamento predefinito del fornitore:
@@ -12844,18 +12876,20 @@ function renderRiconciliazione(){
       // - è un assegno (mai auto-confermato, qualunque sia la certezza del match), oppure
       // - un ALTRO movimento risulta già agganciato a questa stessa fattura
       var _defC = _defaultDiverso(matchCerto.fornitore);
+      var _assDiscrC = isAssegno ? _assegnoNumeroDiscrepante(matchCerto, numAssStr) : null;
       m._matchProbabile = matchCerto;
       m._matchScore     = 100;
       daConfermare.push({mov:m, fatt:matchCerto, score:100,
         isAssegno:isAssegno, isBonifico:isBonifico, numAssStr:numAssStr,
         avviso: _matchCertoGiaAgganciato
           ? '⚠️ Questa fattura risulta GIÀ agganciata a un altro movimento — verifica prima di confermare (potrebbe essere una seconda fattura mancante, non un doppione)'
-          : (_defC
+          : (_assDiscrC || (_defC
             ? '⚠️ Di solito paghi "'+matchCerto.fornitore+'" con '+_defC+', ma questo sembra un '+metodoMovimento
-            : (isAssegno ? '📝 Assegno — verifica sempre manualmente prima di confermare' : null))});
+            : (isAssegno ? '📝 Assegno — verifica sempre manualmente prima di confermare' : null)))});
 
     } else if(matchProbabile){
       var _defP = _defaultDiverso(matchProbabile.fornitore);
+      var _assDiscrP = isAssegno ? _assegnoNumeroDiscrepante(matchProbabile, numAssStr) : null;
       var _probGiaAgganciato = (_bancaMovimenti||[]).some(function(x){
         return x.abbinata && x.fatturaId===matchProbabile.id && x.id!==m.id;
       });
@@ -12865,7 +12899,7 @@ function renderRiconciliazione(){
         isAssegno:isAssegno, isBonifico:isBonifico, numAssStr:numAssStr,
         avviso: _probGiaAgganciato
           ? '⚠️ Questa fattura risulta GIÀ agganciata a un altro movimento — verifica prima di confermare (potrebbe essere una seconda fattura mancante, non un doppione)'
-          : (_defP ? ('⚠️ Di solito paghi "'+matchProbabile.fornitore+'" con '+_defP+', ma questo sembra un '+metodoMovimento) : null)});
+          : (_assDiscrP || (_defP ? ('⚠️ Di solito paghi "'+matchProbabile.fornitore+'" con '+_defP+', ma questo sembra un '+metodoMovimento) : null))});
 
     } else {
       nonAbbinati.push(m);
@@ -14062,6 +14096,11 @@ function _cfAbbina(movIdx, fattId, isParziale){
   salvaMovimentoBanca(m); // persiste su Supabase
   // Aggiunge dettagli estratto nelle note
   _impostaDatiRiconciliazione(f, m, isParziale);
+  // Stesso recupero automatico del numero assegno (vedi _confermaPagamento).
+  if(!f.assegno){
+    var _numAssTrovatoCf = _estraiNumeroAssegnoDaDescrizione(m.descrizione);
+    if(_numAssTrovatoCf) f.assegno = _numAssTrovatoCf;
+  }
   // Marca la fattura come riconciliata con estratto (indipendente dallo stato pagamento)
   f.riconciliata = true;
   if(isParziale){
@@ -14404,6 +14443,14 @@ function _confermaPagamento(idx, conferma){
     d.mov.fatturaLabel = (d.fatt.fornitore||'') + ' N°' + (d.fatt.numero||'');
     // Aggiunge dettagli estratto nelle note della fattura
     _impostaDatiRiconciliazione(d.fatt, d.mov, false);
+    // Se la fattura non ha ancora un numero assegno registrato, lo recupera in
+    // automatico dalla descrizione dell'estratto conto (08/08, richiesto da
+    // Valerio: non deve essere obbligatorio scriverlo a mano, la riconciliazione
+    // lo trova da sola quando l'estratto lo riporta).
+    if(!d.fatt.assegno){
+      var _numAssTrovato = _estraiNumeroAssegnoDaDescrizione(d.mov.descrizione);
+      if(_numAssTrovato) d.fatt.assegno = _numAssTrovato;
+    }
     // Marca come riconciliata con estratto
     d.fatt.riconciliata = true;
     if(d.fatt.stato!=='pagata'){
