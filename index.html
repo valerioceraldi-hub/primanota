@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.11</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.12</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -12654,8 +12654,16 @@ function renderRiconciliazione(){
         var m=d.mov, f=d.fatt;
         var hasDocG = f && ((f.fatturaAllegata&&f.fatturaAllegata.length>0)||(f.xmlGithubPath&&f.xmlGithubPath.length>0)||(f.source==='aruba')||f.hasAllegata);
         var ric = f && f.riconciliazione;
-        var importoRiconciliato = ric && typeof ric.importo==='number' ? ric.importo : Math.abs(m.importo);
-        var eParziale = ric && ric.parziale;
+        // Importo di QUESTA riga: se questo è il movimento "ufficiale" registrato
+        // in f.riconciliazione uso quel valore (gestisce anche la quota per i
+        // movimenti condivisi tra più fatture); altrimenti — fattura con PIÙ
+        // movimenti agganciati, es. pagamento a rate come DI MASSA N°20 — uso
+        // l'importo reale di QUESTO specifico movimento. BUG CORRETTO (08/08):
+        // prima si usava sempre e solo ric.importo (il campo unico condiviso
+        // dalla fattura), quindi righe di movimenti DIVERSI mostravano tutte lo
+        // stesso numero, quello dell'ultimo movimento salvato.
+        var importoRiga = (ric && ric.movId===m.id && typeof ric.importo==='number') ? ric.importo : Math.abs(m.importo);
+        var eParziale = f && f.stato==='parziale';
         htmlRiconciliati += '<div style="padding:8px 0;border-top:1px solid var(--sep);display:flex;justify-content:space-between;align-items:flex-start;gap:8px">';
         htmlRiconciliati += '<div style="flex:1;min-width:0">';
         htmlRiconciliati += '<div style="font-size:11px;color:var(--ink3)">'
@@ -12665,11 +12673,24 @@ function renderRiconciliazione(){
           + '</div>';
         htmlRiconciliati += '<div style="font-size:12px;font-weight:600">'+(f?('N°'+esc(f.numero||'')):esc(m.fatturaLabel||''))+'</div>';
         if(ric && ric.descrizione) htmlRiconciliati += '<div style="font-size:10px;color:var(--ink3);margin-top:1px;word-break:break-word;line-height:1.3">'+esc(ric.descrizione)+'</div>';
-        htmlRiconciliati += '<div style="font-size:11px;margin-top:3px">'
-          + (eParziale
-              ? '<span style="color:var(--orange,#c06000);font-weight:700">⚠ Parziale: '+fmt(importoRiconciliato)+' di '+fmt(f?(f.importo||0):0)+'</span>'
-              : '<span style="color:#1a7a3a;font-weight:700">✓ Totale: '+fmt(f?(f.importo||0):importoRiconciliato)+'</span>')
-          + '</div>';
+        // ETICHETTA PIÙ ANALITICA (08/08, richiesta da Valerio): prima "Parziale:
+        // €X di €Y" non chiariva se X fosse il pagamento di QUESTA riga/movimento
+        // o il totale pagato finora sulla fattura, né se Y fosse il totale
+        // fattura o il residuo. Ora si separano esplicitamente i concetti,
+        // riusando f.parzPagato — il cumulativo VERO già mantenuto altrove
+        // nell'app (si aggiorna ad ogni pagamento applicato, non dedotto qui) —
+        // invece di ricalcolarlo dai soli movimenti visibili in questo mese.
+        htmlRiconciliati += '<div style="font-size:11px;margin-top:4px;color:var(--ink2)">Questo movimento: <b>'+fmt(importoRiga)+'</b></div>';
+        if(eParziale && f){
+          var _pagatoFinora = f.parzPagato||0;
+          var _totFatt = f.importo||0;
+          var _restante = Math.max(0, _totFatt-_pagatoFinora);
+          var _pct = _totFatt>0 ? Math.min(100, Math.round(_pagatoFinora/_totFatt*100)) : 0;
+          htmlRiconciliati += '<div style="background:var(--surface3);border-radius:99px;height:5px;overflow:hidden;margin-top:5px"><div style="width:'+_pct+'%;height:100%;background:var(--orange);border-radius:99px"></div></div>';
+          htmlRiconciliati += '<div style="display:flex;justify-content:space-between;font-size:11px;color:#b36a00;font-weight:700;margin-top:3px;gap:8px"><span>⚠ Pagato finora: '+fmt(_pagatoFinora)+' di '+fmt(_totFatt)+'</span><span>Mancano '+fmt(_restante)+'</span></div>';
+        } else {
+          htmlRiconciliati += '<div style="font-size:11px;color:#1a7a3a;font-weight:700;margin-top:3px">✓ Fattura pagata per intero: '+fmt(f?(f.importo||0):importoRiga)+'</div>';
+        }
         htmlRiconciliati += '</div>';
         htmlRiconciliati += '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">';
         if(hasDocG) htmlRiconciliati += '<button onclick="aprifatturaAllegata('+f.id+')" style="border:none;background:var(--blue-light);color:var(--blue);border-radius:6px;padding:5px 8px;font-size:11px;font-weight:600;cursor:pointer">📄</button>';
