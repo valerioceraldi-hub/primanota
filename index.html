@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.20</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.22</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -1203,6 +1203,7 @@ details[open] summary span:first-child{transform:rotate(90deg);display:inline-bl
       <input type="file" id="inputCartaPDF" accept=".pdf" style="display:none" onchange="onCartaPDFSelected(this)">
       <div id="cartaImportInfo" style="font-size:12px;color:var(--ink3);text-align:center;margin-bottom:8px"></div>
       <input type="month" id="cartaMese" onchange="renderRiconciliazioneCarta()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:10px;font-size:14px;font-family:inherit;background:var(--surface2);margin-bottom:12px;-webkit-appearance:none">
+      <div id="cartaRiepilogoStorico" style="margin-bottom:12px"></div>
       <div id="cartaContenuto"></div>
     </div>
   </div>
@@ -9196,6 +9197,7 @@ function setIncTab(t, btn){
     var cm = document.getElementById('cartaMese');
     if(cm && !cm.value) cm.value = new Date().toISOString().slice(0,7);
     renderRiconciliazioneCarta();
+    _renderRiepilogoStoricoCarta();
   }
 }
 
@@ -11660,10 +11662,18 @@ async function _parseNexiCartaCredito(arrayBuffer){
 
   var risultato = {
     questoMeseHaSpeso: null, totaleAddebitoCC: null, dataAddebito: null,
-    impostaBollo: 0, transazioni: []
+    impostaBollo: 0, residuoMesePrecedente: 0, residuoFinale: null, transazioni: []
   };
   var titolareCorrente = null, cartaCorrente = null, inDettaglio = false;
   var _idUsatiCartaCount = {};
+
+  // Legge un importo che può avere il segno meno davanti (es. "-721,65") —
+  // usato per il debito residuo, che può essere un credito verso Valerio.
+  function _pItaConSegno(s){
+    var m = /^(-?)([\d.]+,\d{2})$/.exec(s||'');
+    if(!m) return null;
+    return (m[1]==='-'?-1:1) * _pIta(m[2]);
+  }
 
   righeGlobali.forEach(function(items){
     if(items[0]==='QUESTO MESE HA SPESO' && items[1]){
@@ -11674,6 +11684,23 @@ async function _parseNexiCartaCredito(arrayBuffer){
     if(items[0]==='In data' && items[1]){ risultato.dataAddebito = _dataItalianaLunga(items[1]); return; }
     if(items[0]==='Imposta di bollo' && items.length===2 && reImportoNexi.test(items[1])){
       risultato.impostaBollo = _pIta(items[1]); return;
+    }
+    // BUG CORRETTO (08/08, segnalato da Valerio con lo screenshot dell'estratto
+    // marzo 2026): quando il mese precedente non è stato addebitato per intero,
+    // Nexi riporta un "Debito residuo al mese precedente" (es. -721,65) che
+    // SOMMATO al totale spese del mese dà il vero importo addebitato — prima
+    // questa riga non veniva letta affatto, quindi il controllo di quadratura
+    // falliva sempre quando c'era un residuo, facendo sembrare l'import
+    // incompleto quando in realtà era già tutto corretto.
+    if(items.length===3 && items[1]==='Debito residuo al mese precedente'){
+      var vRes = _pItaConSegno(items[2]);
+      if(vRes!==null) risultato.residuoMesePrecedente = vRes;
+      return;
+    }
+    if(items.length===2 && /^Debito residuo al \d{2}\/\d{2}\/\d{4}$/.test(items[0])){
+      var vResFin = _pItaConSegno(items[1]);
+      if(vResFin!==null) risultato.residuoFinale = vResFin;
+      return;
     }
     if(items[0]==='TOTALE ADDEBITO SUL SUO C/C' && items[1]){
       risultato.totaleAddebitoCC = _pIta(items[1]); return;
@@ -11731,10 +11758,12 @@ async function onCartaPDFSelected(input){
     if(!res.transazioni.length) throw new Error('Nessuna transazione trovata — controlla che sia un estratto conto Nexi');
 
     // Controllo di quadratura (stesso principio dell'estratto banca, v9.30.9):
-    // somma transazioni + imposta di bollo deve tornare esatto al TOTALE
-    // ADDEBITO SUL SUO C/C dichiarato nel documento stesso.
+    // somma transazioni + imposta di bollo + eventuale debito residuo dal mese
+    // precedente deve tornare esatto al TOTALE ADDEBITO SUL SUO C/C dichiarato
+    // nel documento stesso. Il residuo è FONDAMENTALE — senza sommarlo, ogni
+    // mese con un residuo diverso da zero risultava (a torto) "non quadrato".
     var _somma = Math.round(res.transazioni.reduce(function(s,t){return s+t.importo;},0)*100)/100;
-    var _atteso = _somma + (res.impostaBollo||0);
+    var _atteso = Math.round((_somma + (res.impostaBollo||0) + (res.residuoMesePrecedente||0))*100)/100;
     var _quadraturaMsg = '';
     if(res.totaleAddebitoCC !== null){
       var _diff = Math.round((_atteso - res.totaleAddebitoCC)*100)/100;
@@ -11742,6 +11771,7 @@ async function onCartaPDFSelected(input){
         _quadraturaMsg = '⚠️ ATTENZIONE — l\'estratto carta non quadra.\n\n'
           + 'Transazioni lette: ' + _somma.toFixed(2).replace('.',',') + '€\n'
           + 'Imposta di bollo: ' + (res.impostaBollo||0).toFixed(2).replace('.',',') + '€\n'
+          + (res.residuoMesePrecedente ? ('Debito residuo mese precedente: ' + res.residuoMesePrecedente.toFixed(2).replace('.',',') + '€\n') : '')
           + 'Totale calcolato: ' + _atteso.toFixed(2).replace('.',',') + '€\n'
           + 'Totale addebito dichiarato: ' + res.totaleAddebitoCC.toFixed(2).replace('.',',') + '€\n'
           + 'Differenza: ' + _diff.toFixed(2).replace('.',',') + '€\n\n'
@@ -11752,6 +11782,32 @@ async function onCartaPDFSelected(input){
     if(info) info.textContent = '⏳ Salvataggio ' + res.transazioni.length + ' transazioni su Supabase...';
     try{
       await upsertMovimentiCarta(res.transazioni);
+      // Salva anche il riepilogo dichiarato dal PDF (08/08, richiesto da
+      // Valerio: prima questi due numeri si vedevano solo una volta
+      // nell'avviso a schermo e poi si perdevano — impossibile ricostruirli
+      // dopo senza riaprire ogni PDF). mese = mese del primo movimento letto.
+      var _meseImport = res.transazioni[0].data.slice(0,7);
+      try{
+        await sbFetch('carta_estratti_riepilogo', {
+          method:'POST',
+          headers: Object.assign({}, SB_H, {'Prefer':'resolution=merge-duplicates,return=minimal'}),
+          body: JSON.stringify({
+            mese: _meseImport,
+            questo_mese_ha_speso: res.questoMeseHaSpeso,
+            imposta_bollo: res.impostaBollo||0,
+            residuo_mese_precedente: res.residuoMesePrecedente||0,
+            residuo_finale: res.residuoFinale,
+            totale_addebito_cc: res.totaleAddebitoCC,
+            data_addebito: res.dataAddebito,
+            updated_at: new Date().toISOString()
+          })
+        });
+      }catch(riepErr){
+        // Non blocca l'import (le transazioni sono comunque salvate) — ma
+        // avvisa in console: se la tabella non esiste ancora va creata una
+        // volta sola (vedi create_carta_estratti_riepilogo.sql).
+        console.warn('Riepilogo estratto non salvato:', riepErr);
+      }
       var map = {}; _cartaMovimenti.forEach(function(r){ map[r.id]=r; });
       res.transazioni.forEach(function(r){ map[r.id]=r; });
       _cartaMovimenti = Object.values(map).sort(function(a,b){ return b.data.localeCompare(a.data); });
@@ -11765,6 +11821,7 @@ async function onCartaPDFSelected(input){
       // un import riuscito il filtro salta SEMPRE al mese dei dati appena letti.
       if(cm) cm.value = res.transazioni[0].data.slice(0,7);
       renderRiconciliazioneCarta();
+      _renderRiepilogoStoricoCarta();
 
       var _addebitoInfo = res.totaleAddebitoCC!==null
         ? (' — addebito sul c/c: '+fmt(res.totaleAddebitoCC)+(res.dataAddebito?' il '+_fmtDataBreveCarta(res.dataAddebito):''))
@@ -11937,6 +11994,49 @@ function renderRiconciliazioneCarta(){
     html += '</div>';
   }
 
+  wrap.innerHTML = html;
+}
+
+// ── RIEPILOGO STORICO PER MESE (08/08, richiesto da Valerio: "dammi i due
+// addebiti di tutti i mesi caricati") — confronta, per ogni mese già importato,
+// il totale calcolato (somma transazioni + bollo, entrambi da Supabase) con il
+// totale dichiarato dal PDF al momento dell'import (carta_estratti_riepilogo).
+async function _renderRiepilogoStoricoCarta(){
+  var wrap = document.getElementById('cartaRiepilogoStorico');
+  if(!wrap) return;
+  var righeRiep;
+  try{
+    righeRiep = await sbFetch('carta_estratti_riepilogo?select=*&order=mese.desc');
+  }catch(e){
+    wrap.innerHTML = ''; // tabella non ancora creata — nessun errore visibile, silenzioso
+    return;
+  }
+  if(!Array.isArray(righeRiep) || !righeRiep.length){ wrap.innerHTML=''; return; }
+
+  var sommaPerMese = {};
+  _cartaMovimenti.forEach(function(m){
+    var k = m.data.slice(0,7);
+    sommaPerMese[k] = (sommaPerMese[k]||0) + (m.importo||0);
+  });
+
+  var html = '<details style="background:var(--surface2);border-radius:10px;padding:10px 12px">';
+  html += '<summary style="font-size:12px;font-weight:600;color:var(--ink2);cursor:pointer">📊 Riepilogo addebiti per mese ('+righeRiep.length+')</summary>';
+  html += '<div style="margin-top:8px">';
+  righeRiep.forEach(function(r){
+    var somma = Math.round((sommaPerMese[r.mese]||0)*100)/100;
+    var atteso = Math.round((somma + (r.imposta_bollo||0) + (r.residuo_mese_precedente||0))*100)/100;
+    var quadra = r.totale_addebito_cc!=null && Math.abs(atteso - r.totale_addebito_cc) < 0.02;
+    html += '<div style="font-size:11px;padding:6px 0;border-top:1px solid var(--sep)">';
+    html += '<div style="font-weight:600;margin-bottom:2px">'+esc(r.mese)+' '+(r.totale_addebito_cc!=null?(quadra?'✓':'⚠️'):'')+'</div>';
+    html += '<div style="color:var(--ink3)">Acquisti: '+fmt(somma)+' + bollo '+fmt(r.imposta_bollo||0)
+      + (r.residuo_mese_precedente ? (' '+(r.residuo_mese_precedente<0?'−':'+')+' residuo '+fmt(Math.abs(r.residuo_mese_precedente))) : '')
+      + ' = <b>'+fmt(atteso)+'</b> calcolato</div>';
+    html += '<div style="color:'+(r.totale_addebito_cc==null?'var(--ink3)':(quadra?'#1a7a3a':'#c0392b'))+'">'
+      + (r.totale_addebito_cc!=null ? 'Dichiarato nel PDF: <b>'+fmt(r.totale_addebito_cc)+'</b>'+(r.data_addebito?' il '+_fmtDataBreveCarta(r.data_addebito):'') : 'Totale dichiarato non disponibile per questo mese')
+      + '</div>';
+    html += '</div>';
+  });
+  html += '</div></details>';
   wrap.innerHTML = html;
 }
 
