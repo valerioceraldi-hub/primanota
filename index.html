@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.22</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.25</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -490,7 +490,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
     <!-- MANUTENZIONE AVANZATA — raccolta in un menu a tendina, usata raramente -->
     <details style="margin-bottom:10px">
       <summary style="cursor:pointer;font-size:13px;font-weight:700;color:var(--ink2);padding:10px 0;list-style:none;display:flex;align-items:center;gap:6px">
-        <span style="font-size:11px">▶</span> ⚙️ Manutenzione avanzata
+        <span style="font-size:11px" class="rot-arrow">▶</span> ⚙️ Manutenzione avanzata
       </summary>
       <div style="padding-top:8px">
         <div id="aiSummaryImp" style="font-size:12px;color:var(--ink3);background:var(--surface2);border-radius:8px;padding:10px;margin-bottom:8px;line-height:1.5">Nessuna correzione memorizzata.</div>
@@ -504,7 +504,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
     <!-- ZONA PERICOLOSA — anch'essa chiusa di default -->
     <details>
       <summary style="cursor:pointer;font-size:13px;font-weight:700;color:var(--ink2);padding:10px 0;list-style:none;display:flex;align-items:center;gap:6px">
-        <span style="font-size:11px">▶</span> 🔍 Altri strumenti
+        <span style="font-size:11px" class="rot-arrow">▶</span> 🔍 Altri strumenti
       </summary>
       <div style="padding-top:8px">
         <button onclick="if(confirm('Verificare i fornitori delle fatture intestate erroneamente a Ceraldi? L\'app ricontrolla l\'XML e corregge automaticamente.')){bonificaFornitoriErrati(false);chiudiImpostazioni();}" style="width:100%;padding:12px;border:1.5px solid var(--sep);border-radius:var(--radius-sm);background:var(--surface);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:var(--ink);text-align:left">&#128269; Verifica fornitori (correggi intestazioni Ceraldi errate)</button>
@@ -515,7 +515,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 </div>
 <style>
 details summary::-webkit-details-marker{display:none}
-details[open] summary span:first-child{transform:rotate(90deg);display:inline-block}
+details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-block}
 </style>
 
 <style>
@@ -1033,7 +1033,9 @@ details[open] summary span:first-child{transform:rotate(90deg);display:inline-bl
 
       <div style="display:flex;gap:8px">
         <button class="btn btn-s" onclick="importCsvNumia()" style="flex:1">📥 Import POS</button>
+        <button class="btn btn-s" onclick="_apriSyncSumUp()" style="flex:1">🔄 SumUp</button>
       </div>
+      <div id="sumupUltimaSync" style="font-size:11px;color:var(--ink3);text-align:center;margin-top:6px"></div>
       <button class="btn btn-p" onclick="salvaChiusuraGiornaliera()" style="margin-top:8px;width:100%">💾 Salva chiusura</button>
     </div>
 
@@ -1330,7 +1332,7 @@ details[open] summary span:first-child{transform:rotate(90deg);display:inline-bl
           <button class="btn btn-p" onclick="aggiungiDizForn()">+ Aggiungi</button>
         </div>
       </details>
-      </details></div>
+      </div>
       <div id="fornSec-pag"><details style="border-top:1px solid var(--sep);padding-top:14px;margin-top:2px">
         <summary style="cursor:pointer;font-size:14px;font-weight:600;padding:6px 0;list-style:none;display:flex;align-items:center;justify-content:space-between">
           <span>&#128179; Pagamento predefinito <span id="rsub-pagdefault" style="font-size:11px;color:var(--ink3);font-weight:400;margin-left:4px"></span></span>
@@ -1380,7 +1382,7 @@ details[open] summary span:first-child{transform:rotate(90deg);display:inline-bl
         <div><div class="rcard-title">Abbina a Ceraldi Ordini</div><div class="rcard-sub" id="rsub-abbina">Controlla quali fornitori aggiornano il listino prezzi</div></div>
       </div><span class="rcard-arr" id="rarr-abbina">›</span>
     </div>
-    <div class="rcard-body" id="rcb-abbina" style="display:none">
+    <div class="rcard-body" id="rbody-abbina">
       <p style="font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.5">Se attivo, quando apri una fattura XML i prezzi vengono inviati a Ceraldi Ordini. Il fornitore viene aggiunto automaticamente se non esiste.</p>
       <div id="abbinaList"></div>
       <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--sep)">
@@ -9374,6 +9376,7 @@ async function caricaChiusuraGiorno(){
   if(!data) return;
   const label = document.getElementById('chgData');
   if(label) label.textContent = new Date(data+'T12:00:00').toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  _aggiornaStatoSyncSumUp();
 
   // Legge sempre da Supabase per avere dati aggiornati cross-device
   let existing = null;
@@ -9572,6 +9575,123 @@ async function salvaChiusuraGiornaliera(){
   await caricaIncassi();
   caricaChiusuraGiorno();
   aggiornaSaldoCassa();
+}
+
+// ── SINCRONIZZAZIONE SUMUP (08/08, richiesta esplicita di Valerio) ──
+// Scrive nella STESSA tabella incassi già usata per l'import CSV Numia, con
+// source:'sumup' invece di source:'numia' — così il confronto esistente
+// "Estratto conto banca vs estratto carta POS" (vedi renderChiusuraMese)
+// include automaticamente anche SumUp, senza dover duplicare la logica di
+// riconciliazione già collaudata.
+// ── STATO SINCRONIZZAZIONE SUMUP (08/08) ── Mostra a colpo d'occhio se la
+// sincronizzazione notturna automatica sta davvero girando, senza dover
+// controllare i numeri ogni volta — legge l'ultimo updated_at salvato tra le
+// transazioni SumUp già presenti su Supabase.
+async function _aggiornaStatoSyncSumUp(){
+  var el = document.getElementById('sumupUltimaSync');
+  if(!el) return;
+  try{
+    var righe = await sbFetch('incassi?source=eq.sumup&select=updated_at&order=updated_at.desc&limit=1');
+    if(!Array.isArray(righe) || !righe.length){
+      el.textContent = 'SumUp: nessuna sincronizzazione ancora effettuata';
+      return;
+    }
+    var ultimo = new Date(righe[0].updated_at);
+    var oreFa = (Date.now() - ultimo.getTime()) / 3600000;
+    var testoData = ultimo.toLocaleString('it-IT', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+    if(oreFa > 26){
+      el.innerHTML = '⚠️ SumUp: ultima sincronizzazione ' + testoData + ' (oltre 26 ore fa — controlla il job notturno)';
+      el.style.color = '#b36a00';
+    } else {
+      el.innerHTML = '✓ SumUp sincronizzato — ultimo aggiornamento ' + testoData;
+      el.style.color = 'var(--ink3)';
+    }
+  }catch(e){
+    el.textContent = '';
+    console.warn('_aggiornaStatoSyncSumUp:', e);
+  }
+}
+
+function _apriSyncSumUp(){
+  var existing = document.getElementById('sumupSyncMo');
+  if(existing) existing.remove();
+
+  var oggi = new Date().toISOString().slice(0,10);
+  var primoDelMese = oggi.slice(0,8)+'01';
+
+  var mo = document.createElement('div');
+  mo.id = 'sumupSyncMo';
+  mo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:900;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)';
+  var sheet = document.createElement('div');
+  sheet.style.cssText = 'background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:80vh;overflow-y:auto;display:flex;flex-direction:column;animation:slideUp .3s cubic-bezier(.32,.72,0,1);padding:20px';
+  sheet.innerHTML =
+    '<div style="font-size:17px;font-weight:700;margin-bottom:4px">🔄 Sincronizza SumUp</div>'
+    + '<div style="font-size:12px;color:var(--ink3);margin-bottom:14px">Scarica le transazioni POS SumUp per il periodo scelto.</div>'
+    + '<div style="display:flex;gap:8px;margin-bottom:12px">'
+    + '<input type="date" id="sumupSyncDal" value="'+primoDelMese+'" style="flex:1;padding:10px;border:1.5px solid var(--sep);border-radius:10px;font-size:14px;font-family:inherit;background:var(--surface2);-webkit-appearance:none">'
+    + '<input type="date" id="sumupSyncAl" value="'+oggi+'" style="flex:1;padding:10px;border:1.5px solid var(--sep);border-radius:10px;font-size:14px;font-family:inherit;background:var(--surface2);-webkit-appearance:none">'
+    + '</div>'
+    + '<button id="sumupSyncBtn" onclick="_eseguiSyncSumUp()" style="width:100%;padding:12px;border:none;border-radius:10px;background:var(--blue);color:#fff;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:10px">Sincronizza</button>'
+    + '<div id="sumupSyncEsito" style="font-size:12px;color:var(--ink3)"></div>'
+    + '<button onclick="document.getElementById(\'sumupSyncMo\').remove()" style="width:100%;padding:10px;border:1px solid var(--sep);border-radius:10px;background:transparent;color:var(--ink2);font-family:inherit;font-size:13px;cursor:pointer;margin-top:10px">Chiudi</button>';
+  mo.appendChild(sheet);
+  mo.onclick = function(e){ if(e.target===mo) mo.remove(); };
+  document.body.appendChild(mo);
+}
+
+async function _eseguiSyncSumUp(){
+  var dal = (document.getElementById('sumupSyncDal')||{}).value;
+  var al  = (document.getElementById('sumupSyncAl')||{}).value;
+  var btn = document.getElementById('sumupSyncBtn');
+  var esito = document.getElementById('sumupSyncEsito');
+  if(!dal || !al){ if(esito) esito.textContent = 'Scegli entrambe le date.'; return; }
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ Sincronizzazione...'; }
+  if(esito) esito.textContent = '';
+
+  try{
+    var oldest = dal + 'T00:00:00Z';
+    var newest = al + 'T23:59:59Z';
+    var fnUrl = SB_URL + '/functions/v1/sumup-proxy?action=transactions&limit=200'
+      + '&oldest_time=' + encodeURIComponent(oldest) + '&newest_time=' + encodeURIComponent(newest);
+    var resp = await fetch(fnUrl, { headers: { Authorization: 'Bearer ' + SB_KEY } });
+    var data = await resp.json();
+    if(!resp.ok) throw new Error((data && data.error) ? data.error + (data.dettaglio ? (' — '+JSON.stringify(data.dettaglio)) : '') : 'Errore sconosciuto');
+
+    var items = Array.isArray(data.items) ? data.items : [];
+    // Solo le transazioni realmente andate a buon fine — le altre (PENDING,
+    // FAILED, CANCELLED) non sono vero incasso e non vanno confrontate con l'RT.
+    var successi = items.filter(function(t){ return t.status==='SUCCESSFUL'; });
+    var nuoviRecord = successi.map(function(t){
+      return {
+        id: 'sumup_' + (t.id || t.transaction_code),
+        data: (t.timestamp||'').slice(0,10),
+        importo: t.amount || 0,
+        esito: 'ok',
+        tipo: t.payment_type || '',
+        idTrans: t.transaction_code || t.id || '',
+        source: 'sumup'
+      };
+    }).filter(function(r){ return r.data && r.importo>0; });
+
+    var esistentiIds = {};
+    incassi.forEach(function(x){ esistentiIds[x.id] = true; });
+    var davveroNuovi = nuoviRecord.filter(function(r){ return !esistentiIds[r.id]; });
+
+    incassi = incassi.concat(davveroNuovi);
+    salvaIncassiLocale();
+    if(davveroNuovi.length) await upsertIncassi(davveroNuovi);
+
+    var totImp = Math.round(davveroNuovi.reduce(function(s,r){return s+r.importo;},0)*100)/100;
+    if(esito) esito.innerHTML = '✓ '+items.length+' transazioni lette dal periodo · <b>'+davveroNuovi.length+'</b> nuove salvate ('+fmt(totImp)+')'
+      + (items.length-successi.length>0 ? '<br><span style="color:var(--ink3)">'+(items.length-successi.length)+' scartate (non andate a buon fine)</span>' : '');
+    toast('✓ SumUp sincronizzato: '+davveroNuovi.length+' nuove transazioni');
+    caricaChiusuraGiorno();
+  }catch(e){
+    console.error('_eseguiSyncSumUp:', e);
+    if(esito) esito.innerHTML = '<span style="color:var(--red)">❌ '+esc(e.message||String(e))+'</span>';
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = 'Sincronizza'; }
+  }
 }
 
 // ── IMPORT CSV POS NUMIA ──
@@ -9839,7 +9959,7 @@ function renderIncLista(){
     // Confronto banca vs estratto carta Numia (transazione per transazione,
     // importato separatamente con "Import POS Numia") — due fonti indipendenti
     // che devono coincidere se tutto è stato accreditato correttamente.
-    const totNumiaCard = (typeof incassi!=='undefined' ? incassi : []).filter(function(x){return x.data===c.data && x.source==='numia' && x.esito==='ok';}).reduce(function(s,x){return s+(x.importo||0);},0);
+    const totNumiaCard = (typeof incassi!=='undefined' ? incassi : []).filter(function(x){return x.data===c.data && (x.source==='numia'||x.source==='sumup') && x.esito==='ok';}).reduce(function(s,x){return s+(x.importo||0);},0);
     // Riga in linea con "Pagamenti elettronici": qui confrontiamo col CSV Numia
     // (non con la banca) — stessa logica del riepilogo mensile/annuale. L'estratto
     // conto banca riconcilia SEPARATAMENTE contro Numia nel blocco sottostante.
@@ -10003,11 +10123,11 @@ function renderIncMese(){
   // dato usato più sotto nel confronto "Estratto conto banca vs estratto carta Numia" —
   // qui lo confrontiamo col registro fiscale (1↔2), lì con l'estratto conto bancario (2↔3).
   const giorniConNumia = inMese.filter(c=>{
-    const totG = (typeof incassi!=='undefined'?incassi:[]).filter(x=>x.data===c.data && x.source==='numia' && x.esito==='ok').reduce((s,x)=>s+(x.importo||0),0);
+    const totG = (typeof incassi!=='undefined'?incassi:[]).filter(x=>x.data===c.data && (x.source==='numia'||x.source==='sumup') && x.esito==='ok').reduce((s,x)=>s+(x.importo||0),0);
     return totG > 0;
   });
   const totNumiaCSV = giorniConNumia.reduce((s,c)=>{
-    const totG = (typeof incassi!=='undefined'?incassi:[]).filter(x=>x.data===c.data && x.source==='numia' && x.esito==='ok').reduce((s2,x)=>s2+(x.importo||0),0);
+    const totG = (typeof incassi!=='undefined'?incassi:[]).filter(x=>x.data===c.data && (x.source==='numia'||x.source==='sumup') && x.esito==='ok').reduce((s2,x)=>s2+(x.importo||0),0);
     return s+totG;
   },0);
   const totPosFiscaleConNumia = giorniConNumia.reduce((s,c)=>s+(c.pos||0), 0);
@@ -10018,12 +10138,12 @@ function renderIncMese(){
   // l'intero periodo — solo sui giorni dove entrambi i dati sono disponibili.
   const giorniConEntrambi = inMese.filter(c=>{
     if(!(c.pos_banca>0)) return false;
-    const totG = (typeof incassi!=='undefined'?incassi:[]).filter(x=>x.data===c.data && x.source==='numia' && x.esito==='ok').reduce((s,x)=>s+(x.importo||0),0);
+    const totG = (typeof incassi!=='undefined'?incassi:[]).filter(x=>x.data===c.data && (x.source==='numia'||x.source==='sumup') && x.esito==='ok').reduce((s,x)=>s+(x.importo||0),0);
     return totG > 0;
   });
   const totBancaConEntrambi = giorniConEntrambi.reduce((s,c)=>s+(c.pos_banca||0),0);
   const totNumiaConEntrambi = giorniConEntrambi.reduce((s,c)=>{
-    const totG = (typeof incassi!=='undefined'?incassi:[]).filter(x=>x.data===c.data && x.source==='numia' && x.esito==='ok').reduce((s2,x)=>s2+(x.importo||0),0);
+    const totG = (typeof incassi!=='undefined'?incassi:[]).filter(x=>x.data===c.data && (x.source==='numia'||x.source==='sumup') && x.esito==='ok').reduce((s2,x)=>s2+(x.importo||0),0);
     return s+totG;
   },0);
   const nGiorniEntrambi = giorniConEntrambi.length;
@@ -10095,7 +10215,7 @@ function apriDettaglioScostamento(tipo, nomeFileMese){
   const isYtd = /_YTD$/.test(nomeFileMese);
   const filtroData = isYtd ? nomeFileMese.replace('_YTD','') : nomeFileMese;
   const inMese = chiusure.filter(c=>c.data && c.data.startsWith(filtroData)).sort((a,b)=>b.data.localeCompare(a.data));
-  const numiaDelGiorno = data => (typeof incassi!=='undefined'?incassi:[]).filter(x=>x.data===data && x.source==='numia' && x.esito==='ok').reduce((s,x)=>s+(x.importo||0),0);
+  const numiaDelGiorno = data => (typeof incassi!=='undefined'?incassi:[]).filter(x=>x.data===data && (x.source==='numia'||x.source==='sumup') && x.esito==='ok').reduce((s,x)=>s+(x.importo||0),0);
 
   let righe = [];
   let titolo = '';
