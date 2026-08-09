@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.26</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.28</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -1151,8 +1151,10 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
       <div style="font-size:12px;color:var(--ink3);margin-bottom:12px">Importa estratto conto e abbina alle fatture pagate</div>
       <div style="display:flex;gap:8px;flex-direction:column;margin-bottom:12px">
         <button onclick="document.getElementById('inputBancaPDF').click()" class="btn btn-s" style="width:100%;padding:12px;color:var(--red)">📄 Carica PDF Banco BPM</button>
+        <button onclick="document.getElementById('inputSumUpBizCSV').click()" class="btn btn-s" style="width:100%;padding:12px;color:#0066cc">📄 Carica estratto SumUp (CSV)</button>
       </div>
       <input type="file" id="inputBancaPDF" accept=".pdf" style="display:none" onchange="onBancaPDFSelected(this)">
+      <input type="file" id="inputSumUpBizCSV" accept=".csv" style="display:none" onchange="onSumUpBizCSVSelected(this)">
       <div id="bancaImportInfo" style="font-size:12px;color:var(--ink3);text-align:center;margin-bottom:8px"></div>
       <input type="month" id="bancaMese" onchange="renderRiconciliazione()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:10px;font-size:14px;font-family:inherit;background:var(--surface2);margin-bottom:12px;-webkit-appearance:none">
       <!-- FILTRI ESTRATTO CONTO (08/08, richiesti da Valerio): periodo esteso (oltre
@@ -1188,6 +1190,13 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
             <option value="non_riconciliati">Solo non riconciliati</option>
           </select>
         </div>
+        <!-- Filtro conto (08/08, richiesto da Valerio insieme a SumUp come secondo
+             conto aziendale) -->
+        <select id="bancaFiltroConto" onchange="renderRiconciliazione()" style="width:100%;padding:8px;border:1.5px solid var(--sep);border-radius:8px;font-size:12px;font-family:inherit;background:var(--surface)">
+          <option value="">Conto: tutti</option>
+          <option value="BPM">🏦 Banco BPM</option>
+          <option value="SumUp">🟦 SumUp</option>
+        </select>
       </div>
       <div id="bancaContenuto"></div>
     </div>
@@ -4064,8 +4073,12 @@ function renderLista(){
     var riconciliazioneBox = '';
     if(f.riconciliata && f.riconciliazione && f.riconciliazione.data){
       var _rd = new Date(f.riconciliazione.data+'T12:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'});
+      var _bancaRic = f.riconciliazione.banca || 'BPM';
+      var _bancaColore = _bancaRic==='SumUp' ? '#0066cc' : (_bancaRic==='Nexi' ? '#7b2ff7' : 'var(--red)');
       riconciliazioneBox += `<div style="margin-top:6px;padding:9px 11px;background:#eaf4ff;border:1.5px solid #b3d7f5;border-radius:10px">
-        <div style="font-size:11px;font-weight:700;color:#0066cc;margin-bottom:4px">🏦 Riconciliata con estratto conto${f.riconciliazione.parziale?' (parziale)':''}</div>
+        <div style="font-size:11px;font-weight:700;color:#0066cc;margin-bottom:4px;display:flex;align-items:center;gap:6px">🏦 Riconciliata con estratto conto${f.riconciliazione.parziale?' (parziale)':''}
+          <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;background:${_bancaColore};color:#fff">${esc(_bancaRic)}</span>
+        </div>
         <div style="font-size:13px;color:var(--ink);font-weight:600">${_rd} · ${fmt(f.riconciliazione.importo||0)}</div>
         ${f.riconciliazione.descrizione?`<div style="font-size:11px;color:var(--ink3);margin-top:3px;word-break:break-word;line-height:1.3">${esc(f.riconciliazione.descrizione)}</div>`:''}
       </div>`;
@@ -5050,8 +5063,10 @@ function openEdit(id){
   if(_datiRicEl){
     if(f.riconciliazione && f.riconciliazione.data){
       var _rdEdit = new Date(f.riconciliazione.data+'T12:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'});
+      var _bancaEdit = f.riconciliazione.banca || 'BPM';
+      var _bancaEditColore = _bancaEdit==='SumUp' ? '#0066cc' : (_bancaEdit==='Nexi' ? '#7b2ff7' : 'var(--red)');
       _datiRicEl.style.display = 'block';
-      _datiRicEl.innerHTML = '<b>'+_rdEdit+' · '+fmt(f.riconciliazione.importo||0)+'</b>'+(f.riconciliazione.parziale?' (parziale)':'')
+      _datiRicEl.innerHTML = '<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;background:'+_bancaEditColore+';color:#fff;margin-right:4px">'+esc(_bancaEdit)+'</span><b>'+_rdEdit+' · '+fmt(f.riconciliazione.importo||0)+'</b>'+(f.riconciliazione.parziale?' (parziale)':'')
         + (f.riconciliazione.descrizione?'<div style="margin-top:2px;color:var(--ink3);word-break:break-word">'+esc(f.riconciliazione.descrizione)+'</div>':'');
     } else {
       _datiRicEl.style.display = 'none';
@@ -11549,7 +11564,7 @@ function _bancaNorm(r){
     importo: r.importo||0, tipo: r.tipo||'', sottotipo: r.sottotipo||'',
     abbinata: r.abbinata||false, fatturaId: r.fattura_id||null,
     fatturaLabel: r.fattura_label||'', verificataBanca: r.verificata_banca||false,
-    ignorata: r.ignorata||false, updated_at: r.updated_at||''
+    ignorata: r.ignorata||false, banca: r.banca||'BPM', updated_at: r.updated_at||''
   };
 }
 function _salvaBancaLocale(){ try{ localStorage.setItem(KBANCA, JSON.stringify(_bancaMovimenti)); }catch(e){} }
@@ -11602,6 +11617,7 @@ async function salvaMovimentoBanca(m){
       fattura_label: m.fatturaLabel||'',
       verificata_banca: m.verificataBanca||false,
       ignorata: m.ignorata||false,
+      banca: m.banca||'BPM',
       updated_at: new Date().toISOString()
     };
     await sbFetch('movimenti_banca', {
@@ -11625,7 +11641,7 @@ async function upsertMovimentiBanca(nuovi){
   // (onBancaPDFSelected), che lo mostra esplicitamente invece di inghiottirlo.
   {
     // Carica abbinamenti esistenti da Supabase per non perderli
-    const esistenti = await sbFetch('movimenti_banca?select=id,abbinata,fattura_id,fattura_label,verificata_banca,ignorata');
+    const esistenti = await sbFetch('movimenti_banca?select=id,abbinata,fattura_id,fattura_label,verificata_banca,ignorata,banca');
     var mapEsistenti = {};
     if(Array.isArray(esistenti)) esistenti.forEach(function(r){ mapEsistenti[r.id] = r; });
 
@@ -11644,6 +11660,7 @@ async function upsertMovimentiBanca(nuovi){
         fattura_label: ex.fattura_label || m.fatturaLabel || '',
         verificata_banca: ex.verificata_banca || m.verificataBanca || false,
         ignorata: ex.ignorata || m.ignorata || false,
+        banca: m.banca || ex.banca || 'BPM',
         updated_at: new Date().toISOString()
       };
     });
@@ -12316,7 +12333,7 @@ async function _abbinaCarta(movId, fattId){
   m.abbinata = true;
   m.fatturaId = f.id;
   m.fatturaLabel = (f.fornitore||'') + ' N°' + (f.numero||'');
-  _impostaDatiRiconciliazione(f, {id:'carta:'+m.id, data:m.data, importo:m.importo, descrizione:'Carta di credito: '+m.descrizione}, false);
+  _impostaDatiRiconciliazione(f, {id:'carta:'+m.id, data:m.data, importo:m.importo, descrizione:'Carta di credito: '+m.descrizione, banca:'Nexi'}, false);
   f.riconciliata = true;
   if(f.stato!=='pagata'){ f.stato = 'pagata'; f.dataPagamento = m.data; if(!f.pagamento) f.pagamento = 'carta'; }
   try{
@@ -12868,6 +12885,116 @@ async function onBancaPDFSelected(input){
   }
 }
 
+// ── ESTRATTO CONTO SUMUP BUSINESS ACCOUNT (08/08, richiesta esplicita di
+// Valerio) ── Secondo conto aziendale oltre a Banco BPM. Formato CSV reale
+// (verificato sul file "Resoconto transazioni" fornito da Valerio, non
+// indovinato): righe "Bonifico bancario in uscita" sono i pagamenti a
+// fornitori (con causale leggibile, comoda per la riconciliazione — a
+// differenza di BPM dove la causale è quasi sempre assente); righe "Pagamento
+// da SumUp" sono i versamenti del POS SumUp su questo conto, usati per
+// compilare pos_banca in automatico invece che a mano.
+function _parseSumUpBizCSV(testo){
+  var righe = _parseCSV(testo);
+  if(!righe.length) return {bonifici:[], payoutPerGiorno:{}, nonRiconosciute:0};
+  var header = righe[0].map(function(h){ return (h||'').trim(); });
+  function idx(nome){ return header.indexOf(nome); }
+  var iData = idx('Data transazione'), iCodice = idx('Codice transazione'),
+      iTipo = idx('Tipo transazione'), iRif = idx('Riferimento'),
+      iCausale = idx('Causale pagamento'),
+      iImpUscita = idx('Importo transazione in uscita'),
+      iImpEntrata = idx('Importo transazione in entrata');
+  if(iData<0 || iTipo<0) throw new Error('Formato non riconosciuto — colonne attese non trovate. Verifica che sia un export "Resoconto transazioni" SumUp.');
+
+  function parseDataOra(s){
+    var m = /^(\d{2})\/(\d{2})\/(\d{2}),/.exec((s||'').trim());
+    if(!m) return null;
+    var yyyy = 2000 + parseInt(m[3],10);
+    return yyyy+'-'+m[2]+'-'+m[1];
+  }
+
+  var bonifici = [], payoutPerGiorno = {}, nonRiconosciute = 0;
+  for(var i=1;i<righe.length;i++){
+    var r = righe[i];
+    if(!r || r.length<2) continue;
+    var tipo = (r[iTipo]||'').trim();
+    var data = parseDataOra(r[iData]);
+    if(!data) continue;
+    if(tipo === 'Bonifico bancario in uscita'){
+      var imp = parseFloat(r[iImpUscita])||0;
+      if(imp<=0) continue;
+      var rif = (r[iRif]||'').trim();
+      var causale = (r[iCausale]||'').trim();
+      var descr = (rif + (causale?(' — '+causale):'')).trim();
+      var codice = (r[iCodice]||'').trim();
+      bonifici.push({
+        id: 'sumupbiz_'+codice, data: data, importo: -imp, descrizione: descr,
+        tipo: 'uscita', sottotipo: 'Bonifico', banca: 'SumUp',
+        abbinata:false, fatturaId:null, fatturaLabel:'', ignorata:false
+      });
+    } else if(tipo === 'Pagamento da SumUp'){
+      var impE = parseFloat(r[iImpEntrata])||0;
+      payoutPerGiorno[data] = (payoutPerGiorno[data]||0) + impE;
+    } else {
+      nonRiconosciute++;
+    }
+  }
+  return {bonifici: bonifici, payoutPerGiorno: payoutPerGiorno, nonRiconosciute: nonRiconosciute};
+}
+
+async function onSumUpBizCSVSelected(input){
+  if(!input.files||!input.files[0]) return;
+  var file = input.files[0];
+  input.value = '';
+  var info = document.getElementById('bancaImportInfo');
+  if(info) info.textContent = '⏳ Lettura CSV SumUp...';
+
+  try{
+    var testo = await file.text();
+    var res = _parseSumUpBizCSV(testo);
+    if(!res.bonifici.length && !Object.keys(res.payoutPerGiorno).length){
+      throw new Error('Nessun movimento riconosciuto nel file.');
+    }
+
+    if(res.bonifici.length){
+      if(info) info.textContent = '⏳ Salvataggio ' + res.bonifici.length + ' bonifici SumUp...';
+      await upsertMovimentiBanca(res.bonifici);
+    }
+
+    // Compila pos_banca in automatico dai payout SumUp del giorno (solo per
+    // date con una chiusura già esistente — non crea chiusure incomplete).
+    var giorniPatchati = 0;
+    var giorni = Object.keys(res.payoutPerGiorno);
+    for(var i=0;i<giorni.length;i++){
+      var d = giorni[i];
+      var tot = Math.round(res.payoutPerGiorno[d]*100)/100;
+      try{
+        var esistente = await sbFetch('chiusure_giornaliere?data=eq.'+d+'&select=data');
+        if(Array.isArray(esistente) && esistente.length){
+          await sbFetch('chiusure_giornaliere?data=eq.'+d, {
+            method:'PATCH',
+            headers: Object.assign({}, SB_H, {'Prefer':'return=minimal'}),
+            body: JSON.stringify({pos_banca: tot})
+          });
+          giorniPatchati++;
+        }
+      }catch(e){ console.warn('pos_banca patch '+d+':', e); }
+    }
+
+    await caricaMovimentiBanca();
+    renderRiconciliazione();
+
+    var msg = '✓ ' + res.bonifici.length + ' bonifici SumUp salvati';
+    if(giorniPatchati) msg += ' · pos_banca aggiornato per ' + giorniPatchati + ' giorni';
+    if(res.nonRiconosciute) msg += ' · ' + res.nonRiconosciute + ' righe di altro tipo ignorate';
+    if(info) info.textContent = msg;
+    toast(msg);
+  }catch(err){
+    if(info) info.textContent = '❌ ' + (err.message||err);
+    toast('❌ ' + (err.message||err));
+    console.error('Parser SumUp Business CSV:', err);
+  }
+}
+
 function renderRiconciliazione(){
   var wrap = document.getElementById('bancaContenuto');
   if(!wrap) return;
@@ -12889,11 +13016,13 @@ function renderRiconciliazione(){
   // Riconciliati/Scartati), non solo su una.
   var _fDal = gv('bancaFiltroDal')||'', _fAl = gv('bancaFiltroAl')||'';
   var _fMetodo = gv('bancaFiltroMetodo')||'', _fStato = gv('bancaFiltroStato')||'';
+  var _fConto = gv('bancaFiltroConto')||'';
   if(_fDal) movMese = movMese.filter(function(m){ return m.data >= _fDal; });
   if(_fAl)  movMese = movMese.filter(function(m){ return m.data <= _fAl; });
   if(_fMetodo) movMese = movMese.filter(function(m){ return _categorizzaMovimento(m).key === _fMetodo; });
   if(_fStato==='riconciliati')     movMese = movMese.filter(function(m){ return m.abbinata && !m.ignorata; });
   if(_fStato==='non_riconciliati') movMese = movMese.filter(function(m){ return !m.abbinata && !m.ignorata; });
+  if(_fConto) movMese = movMese.filter(function(m){ return (m.banca||'BPM')===_fConto; });
   if(!movMese.length){
     wrap.innerHTML = '<div style="text-align:center;padding:16px;color:var(--ink3);font-size:13px">Nessun movimento corrisponde ai filtri selezionati.</div>';
     return;
@@ -13702,7 +13831,10 @@ function renderRiconciliazione(){
           + (f && f.data && m.data ? ' · ' : '')
           + (m.data ? 'Pagata '+_fmtDataBreve(m.data) : '')
           + '</div>';
-        htmlRiconciliati += '<div style="font-size:12px;font-weight:600">'+(f?('N°'+esc(f.numero||'')):esc(m.fatturaLabel||''))+'</div>';
+        htmlRiconciliati += '<div style="font-size:12px;font-weight:600;display:flex;align-items:center;gap:5px">'
+          +(f?('N°'+esc(f.numero||'')):esc(m.fatturaLabel||''))
+          +'<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;background:'+((m.banca||'BPM')==='SumUp'?'#0066cc':'var(--red)')+';color:#fff">'+esc(m.banca||'BPM')+'</span>'
+          +'</div>';
         // Descrizione di QUESTA riga: stessa regola dell'importo sopra — se questo
         // NON è il movimento "ufficiale" (ric.movId), la descrizione va presa dal
         // movimento vero di questa riga (m.descrizione), non da quella condivisa
@@ -13765,7 +13897,8 @@ function renderRiconciliazione(){
         var m = d.mov, f = d.fatt;
         var hasDoc = (f.fatturaAllegata&&f.fatturaAllegata.length>0)||(f.xmlGithubPath&&f.xmlGithubPath.length>0)||(f.source==='aruba');
         hh += '<div style="padding:10px 0;border-top:1px solid var(--sep)">';
-        hh += '<div style="font-size:11px;color:var(--ink3);margin-bottom:4px">'+m.data+' · <b>'+fmt(Math.abs(m.importo))+'</b></div>';
+        hh += '<div style="font-size:11px;color:var(--ink3);margin-bottom:4px">'+m.data+' · <b>'+fmt(Math.abs(m.importo))+'</b>'
+          +' <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;background:'+((m.banca||'BPM')==='SumUp'?'#0066cc':'var(--red)')+';color:#fff">'+esc(m.banca||'BPM')+'</span></div>';
         hh += '<div style="font-size:11px;font-weight:500;line-height:1.4;margin-bottom:6px;word-break:break-word;white-space:pre-wrap;color:var(--ink)">'+esc(m.descrizione||'')+'</div>';
         hh += '<div style="font-size:11px;color:var(--blue);margin-bottom:8px">↓ <b>'+esc(f.fornitore||'')+'</b> N°'+esc(f.numero||'')+' del '+f.data+' ('+fmt(f.importo||0)+')</div>';
         if(d.avviso) hh += '<div style="font-size:11px;color:#b36a00;background:#fff8ec;border:1px solid rgba(179,106,0,.25);border-radius:6px;padding:6px 8px;margin-bottom:8px">'+esc(d.avviso)+'</div>';
@@ -14524,7 +14657,11 @@ function _impostaDatiRiconciliazione(f, mov, isParziale, importoSpecifico){
     data: mov.data,
     importo: Math.round(importoDaMostrare*100)/100,
     descrizione: (mov.descrizione||'').slice(0,200),
-    parziale: !!isParziale
+    parziale: !!isParziale,
+    // Nome banca (08/08, richiesto da Valerio ora che c'è anche SumUp oltre a
+    // BPM come conto aziendale): 'BPM' se assente sul movimento (i movimenti
+    // storici/carta non hanno mai avuto questo campo prima) — mai 'undefined'.
+    banca: mov.banca || 'BPM'
   };
   // Salva data e riferimento bancario strutturati (comportamento invariato)
   if(mov.data && !f.bonData) f.bonData = mov.data;
@@ -15035,7 +15172,9 @@ function _apriPickerCambioAbbinamento(m, fAttuale){
 
   const hdr = document.createElement('div');
   hdr.style.cssText = 'padding:16px 20px 10px;border-bottom:1px solid var(--sep);display:flex;align-items:center;justify-content:space-between;flex-shrink:0';
-  hdr.innerHTML = '<div><div style="font-size:17px;font-weight:700">✏️ Cambia abbinamento</div><div style="font-size:12px;color:var(--ink3)">'+m.data+' · '+fmt(Math.abs(m.importo))+'</div></div>';
+  var _bancaPicker = m.banca || 'BPM';
+  var _bancaPickerColore = _bancaPicker==='SumUp' ? '#0066cc' : (_bancaPicker==='Nexi' ? '#7b2ff7' : 'var(--red)');
+  hdr.innerHTML = '<div><div style="font-size:17px;font-weight:700">✏️ Cambia abbinamento</div><div style="font-size:12px;color:var(--ink3);display:flex;align-items:center;gap:6px">'+m.data+' · '+fmt(Math.abs(m.importo))+' <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;background:'+_bancaPickerColore+';color:#fff">'+esc(_bancaPicker)+'</span></div></div>';
   const multiBtn = document.createElement('button');
   multiBtn.id = 'btnMultiSel';
   multiBtn.textContent = '☑️ Più fatture';
