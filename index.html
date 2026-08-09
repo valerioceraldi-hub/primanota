@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.30</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.33</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -1234,11 +1234,13 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
     <div class="tot-card tc-b" style="cursor:pointer" onclick="_riepClickCard('carta')"><div class="tl">&#128179; Carta</div><div class="tv" id="totK">&#8364; 0,00</div></div>
   </div>
 
-  <!-- 1. ANALISI (ex Filtri — ora titolo più descrittivo) -->
+  <!-- ANALISI & ESPORTA (08/08, unificate su richiesta di Valerio — non aveva
+       senso separare i filtri dall'esportazione che li usa, erano due schede
+       a fisarmonica distinte anche se strettamente collegate) -->
   <div class="rcard" id="rc-filtri">
     <div class="rcard-hd" onclick="toggleRCard('filtri')">
       <div class="rcard-hd-left"><span class="rcard-ico">📊</span>
-        <div><div class="rcard-title">Analisi</div><div class="rcard-sub" id="rsub-filtri">Totali per periodo e metodo</div></div>
+        <div><div class="rcard-title">Analisi &amp; Esporta</div><div class="rcard-sub" id="rsub-filtri">Totali per periodo e metodo</div></div>
       </div><span class="rcard-arr" id="rarr-filtri">&#8250;</span>
     </div>
     <div class="rcard-body" id="rbody-filtri">
@@ -1280,26 +1282,17 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
         <input type="hidden" id="eStato" value="">
       </div>
       <div class="count-pill" id="expCount" style="margin-top:8px"></div>
-    </div>
-  </div>
 
-  <!-- 2. ESPORTA REGISTRO -->
-  <div class="rcard" id="rc-esporta">
-    <div class="rcard-hd" onclick="toggleRCard('esporta')">
-      <div class="rcard-hd-left"><span class="rcard-ico">&#128228;</span>
-        <div><div class="rcard-title">Esporta registro</div><div class="rcard-sub">CSV · Excel · PDF</div></div>
-      </div><span class="rcard-arr" id="rarr-esporta">&#8250;</span>
-    </div>
-    <div class="rcard-body" id="rbody-esporta">
-      <!-- Riepilogo filtri attivi (08/08, richiesto da Valerio: non era chiaro che
-           l'export rispetta già i filtri della scheda "Filtri" sopra — periodo,
-           metodo di pagamento, fornitore — perché sono due schede separate) -->
+      <!-- Esportazione — usa esattamente i filtri sopra, stessa scheda ora -->
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--ink3);margin-bottom:6px;margin-top:16px;padding-top:14px;border-top:1px solid var(--sep)">Esporta con questi filtri</div>
       <div id="expFiltriRiepilogo" style="font-size:12px;color:var(--ink3);background:var(--surface2);border-radius:8px;padding:8px 10px;margin-bottom:10px"></div>
       <div class="action-grid">
         <button class="action-btn" onclick="esportaCSV()"><span class="action-ico">&#128202;</span><span class="action-lbl">CSV</span></button>
         <button class="action-btn" onclick="esportaExcel()"><span class="action-ico">&#128209;</span><span class="action-lbl">Excel</span></button>
         <button class="action-btn" onclick="esportaPDF()"><span class="action-ico">&#128196;</span><span class="action-lbl">PDF</span></button>
       </div>
+    </div>
+  </div>
     </div>
   </div>
 
@@ -12916,7 +12909,7 @@ function _parseSumUpBizCSV(testo){
     return yyyy+'-'+m[2]+'-'+m[1];
   }
 
-  var bonifici = [], payoutPerGiorno = {}, nonRiconosciute = 0;
+  var bonifici = [], entrate = [], payoutPerGiorno = {}, nonRiconosciute = 0;
   for(var i=1;i<righe.length;i++){
     var r = righe[i];
     if(!r || r.length<2) continue;
@@ -12938,11 +12931,31 @@ function _parseSumUpBizCSV(testo){
     } else if(tipo === 'Pagamento da SumUp'){
       var impE = parseFloat(r[iImpEntrata])||0;
       payoutPerGiorno[data] = (payoutPerGiorno[data]||0) + impE;
+      // BUG CORRETTO (08/08, segnalato da Valerio: "le entrate banca non
+      // tengono conto dei versamenti POS, c'è scritto zero euro") — questi
+      // payout venivano usati SOLO per compilare pos_banca, mai registrati
+      // come veri movimenti — quindi "Entrate banca" (che somma movimenti_banca
+      // tipo='entrata') non li vedeva MAI, per nessun mese, nemmeno dopo aver
+      // caricato altri estratti. Ora vengono importati anche come movimento
+      // vero, coerente con come BPM registra già i versamenti POS Numia.
+      // ignorata:true perché non sono un pagamento da riconciliare con una
+      // fattura — sono un incasso, non un'uscita verso un fornitore — ma
+      // contano comunque nel totale "Entrate banca" (quel calcolo non esclude
+      // gli ignorati, solo le tab "Da classificare/Da confermare" lo fanno.
+      var codiceE = (r[iCodice]||'').trim();
+      var rifE = (r[iRif]||'').trim();
+      if(impE>0 && codiceE){
+        entrate.push({
+          id: 'sumupbiz_'+codiceE, data: data, importo: impE, descrizione: rifE||'Pagamento da SumUp',
+          tipo: 'entrata', sottotipo: 'POS', banca: 'SumUp',
+          abbinata:false, fatturaId:null, fatturaLabel:'', ignorata:true
+        });
+      }
     } else {
       nonRiconosciute++;
     }
   }
-  return {bonifici: bonifici, payoutPerGiorno: payoutPerGiorno, nonRiconosciute: nonRiconosciute};
+  return {bonifici: bonifici, entrate: entrate, payoutPerGiorno: payoutPerGiorno, nonRiconosciute: nonRiconosciute};
 }
 
 async function onSumUpBizCSVSelected(input){
@@ -12955,13 +12968,17 @@ async function onSumUpBizCSVSelected(input){
   try{
     var testo = await file.text();
     var res = _parseSumUpBizCSV(testo);
-    if(!res.bonifici.length && !Object.keys(res.payoutPerGiorno).length){
+    if(!res.bonifici.length && !res.entrate.length && !Object.keys(res.payoutPerGiorno).length){
       throw new Error('Nessun movimento riconosciuto nel file.');
     }
 
     if(res.bonifici.length){
       if(info) info.textContent = '⏳ Salvataggio ' + res.bonifici.length + ' bonifici SumUp...';
       await upsertMovimentiBanca(res.bonifici);
+    }
+    if(res.entrate.length){
+      if(info) info.textContent = '⏳ Salvataggio ' + res.entrate.length + ' payout SumUp...';
+      await upsertMovimentiBanca(res.entrate);
     }
 
     // Compila pos_banca in automatico dai payout SumUp del giorno (solo per
@@ -12987,7 +13004,7 @@ async function onSumUpBizCSVSelected(input){
     await caricaMovimentiBanca();
     renderRiconciliazione();
 
-    var msg = '✓ ' + res.bonifici.length + ' bonifici SumUp salvati';
+    var msg = '✓ ' + res.bonifici.length + ' bonifici + ' + res.entrate.length + ' payout SumUp salvati';
     if(giorniPatchati) msg += ' · pos_banca aggiornato per ' + giorniPatchati + ' giorni';
     if(res.nonRiconosciute) msg += ' · ' + res.nonRiconosciute + ' righe di altro tipo ignorate';
     if(info) info.textContent = msg;
@@ -13192,7 +13209,17 @@ function renderRiconciliazione(){
     var verificato     = false;
 
     var isAssegno  = /vostro assegno/i.test(m.descrizione);
-    var isBonifico = /vs\.disp\.|favore/i.test(m.descrizione);
+    // BUG CORRETTO (08/08, segnalato da Valerio su SumUp): questo riconoscimento
+    // cercava solo le parole tipiche dell'estratto BPM ("VS.DISP.", "FAVORE") —
+    // l'estratto SumUp Business Account non le usa mai, quindi ogni bonifico
+    // SumUp veniva classificato "non bonifico" e saltava TUTTA la logica di
+    // riconoscimento nome fornitore/numero fattura qui sotto, finendo sempre in
+    // "Da classificare" anche quando importo e fornitore erano perfettamente
+    // corrispondenti (caso reale: Today Service S.r.l., 214,40€ esatti, unica
+    // fattura di quel fornitore). Fix: usa anche sottotipo (campo strutturato
+    // impostato all'import, affidabile per qualunque banca) invece di affidarsi
+    // solo al testo tipico BPM.
+    var isBonifico = /vs\.disp\.|favore/i.test(m.descrizione) || m.sottotipo==='Bonifico';
     var isSDD      = /sdd\s+core|sdd\s+b2b/i.test(m.descrizione);
     var numAssStr  = '';
     var mAssNum    = m.descrizione.match(/assegno\s+n\.?\s*(\d+)/i);
@@ -13880,11 +13907,14 @@ function renderRiconciliazione(){
   // ── TAB "Da confermare" ──
   var htmlConferma = '';
   if(daConfermare.length){
-    var grpBonifico = daConfermare.filter(function(d){ return /vs\.disp\.|favore/i.test(d.mov.descrizione); });
+    // Stessa correzione di sopra (isBonifico): riconosce anche i bonifici SumUp
+    // (sottotipo='Bonifico'), non solo il testo tipico BPM — altrimenti finivano
+    // sempre nel gruppo "Altro" anche dopo essere stati abbinati correttamente.
+    var grpBonifico = daConfermare.filter(function(d){ return /vs\.disp\.|favore/i.test(d.mov.descrizione) || d.mov.sottotipo==='Bonifico'; });
     var grpAssegno  = daConfermare.filter(function(d){ return /vostro assegno/i.test(d.mov.descrizione); });
     var grpSDD      = daConfermare.filter(function(d){ return /sdd\s+core|sdd\s+b2b/i.test(d.mov.descrizione); });
     var grpAltro    = daConfermare.filter(function(d){
-      return !(/vs\.disp\.|favore|vostro assegno|sdd\s+core|sdd\s+b2b/i.test(d.mov.descrizione));
+      return !(/vs\.disp\.|favore|vostro assegno|sdd\s+core|sdd\s+b2b/i.test(d.mov.descrizione) || d.mov.sottotipo==='Bonifico');
     });
 
     htmlConferma += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid #FFB800">';
@@ -14030,7 +14060,7 @@ function renderRiconciliazione(){
                                                                   return {key:'spese',    label:'💰 Commissioni e spese'};
     if(/ceraldi\s+valerio|ceraldi\s+vincenzo|ceraldi\s+michele|pocci\s+salvatore|murolo\s+mario|parisi\s+antonio|capezzuto\s+alessandro|taiano\s+luigi|moscato\s+emanuele|guarino\s+giuliano|lesina\s+angela|russo\s+carmine|vespa\s+vincenzo|carotenuto\s+antonella|sankapala/.test(d))
                                                                   return {key:'stipendi', label:'👤 Stipendi/collaboratori'};
-    if(/vs\.disp\.|favore/.test(d))                              return {key:'bonifico', label:'🏦 Bonifici fornitori'};
+    if(/vs\.disp\.|favore/.test(d) || m.sottotipo==='Bonifico')    return {key:'bonifico', label:'🏦 Bonifici fornitori'};
     if(m.tipo==='entrata')                                       return {key:'entrata',  label:'↑ Entrate'};
     return {key:'altro', label:'📦 Altro'};
   }
