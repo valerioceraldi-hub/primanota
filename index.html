@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.28</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.30</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -1264,15 +1264,13 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
         <button class="chip" id="pagChip-assegno" onclick="setPagChip('assegno',this)">📝 Assegno</button>
         <button class="chip" id="pagChip-carta" onclick="setPagChip('carta',this)">💳 Carta</button>
       </div>
-      <!-- Fornitore -->
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--ink3);margin-bottom:6px">Fornitore</div>
       <!-- Stato -->
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--ink3);margin-bottom:6px;margin-top:2px">Stato</div>
       <div class="chip-row" style="margin-bottom:10px">
-        <button class="chip active" id="statoChip-tutti" onclick="setStatoChip(\'\',this)">Tutti</button>
-        <button class="chip" id="statoChip-pagata" onclick="setStatoChip(\'pagata\',this)">✅ Pagati</button>
-        <button class="chip" id="statoChip-da_pagare" onclick="setStatoChip(\'da_pagare\',this)">🔴 Da pagare</button>
-        <button class="chip" id="statoChip-parziale" onclick="setStatoChip(\'parziale\',this)">🟡 Parziali</button>
+        <button class="chip active" id="statoChip-tutti" onclick="setStatoChip('',this)">Tutti</button>
+        <button class="chip" id="statoChip-pagata" onclick="setStatoChip('pagata',this)">✅ Pagati</button>
+        <button class="chip" id="statoChip-da_pagare" onclick="setStatoChip('da_pagare',this)">🔴 Da pagare</button>
+        <button class="chip" id="statoChip-parziale" onclick="setStatoChip('parziale',this)">🟡 Parziali</button>
       </div>
       <!-- Fornitore -->
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--ink3);margin-bottom:6px">Fornitore</div>
@@ -1293,6 +1291,10 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
       </div><span class="rcard-arr" id="rarr-esporta">&#8250;</span>
     </div>
     <div class="rcard-body" id="rbody-esporta">
+      <!-- Riepilogo filtri attivi (08/08, richiesto da Valerio: non era chiaro che
+           l'export rispetta già i filtri della scheda "Filtri" sopra — periodo,
+           metodo di pagamento, fornitore — perché sono due schede separate) -->
+      <div id="expFiltriRiepilogo" style="font-size:12px;color:var(--ink3);background:var(--surface2);border-radius:8px;padding:8px 10px;margin-bottom:10px"></div>
       <div class="action-grid">
         <button class="action-btn" onclick="esportaCSV()"><span class="action-ico">&#128202;</span><span class="action-lbl">CSV</span></button>
         <button class="action-btn" onclick="esportaExcel()"><span class="action-ico">&#128209;</span><span class="action-lbl">Excel</span></button>
@@ -4300,8 +4302,18 @@ function updRiep(){
   if(periodo!=='tutti') parts.push({tutti:'Tutti',settimana:'Questa sett.',mese:'Questo mese',anno:'Quest\'anno',custom:'Personalizzato'}[periodo]||periodo);
   const forn=gv('eForn'); if(forn) parts.push(forn);
   const pag=gv('ePag'); if(pag) parts.push({contanti:'\ud83d\udcb5 Contanti',bonifico:'\ud83c\udfe6 Bonifico',assegno:'\ud83d\udcdd Assegno',carta:'\ud83d\udcb3 Carta'}[pag]||pag);
+  // BUG CORRETTO (08/08): lo stato non entrava mai in questo riepilogo, quindi
+  // toccando i pulsanti "Pagati"/"Da pagare"/"Parziali" (che nel frattempo erano
+  // anche rotti per un errore di sintassi HTML, vedi sopra) non si vedeva NESSUNA
+  // conferma visiva del filtro attivo — sembrava non facesse nulla.
+  const statoV=gv('eStato'); if(statoV) parts.push({pagata:'✅ Pagati',da_pagare:'🔴 Da pagare',parziale:'🟡 Parziali'}[statoV]||statoV);
   const sub=document.getElementById('rsub-filtri');
   if(sub) sub.textContent=parts.length?parts.join(' · '):'Tutti i dati';
+  // Stesso riepilogo mostrato anche dentro "Esporta registro" (08/08) — così è
+  // chiaro, proprio accanto ai bottoni CSV/Excel/PDF, che l'export userà questi
+  // filtri e non l'intero registro.
+  const expRiep=document.getElementById('expFiltriRiepilogo');
+  if(expRiep) expRiep.innerHTML='🔎 <b>'+n+'</b> fattur'+(n!==1?'e':'a')+' verranno esportate'+(parts.length?' — <b>'+esc(parts.join(' · '))+'</b>':' — nessun filtro attivo (tutto il registro)');
   const icons={contanti:'&#128181;',bonifico:'&#127974;',assegno:'&#128221;',carta:'&#128179;'};
   const ap=document.getElementById('anteprima');
   if(!rows.length){ap.innerHTML='<p style="text-align:center;color:var(--ink3);font-size:13px;padding:12px">Nessuna fattura con i filtri selezionati. Modifica i filtri sopra.</p>'; renderDaPagare(); return;}
@@ -4387,25 +4399,6 @@ function condividi(content, nome, type){
 const nomeF=ext=>'fatture_ceraldi_'+new Date().toISOString().split('T')[0]+'.'+ext;
 
 function esportaCSV(){
-  const rows=getFiltered();
-  if(!rows.length){toast('Nessuna fattura');return;}
-  const h=['Tipo','Data','Fornitore','N. Fattura','Importo','Stato','Pagamento','Data Pagamento','Scadenza','N. Assegno','Note'];
-  const lines=rows.map(f=>[(f.tipo==='ddt'?'DDT':'Fattura'),f.data||'',`"${(f.fornitore||'').replace(/"/g,'""')}"`,`"${(f.numero||'').replace(/"/g,'""')}"`,
-    (f.importo||0).toFixed(2).replace('.',','),f.stato||'',f.pagamento||'',f.dataPagamento||'',f.scadenza||'',`"${(f.assegno||'').replace(/"/g,'""')}"`,`"${(f.note||'').replace(/"/g,'""')}"`]);
-  condividi('\ufeff'+[h.join(';'),...lines.map(r=>r.join(';'))].join('\n'), nomeF('csv'), 'text/csv;charset=utf-8');
-  toast('CSV pronto!');
-}
-function esportaExcel(){
-  const rows=getFiltered();
-  if(!rows.length){toast('Nessuna fattura');return;}
-  const h=['Tipo','Data','Fornitore','N. Fattura','Importo (EUR)','Stato','Pagamento','Data Pag.','Scadenza','N. Assegno','Note'];
-  const hRow='<tr style="background:#18150F;color:white;font-weight:bold">'+h.map(x=>'<td>'+x+'</td>').join('')+'</tr>';
-  const dRows=rows.map((f,i)=>`<tr style="background:${i%2===0?'#f9f9f9':'#fff'}"><td>${f.tipo==='ddt'?'DDT':'Fattura'}</td><td>${esc(f.data||'')}</td><td>${esc(f.fornitore||'')}</td><td>${esc(f.numero||'')}</td><td style="text-align:right">${(f.importo||0).toFixed(2).replace('.',',')}</td><td>${esc(f.stato||'')}</td><td>${esc(f.pagamento||'')}</td><td>${esc(f.dataPagamento||'')}</td><td>${esc(f.scadenza||'')}</td><td>${esc(f.assegno||'')}</td><td>${esc(f.note||'')}</td></tr>`).join('');
-  const html=`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="UTF-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Fatture</x:Name></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head><body><table border="1" style="border-collapse:collapse;font-family:Arial;font-size:12px">${hRow}${dRows}</table></body></html>`;
-  condividi(html, nomeF('xls'), 'application/vnd.ms-excel;charset=utf-8');
-  toast('Excel pronto!');
-}
-function esportaCSV(){
   const rows = getFiltered();
   if(!rows.length){toast('Nessuna fattura da esportare');return;}
   const head=['Data','Fornitore','Numero','Categoria','Imponibile','IVA','Importo','Pagamento','Stato','Scadenza','Note'];
@@ -4439,6 +4432,17 @@ function esportaCSV(){
   document.body.appendChild(a); a.click();
   setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},100);
   toast('CSV esportato ✓');
+}
+
+function esportaExcel(){
+  const rows=getFiltered();
+  if(!rows.length){toast('Nessuna fattura');return;}
+  const h=['Tipo','Data','Fornitore','N. Fattura','Importo (EUR)','Stato','Pagamento','Data Pag.','Scadenza','N. Assegno','Note'];
+  const hRow='<tr style="background:#18150F;color:white;font-weight:bold">'+h.map(x=>'<td>'+x+'</td>').join('')+'</tr>';
+  const dRows=rows.map((f,i)=>`<tr style="background:${i%2===0?'#f9f9f9':'#fff'}"><td>${f.tipo==='ddt'?'DDT':'Fattura'}</td><td>${esc(f.data||'')}</td><td>${esc(f.fornitore||'')}</td><td>${esc(f.numero||'')}</td><td style="text-align:right">${(f.importo||0).toFixed(2).replace('.',',')}</td><td>${esc(f.stato||'')}</td><td>${esc(f.pagamento||'')}</td><td>${esc(f.dataPagamento||'')}</td><td>${esc(f.scadenza||'')}</td><td>${esc(f.assegno||'')}</td><td>${esc(f.note||'')}</td></tr>`).join('');
+  const html=`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="UTF-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Fatture</x:Name></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head><body><table border="1" style="border-collapse:collapse;font-family:Arial;font-size:12px">${hRow}${dRows}</table></body></html>`;
+  condividi(html, nomeF('xls'), 'application/vnd.ms-excel;charset=utf-8');
+  toast('Excel pronto!');
 }
 
 function esportaPDF(){
