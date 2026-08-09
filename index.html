@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.33</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.34</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -14625,7 +14625,24 @@ function _cfMultiplo(){
   window._cfMultiAdd = function(fid){
     var f=fatture.find(function(x){return String(x.id)===String(fid);});
     if(!f) return;
-    selezionate.push({fatt:f, importoPagato:f.importo||0});
+    // RICHIESTA DI VALERIO (09/08): un bonifico spesso è un acconto forfettario
+    // su più fatture, non una somma esatta calcolata a mano — quando l'importo
+    // del bonifico sta per esaurirsi, la fattura appena aggiunta prende
+    // automaticamente solo la parte residua (pagamento parziale) invece del
+    // suo intero importo. Così un bonifico da 995,95€ su 6 fatture si
+    // distribuisce da solo: le prime coperte per intero, l'ultima raggiunta
+    // dai soldi resta "parziale" — pronta per essere saldata da un bonifico
+    // futuro con la stessa identica logica (fattura già parzialmente pagata,
+    // basta riaprirla e completare il resto).
+    var totBonifico = Math.abs(m.importo||0);
+    var totGiaSel = selezionate.reduce(function(s,x){return s+(x.importoPagato||0);},0);
+    var rimasto = Math.round((totBonifico - totGiaSel)*100)/100;
+    if(rimasto <= 0){
+      toast('⚠️ Il bonifico è già interamente distribuito — riduci o rimuovi un\'altra fattura prima di aggiungerne una nuova');
+      return;
+    }
+    var daAssegnare = Math.min(f.importo||0, rimasto);
+    selezionate.push({fatt:f, importoPagato: daAssegnare});
     _updateDynamic();
   };
   window._cfMultiRemove=function(si){ selezionate.splice(si,1); _updateDynamic(); };
