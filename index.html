@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.40</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.41</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -4914,7 +4914,7 @@ function closeMo(){
 // ── HELPERS ──
 function oggi(){return new Date().toISOString().split('T')[0];}
 function fmt(n){return '\u20ac '+(n||0).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});}
-function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 // Estrae il numero assegno dalla descrizione di un movimento bancario tipo
 // "VOSTRO ASSEGNO N. 0208770762" — usata per compilare in automatico il numero
 // assegno sulla fattura quando la riconciliazione trova il movimento giusto,
@@ -8849,6 +8849,20 @@ function confermaCameraFoto(){
 async function init(){
   // Migrazione: rimuovi vecchie chiavi localStorage fatture (non più usate)
   try{ localStorage.removeItem('ceraldi_fatture_v2'); localStorage.removeItem('ceraldi_fornitori_v1'); }catch(e){}
+
+  // FIX (12/08, una tantum): la lista "fornitori duplicati già visti/skippati"
+  // viveva SOLO su questo dispositivo prima che passasse su Supabase — quella
+  // cronologia locale vecchia continuerebbe a bloccare silenziosamente i
+  // doppioni già noti (es. "BIG FOOD SRL"/"BIG FOOD Srl") anche ora che il
+  // server è pulito, dando l'impressione che "Unifica fornitori simili" non
+  // trovi più nulla. La cancello una sola volta: da qui in poi la cronologia
+  // vive solo su Supabase (condivisa, mai più persa).
+  try{
+    if(!localStorage.getItem('ceraldi_forn_analisi_migrata_v1')){
+      localStorage.removeItem('ceraldi_forn_analisi_v1');
+      localStorage.setItem('ceraldi_forn_analisi_migrata_v1','1');
+    }
+  }catch(e){}
 
   sv('mData',oggi());
   // ── INIT INTELLIGENTE ──
