@@ -404,7 +404,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.41</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.42</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:4px">
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
   </div>
@@ -11718,6 +11718,14 @@ async function caricaMovimentiBanca(){
       _bancaMovimenti = c;
       var bm = document.getElementById('bancaMese');
       if(bm && !bm.value && _bancaMovimenti.length) bm.value = _bancaMovimenti[0].data.slice(0,7);
+      // FIX (13/08, segnalato da Valerio: "devo aspettare 20 secondi o
+      // cambiare mese e tornare indietro per vedere i movimenti"): i dati
+      // venivano aggiornati ma la schermata non veniva mai ridisegnata da
+      // qui — restava ferma a quello che c'era prima finché qualcos'altro
+      // (es. cambio mese) non forzava un repaint. renderRiconciliazione()
+      // è sicura da richiamare anche se la sezione banca non è ancora
+      // aperta (esce subito se l'elemento non esiste).
+      if(typeof renderRiconciliazione==='function') renderRiconciliazione();
     }
   }catch(e){}
 
@@ -11737,8 +11745,10 @@ async function caricaMovimentiBanca(){
         _bancaMovimenti = Object.values(map).sort(function(a,b){ return b.data.localeCompare(a.data); });
       }
       _salvaBancaLocale();
-      var bm = document.getElementById('bancaMese');
-      if(bm && !bm.value && _bancaMovimenti.length) bm.value = _bancaMovimenti[0].data.slice(0,7);
+      var bm2 = document.getElementById('bancaMese');
+      if(bm2 && !bm2.value && _bancaMovimenti.length) bm2.value = _bancaMovimenti[0].data.slice(0,7);
+      // Stesso fix di sopra, dopo che arrivano i dati freschi dal server.
+      if(typeof renderRiconciliazione==='function') renderRiconciliazione();
     }
   }catch(e){ console.warn('caricaMovimentiBanca:', e); }
 }
