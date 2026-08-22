@@ -407,7 +407,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.42</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.43</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:14px">
     <button onclick="sincronizzaOra()" title="Sincronizza con Cloud" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;line-height:1">&#8635;</button>
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
@@ -3734,7 +3734,14 @@ async function __salvaDavveroInner(px){
     incompleta: mancanti.length>0 ? mancanti : [],
     pagamentoOrigine: 'manuale',
     pagamentoImpostatoIl: new Date().toISOString(),
-    _pnFonte: pag==='contanti' ? ((px==='r'?_rPnFonte:_mPnFonte)||'cassetto') : null
+    // Registra subito il movimento cassetto/fondo SOLO se il pagamento è
+    // già avvenuto davvero (stato pagata/parziale) — una fattura ancora "da
+    // pagare" con metodo contanti è solo un'ipotesi futura: registrarla ora
+    // scala soldi dal cassetto per un pagamento non ancora fatto, e la lega
+    // permanentemente (fattura_id) impedendo al motore automatico di
+    // aggiornarne poi lo stato (bug reale: fattura TIM 25,61€ 11/08, restava
+    // "da pagare" per sempre nonostante il movimento in Prima Nota).
+    _pnFonte: (pag==='contanti' && stato!=='da_pagare') ? ((px==='r'?_rPnFonte:_mPnFonte)||'cassetto') : null
   };
   if(px==='r' && Object.keys(_aiLastScan).length>0) registraCorrezioni(px);
   // Aggiorna memoria layout fornitore
@@ -5769,7 +5776,7 @@ async function salvaEdit(){
     });
   }
   const _r4605=await dbUpdate(fatture[idx]); if(_r4605&&_r4605[0])_updateCacheRow(_r4605[0]);
-  if(ePag==='contanti') await pnRegistraSpesaFattura(fatture[idx], _ePnFonte||'cassetto');
+  if(ePag==='contanti' && eStato!=='da_pagare') await pnRegistraSpesaFattura(fatture[idx], _ePnFonte||'cassetto');
   // Salva foto separatamente se cambiata
   if(_eFotoCorrente !== (fatture[idx].foto||'')){
     fatture[idx].foto = _eFotoCorrente;
@@ -17218,10 +17225,36 @@ async function pnRiscansionaTutto(){
     const dopoCollegati = (pnMovimenti||[]).filter(x=>x.fatturaId).length;
     if(dopoCollegati > primaCollegati) trovati++;
   }
+  // RIPARAZIONE (22/08): un vecchio canale (pannello cassetto/fondo dentro il
+  // form fattura) collega il movimento a fattura_id SUBITO al salvataggio,
+  // anche quando la fattura era ancora "da pagare" — collegamento che il
+  // motore automatico salta sempre (perché già "collegato"), e che quindi
+  // non aggiornava mai lo stato. Caso reale: fattura TIM 25,61€ 11/08.
+  // Questo passaggio ripulisce quei casi già esistenti in Supabase: se un
+  // movimento è già collegato ma la fattura è rimasta "da pagare", la porta
+  // a "pagata" come farebbe un match vero.
+  let riparati = 0;
+  const collegatiOrfani = (pnMovimenti||[]).filter(m=>m.categoria==='spesa' && m.fatturaId);
+  for(const m of collegatiOrfani){
+    const idx = fatture.findIndex(f=>f.id===m.fatturaId);
+    if(idx<0) continue;
+    if(fatture[idx].stato==='pagata') continue;
+    fatture[idx].pagamento = 'contanti';
+    if(fatture[idx].pagamentoOrigine !== 'manuale') fatture[idx].pagamentoOrigine = 'prima_nota';
+    fatture[idx].stato = 'pagata';
+    fatture[idx].dataPagamento = m.data || fatture[idx].data;
+    const r = await dbUpdate(fatture[idx]);
+    if(r && r[0] && typeof _updateCacheRow==='function') _updateCacheRow(r[0]);
+    riparati++;
+  }
   await pnSyncCloud();
+  if(typeof renderLista==='function') renderLista();
   renderPnStorico();
   pnRenderDaRiconciliare();
-  toast(trovati>0 ? '✓ Riconciliati '+trovati+' movimenti su '+daProvare.length+' controllati' : 'Nessun nuovo abbinamento trovato su '+daProvare.length+' movimenti controllati');
+  const msgParti = [];
+  if(trovati>0) msgParti.push(trovati+' nuovi abbinamenti');
+  if(riparati>0) msgParti.push(riparati+' stati corretti (già collegate ma "da pagare")');
+  toast(msgParti.length ? '✓ '+msgParti.join(', ') : 'Nessuna modifica trovata su '+(daProvare.length+collegatiOrfani.length)+' movimenti controllati');
 }
 
 // Salvataggio veloce: fornitore (facoltativo) + fonte (obbligatoria, scelta
