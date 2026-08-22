@@ -407,7 +407,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.44</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.45</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:14px">
     <button onclick="sincronizzaOra()" title="Sincronizza con Cloud" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;line-height:1">&#8635;</button>
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
@@ -3732,7 +3732,16 @@ async function __salvaDavveroInner(px){
     stato, scadenza:gv(px+'Scad')||'', foto, fatturaAllegata:'', parzPagato,
     dataPagamento: stato==='pagata'||stato==='parziale' ? (gv(px+'Data')||'') : '',
     incompleta: mancanti.length>0 ? mancanti : [],
-    pagamentoOrigine: 'manuale',
+    // pagamentoOrigine='manuale' significa "il pagamento è stato deciso a
+    // mano ed è vincolante" — ha senso SOLO se la fattura è già pagata/
+    // parziale ora. Se è ancora "da pagare", il metodo scelto è solo
+    // un'ipotesi futura, non una vera decisione: lasciarla vuota permette
+    // al motore Prima Nota di reclamarla più avanti quando arriva il vero
+    // pagamento (bug reale trovato da Valerio: fattura Electronics House
+    // 19€ 05/08, restava "manuale" fin dal primo salvataggio anche se non
+    // ancora pagata, e questo impediva poi la corretta etichettatura/
+    // annullamento quando la riconciliazione Prima Nota la pagava davvero).
+    pagamentoOrigine: (stato==='pagata'||stato==='parziale') ? 'manuale' : '',
     pagamentoImpostatoIl: new Date().toISOString(),
     // Registra subito il movimento cassetto/fondo SOLO se il pagamento è
     // già avvenuto davvero (stato pagata/parziale) — una fattura ancora "da
@@ -5746,7 +5755,9 @@ async function salvaEdit(){
     // rimuovere in modo pulito.
     riconciliazione: _eRiconciliataOra ? fatture[idx].riconciliazione : null,
     incompleta: mancantiEdit,
-    pagamentoOrigine: 'manuale',
+    // Stesso principio applicato al salvataggio nuovo (v9.30.44): "manuale"
+    // vincola solo se rappresenta un pagamento davvero avvenuto ora.
+    pagamentoOrigine: (eStato==='pagata'||eStato==='parziale') ? 'manuale' : '',
     pagamentoImpostatoIl: (ePag !== _vecchioPag) ? new Date().toISOString() : _vecchiaDataImp
     // fatturaAllegata è preservata da ...fatture[idx] (spread)
   };
@@ -17240,7 +17251,17 @@ async function pnRiscansionaTutto(){
     if(idx<0) continue;
     if(fatture[idx].stato==='pagata') continue;
     fatture[idx].pagamento = 'contanti';
-    if(fatture[idx].pagamentoOrigine !== 'manuale') fatture[idx].pagamentoOrigine = 'prima_nota';
+    // BUG (23/08): qui si preservava 'manuale' per prudenza, ma quel valore
+    // non poteva mai riflettere una vera conferma di pagamento — la fattura,
+    // un attimo prima di questo ciclo, era ancora "da pagare" (v.sopra
+    // continue). 'manuale' le arrivava solo dall'assegnazione di default nel
+    // form (corretta altrove in questa stessa versione), non da una scelta
+    // reale sul pagamento. Va sempre rietichettata 'prima_nota', altrimenti
+    // pnEliminaMovimento non riesce più a capire che il pagamento va
+    // annullato se il movimento viene poi cancellato (bug reale: fattura
+    // Electronics House 19€ 05/08, restava "pagata" anche dopo aver
+    // cancellato il movimento collegato).
+    fatture[idx].pagamentoOrigine = 'prima_nota';
     fatture[idx].stato = 'pagata';
     fatture[idx].dataPagamento = m.data || fatture[idx].data;
     const r = await dbUpdate(fatture[idx]);
