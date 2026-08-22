@@ -1476,6 +1476,7 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
           <input type="text" id="pnPosNumiaInp" inputmode="decimal" placeholder="0,00" oninput="pnRecalcGiorno()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right">
         </div>
       </div>
+      <div id="pnSumUpEsito" style="font-size:11px;color:var(--ink3);margin-bottom:10px;min-height:14px"></div>
       <input type="text" id="pnNoteInp" placeholder="Note (opzionale)" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;margin-bottom:10px">
       <button class="btn btn-p" onclick="pnSalvaConteggio()" style="width:100%">💾 Salva conteggio del giorno</button>
 
@@ -1487,39 +1488,70 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
       </div>
     </div>
 
-    <!-- Nuovo movimento -->
+    <!-- Nuova spesa in contanti — inserimento veloce: fornitore con autocomplete,
+         fonte sempre esplicita (nessun default), tastierino numerico grande.
+         Niente più selettore fattura qui: la riconciliazione avviene dopo,
+         in automatico, quando arriva la fattura corrispondente. -->
     <div style="background:var(--surface);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);margin-bottom:12px">
-      <div style="font-size:15px;font-weight:700;margin-bottom:10px">➕ Nuovo movimento</div>
-      <div class="chip-row" style="margin-bottom:10px;display:flex;gap:4px">
-        <button class="chip active" id="pnmcat-spesa" onclick="pnSetCategoria('spesa')" style="flex:1;border:none">🧾 Spesa</button>
-        <button class="chip" id="pnmcat-versamento" onclick="pnSetCategoria('versamento')" style="flex:1;border:none">🏦 Versamento</button>
-        <button class="chip" id="pnmcat-altro" onclick="pnSetCategoria('altro')" style="flex:1;border:none">✏️ Altro</button>
+      <div style="font-size:15px;font-weight:700;margin-bottom:10px">➕ Nuova spesa in contanti</div>
+
+      <div style="margin-bottom:4px;position:relative">
+        <input type="text" id="pnFornVeloce" placeholder="Fornitore o negozio" inputmode="text" autocomplete="off" autocorrect="off" autocapitalize="words" oninput="pnCheckFornNuovo()" style="width:100%;padding:12px;border:1.5px solid var(--sep);border-radius:8px;font-size:15px;background:var(--surface2);box-sizing:border-box">
+      </div>
+      <div id="pnAggiungiFornBtn" style="display:none;margin-bottom:10px">
+        <button type="button" onclick="pnAggiungiFornVeloce()" style="border:none;background:none;color:var(--blue);font-size:12px;font-weight:700;cursor:pointer;padding:2px 0">➕ Aggiungi ai fornitori</button>
       </div>
 
-      <div id="pnFonteRow" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+      <div id="pnFonteRow" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0">
         <button class="pag-btn" id="pnfb-cassetto" onclick="pnSetFonte('cassetto')">💵 Da cassetto</button>
         <button class="pag-btn" id="pnfb-fondo" onclick="pnSetFonte('fondo')">💰 Dal fondo</button>
       </div>
 
-      <div style="margin-bottom:10px">
-        <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">Collega a una fattura in contanti (opzionale)</div>
-        <select id="pnFatturaSel" onchange="pnFatturaSelezionata()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface2)">
-          <option value="">— nessuna —</option>
-        </select>
+      <div style="text-align:center;font-size:34px;font-weight:800;padding:10px 0;color:var(--ink)">
+        € <span id="pnKeypadDisplay">0,00</span>
       </div>
 
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+        <button class="pag-btn" onclick="pnKeypadDigit('7')" style="font-size:20px;padding:16px 4px">7</button>
+        <button class="pag-btn" onclick="pnKeypadDigit('8')" style="font-size:20px;padding:16px 4px">8</button>
+        <button class="pag-btn" onclick="pnKeypadDigit('9')" style="font-size:20px;padding:16px 4px">9</button>
+        <button class="pag-btn" onclick="pnKeypadDigit('4')" style="font-size:20px;padding:16px 4px">4</button>
+        <button class="pag-btn" onclick="pnKeypadDigit('5')" style="font-size:20px;padding:16px 4px">5</button>
+        <button class="pag-btn" onclick="pnKeypadDigit('6')" style="font-size:20px;padding:16px 4px">6</button>
+        <button class="pag-btn" onclick="pnKeypadDigit('1')" style="font-size:20px;padding:16px 4px">1</button>
+        <button class="pag-btn" onclick="pnKeypadDigit('2')" style="font-size:20px;padding:16px 4px">2</button>
+        <button class="pag-btn" onclick="pnKeypadDigit('3')" style="font-size:20px;padding:16px 4px">3</button>
+        <button class="pag-btn" onclick="pnKeypadDigit('00')" style="font-size:18px;padding:16px 4px">00</button>
+        <button class="pag-btn" onclick="pnKeypadDigit('0')" style="font-size:20px;padding:16px 4px">0</button>
+        <button class="pag-btn" onclick="pnKeypadBackspace()" style="font-size:18px;padding:16px 4px">⌫</button>
+      </div>
+      <button class="btn btn-p" onclick="pnSalvaVeloce()" style="width:100%;font-size:17px;padding:14px">✓ Salva</button>
+    </div>
+
+    <!-- Versamento in banca — separato dalla riconciliazione estratto conto già
+         presente in Cassa: qui serve solo a dire da dove FISICAMENTE esce il
+         contante versato, per aggiornare i report di Prima Nota. Puoi dividere
+         un unico versamento in due importi se una parte viene dal cassetto di
+         oggi e una parte dal fondo accumulato. -->
+    <div style="background:var(--surface);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);margin-bottom:12px">
+      <div style="font-size:15px;font-weight:700;margin-bottom:4px">🏦 Versamento in banca</div>
+      <div style="font-size:11px;color:var(--ink3);margin-bottom:10px">La parte da cassetto entra nel report di oggi; la parte da fondo va solo nello storico, senza toccare il giornaliero.</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
         <div>
-          <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">Importo €</div>
-          <input type="text" id="pnImportoInp" inputmode="decimal" placeholder="0,00" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right">
+          <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">💵 Da cassetto €</div>
+          <input type="text" id="pnVersCassettoInp" inputmode="decimal" placeholder="0,00" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right">
         </div>
         <div>
-          <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">Data</div>
-          <input type="date" id="pnMovDataInp" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;font-family:inherit;background:var(--surface2);box-sizing:border-box;-webkit-appearance:none">
+          <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">💰 Da fondo €</div>
+          <input type="text" id="pnVersFondoInp" inputmode="decimal" placeholder="0,00" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right">
         </div>
       </div>
-      <input type="text" id="pnDescrizioneInp" placeholder="Descrizione" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;margin-bottom:10px">
-      <button class="btn btn-p" onclick="pnSalvaMovimento()" style="width:100%">💾 Salva movimento</button>
+      <div style="margin-bottom:10px">
+        <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">Data</div>
+        <input type="date" id="pnVersDataInp" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;font-family:inherit;background:var(--surface2);box-sizing:border-box;-webkit-appearance:none">
+      </div>
+      <input type="text" id="pnVersNoteInp" placeholder="Note (opzionale)" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;margin-bottom:10px">
+      <button class="btn btn-p" onclick="pnSalvaVersamento()" style="width:100%">💾 Salva versamento</button>
     </div>
 
     <!-- Movimenti del giorno -->
@@ -2555,6 +2587,7 @@ async function dbCestina(id){
       headers:{...SB_H,'Prefer':'return=minimal'},
       body:JSON.stringify({deleted_at: new Date().toISOString(), ts: Date.now()})
     });
+    await _pnCestinaMovimentiFattura(id);
   }catch(e){ console.error('Cestina error',e); toast('⚠️ Errore spostamento nel cestino'); }
 }
 
@@ -2565,7 +2598,29 @@ async function dbRipristinaDaCestino(id){
       headers:{...SB_H,'Prefer':'return=minimal'},
       body:JSON.stringify({deleted_at: null, ts: Date.now()})
     });
+    await _pnRipristinaMovimentiFattura(id);
   }catch(e){ console.error('Ripristino error',e); toast('⚠️ Errore ripristino'); }
+}
+
+// Quando una fattura pagata in contanti viene cestinata/ripristinata, il
+// movimento di Prima Nota collegato (fattura_id) segue la stessa sorte —
+// altrimenti resterebbe a contare nel fondo una spesa di una fattura che
+// non esiste più nel Registro.
+async function _pnCestinaMovimentiFattura(fatturaId){
+  try{
+    await sbFetch('prima_nota_movimenti?fattura_id=eq.'+fatturaId+'&deleted_at=is.null', {
+      method:'PATCH', headers:{...SB_H,'Prefer':'return=minimal'},
+      body:JSON.stringify({deleted_at: new Date().toISOString()})
+    });
+  }catch(e){ console.warn('_pnCestinaMovimentiFattura:', e.message||e); }
+}
+async function _pnRipristinaMovimentiFattura(fatturaId){
+  try{
+    await sbFetch('prima_nota_movimenti?fattura_id=eq.'+fatturaId, {
+      method:'PATCH', headers:{...SB_H,'Prefer':'return=minimal'},
+      body:JSON.stringify({deleted_at: null})
+    });
+  }catch(e){ console.warn('_pnRipristinaMovimentiFattura:', e.message||e); }
 }
 
 // Cancellazione DEFINITIVA — usata solo dopo che sono passati i giorni di
@@ -2598,6 +2653,7 @@ async function _purgaCestinoScaduto(){
 async function dbDelete(id){
   try{
     await sbFetch('fatture?id=eq.'+id, {method:'DELETE'});
+    try{ await sbFetch('prima_nota_movimenti?fattura_id=eq.'+id, {method:'DELETE', headers:{...SB_H,'Prefer':'return=minimal'}}); }catch(pe){ console.warn('pulizia prima_nota_movimenti:', pe); }
     // Rimuovi dalla cache locale (senza invalidare tutto)
     try{
       const cached = _loadCache();
@@ -9126,7 +9182,7 @@ function _attivaAutocompleteFornitore(inputId){
   });
 }
 setTimeout(function(){
-  ['mForn','rForn','eForn2'].forEach(_attivaAutocompleteFornitore);
+  ['mForn','rForn','eForn2','pnFornVeloce'].forEach(_attivaAutocompleteFornitore);
 }, 1000);
 
   setTimeout(()=>deduplicaFatture(), 12000);
@@ -16432,7 +16488,6 @@ var _incTabGroup = {
 
 let pnConteggi = [];   // {id, data, contantiContati, pos, note}
 let pnMovimenti = [];  // {id, data, categoria, importo, fonte, descrizione, fatturaId, origineEsterna}
-let _pnCategoria = 'spesa';
 let _pnFonte = 'cassetto';
 let _pnTabAttivo = 'giorno';
 
@@ -16440,12 +16495,14 @@ function _pnOggi(){ return new Date().toISOString().slice(0,10); }
 
 async function aprisemPrimaNota(){
   const dIn = document.getElementById('pnDataInp');
-  const mdIn = document.getElementById('pnMovDataInp');
+  const vdIn = document.getElementById('pnVersDataInp');
   if(dIn && !dIn.value) dIn.value = _pnOggi();
-  if(mdIn && !mdIn.value) mdIn.value = _pnOggi();
+  if(vdIn && !vdIn.value) vdIn.value = _pnOggi();
   await pnSyncCloud();
-  pnPopolaSelectFatture();
-  pnSetCategoria(_pnCategoria);
+  _attivaAutocompleteFornitore('pnFornVeloce');
+  pnKeypadReset();
+  ['cassetto','fondo'].forEach(k=>{ const b=document.getElementById('pnfb-'+k); if(b) b.className='pag-btn'; });
+  _pnFonte = '';
   await pnCaricaGiorno();
   pnAggiornaFondoHeader();
 }
@@ -16461,27 +16518,88 @@ async function pnSyncCloud(){
   }catch(e){ console.warn('Prima Nota sync fallito:', e.message||e); }
 }
 
-// Popola il menu a tendina con le fatture pagate in contanti non ancora collegate
-function pnPopolaSelectFatture(){
-  const sel = document.getElementById('pnFatturaSel');
-  if(!sel) return;
-  const collegate = new Set(pnMovimenti.filter(m=>m.fatturaId).map(m=>m.fatturaId));
-  const disponibili = (fatture||[]).filter(f=>f.pagamento==='contanti' && !collegate.has(f.id))
-    .sort((a,b)=>(b.data||'').localeCompare(a.data||''));
-  sel.innerHTML = '<option value="">— nessuna —</option>' + disponibili.map(f=>
-    `<option value="${f.id}">${esc(f.fornitore||'')} · ${esc(f.numero||'')} · ${fmt(f.importo)}</option>`
-  ).join('');
+// Mostra "+ Aggiungi ai fornitori" solo se il nome scritto non è già in lista
+// (confronto senza maiuscole/minuscole) — salvarlo in lista resta facoltativo.
+function pnCheckFornNuovo(){
+  const val = (gv('pnFornVeloce')||'').trim();
+  const btn = document.getElementById('pnAggiungiFornBtn');
+  if(!btn) return;
+  const giaPresente = !val || fornitori.some(f=>f.toLowerCase()===val.toLowerCase());
+  btn.style.display = giaPresente ? 'none' : 'block';
+  if(!giaPresente) btn.querySelector('button').textContent = '➕ Aggiungi "'+val+'" ai fornitori';
 }
 
-function pnFatturaSelezionata(){
-  const id = gv('pnFatturaSel');
-  if(!id) return;
-  const f = (fatture||[]).find(x=>String(x.id)===String(id));
-  if(!f) return;
-  document.getElementById('pnImportoInp').value = _fNum(f.importo);
-  document.getElementById('pnDescrizioneInp').value = 'Fattura '+(f.fornitore||'')+' n. '+(f.numero||'');
-  if(f.data) document.getElementById('pnMovDataInp').value = f.data;
-  pnSetCategoria('spesa');
+function pnAggiungiFornVeloce(){
+  const val = (gv('pnFornVeloce')||'').trim();
+  if(!val || fornitori.includes(val)) return;
+  fornitori.push(val); fornitori.sort();
+  if(typeof saveF==='function') saveF(fornitori);
+  if(typeof aggiornaDL==='function') aggiornaDL();
+  if(typeof dbSaveForn==='function') dbSaveForn(val);
+  document.getElementById('pnAggiungiFornBtn').style.display = 'none';
+  toast('✓ Fornitore aggiunto');
+}
+
+// ── Tastierino numerico veloce ──
+let _pnKeypadCents = 0; // importo in centesimi, costruito cifra per cifra
+function pnKeypadReset(){
+  _pnKeypadCents = 0;
+  const el = document.getElementById('pnKeypadDisplay');
+  if(el) el.textContent = '0,00';
+}
+function _pnKeypadRender(){
+  const el = document.getElementById('pnKeypadDisplay');
+  if(el) el.textContent = _fNum(_pnKeypadCents/100);
+}
+function pnKeypadDigit(d){
+  // Limite di sicurezza: non oltre 999.999,99 (7 cifre + 2 decimali)
+  const cifre = String(d);
+  for(const c of cifre){
+    if(_pnKeypadCents > 99999999) break;
+    _pnKeypadCents = _pnKeypadCents*10 + Number(c);
+  }
+  _pnKeypadRender();
+}
+function pnKeypadBackspace(){
+  _pnKeypadCents = Math.floor(_pnKeypadCents/10);
+  _pnKeypadRender();
+}
+function pnKeypadValore(){ return _pnKeypadCents/100; }
+
+// Menu a tendina per scegliere un fornitore già noto — usato dalla lista
+// fornitori del Registro. L'autocomplete a tendina (_attivaAutocompleteFornitore)
+// copre già la maggior parte dei casi mentre digiti; questa resta disponibile
+// come scorciatoia diretta se preferisci sfogliare tutta la lista.
+function pnApriDropdownForn(){
+  const inp = document.getElementById('pnFornVeloce');
+  if(!inp) return;
+  if(!fornitori.length){ toast('Nessun fornitore salvato ancora'); return; }
+  const existing = document.getElementById('fornDropdownMo');
+  if(existing) existing.remove();
+  const mo = document.createElement('div');
+  mo.id = 'fornDropdownMo';
+  mo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:800;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)';
+  const sheet = document.createElement('div');
+  sheet.style.cssText = 'background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:75vh;overflow-y:auto;animation:slideUp .3s cubic-bezier(.32,.72,0,1)';
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'padding:16px 20px 8px;border-bottom:1px solid var(--sep);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg)';
+  hdr.innerHTML = '<span style="font-size:17px;font-weight:700">Scegli fornitore</span>';
+  const closeBtn = document.createElement('button');
+  closeBtn.innerHTML = '&#215;';
+  closeBtn.style.cssText = 'background:var(--surface2);border:none;border-radius:99px;width:30px;height:30px;font-size:17px;cursor:pointer';
+  closeBtn.onclick = ()=>mo.remove();
+  hdr.appendChild(closeBtn);
+  sheet.appendChild(hdr);
+  fornitori.forEach(n=>{
+    const row = document.createElement('div');
+    row.style.cssText = 'padding:14px 20px;border-bottom:1px solid var(--sep);font-size:15px;cursor:pointer';
+    row.textContent = n;
+    row.onclick = ()=>{ inp.value = n; pnCheckFornNuovo(); mo.remove(); };
+    sheet.appendChild(row);
+  });
+  mo.appendChild(sheet);
+  mo.onclick = e=>{ if(e.target===mo) mo.remove(); };
+  document.body.appendChild(mo);
 }
 
 // Legge (direttamente da Supabase, non dalla cache locale — può servire prima
@@ -16524,22 +16642,6 @@ async function pnRegistraSpesaFattura(f, fonte){
   }
 }
 
-function pnSetCategoria(cat){
-  _pnCategoria = cat;
-  ['spesa','versamento','altro'].forEach(c=>{
-    const b = document.getElementById('pnmcat-'+c);
-    if(b) b.classList.toggle('active', c===cat);
-  });
-  const fonteRow = document.getElementById('pnFonteRow');
-  if(cat==='versamento'){
-    _pnFonte = 'fondo'; // un versamento in banca esce sempre dal fondo accumulato
-    if(fonteRow) fonteRow.style.display = 'none';
-  } else {
-    if(fonteRow) fonteRow.style.display = 'grid';
-    pnSetFonte(_pnFonte || 'cassetto');
-  }
-}
-
 function pnSetFonte(f){
   _pnFonte = f;
   ['cassetto','fondo'].forEach(k=>{
@@ -16574,32 +16676,67 @@ async function pnSalvaConteggio(){
   renderPnStorico();
 }
 
-async function pnSalvaMovimento(){
-  const data = gv('pnMovDataInp') || _pnOggi();
-  const importo = _pNum(gv('pnImportoInp'));
-  const descrizione = (gv('pnDescrizioneInp')||'').trim();
-  const fatturaSelId = gv('pnFatturaSel');
-  if(importo <= 0){ toast('⚠️ Inserisci un importo valido'); return; }
+// Salvataggio veloce: fornitore (facoltativo) + fonte (obbligatoria, scelta
+// esplicita) + importo dal tastierino. Data sempre oggi. Nessun collegamento
+// a fattura qui — la riconciliazione avviene dopo, quando la fattura arriva.
+async function pnSalvaVeloce(){
+  const importo = pnKeypadValore();
+  const fornitore = (gv('pnFornVeloce')||'').trim();
+  if(importo <= 0){ toast('⚠️ Inserisci un importo'); return; }
+  if(!_pnFonte){ toast('⚠️ Scegli cassetto o fondo'); return; }
   const record = {
-    data,
-    categoria: _pnCategoria,
+    data: _pnOggi(),
+    categoria: 'spesa',
     importo,
-    fonte: _pnCategoria==='versamento' ? 'fondo' : _pnFonte,
-    descrizione: descrizione || null,
-    fattura_id: fatturaSelId ? Number(fatturaSelId) : null
+    fonte: _pnFonte,
+    descrizione: fornitore || null,
+    fattura_id: null
   };
   try{
     await sbFetch('prima_nota_movimenti', {method:'POST', body:JSON.stringify(record)});
-    toast('✓ Movimento salvato');
+    toast('✓ Salvato: '+fmt(importo)+(fornitore?' — '+fornitore:''));
   }catch(e){
     toast('⚠️ Salvataggio fallito: '+String(e.message||e).slice(0,50));
     return;
   }
-  document.getElementById('pnImportoInp').value = '';
-  document.getElementById('pnDescrizioneInp').value = '';
-  document.getElementById('pnFatturaSel').value = '';
+  // Reset veloce, pronto per il movimento successivo
+  document.getElementById('pnFornVeloce').value = '';
+  document.getElementById('pnAggiungiFornBtn').style.display = 'none';
+  pnKeypadReset();
+  ['cassetto','fondo'].forEach(k=>{ const b=document.getElementById('pnfb-'+k); if(b) b.className='pag-btn'; });
+  _pnFonte = '';
   await pnSyncCloud();
-  pnPopolaSelectFatture();
+  await pnCaricaGiorno();
+  pnAggiornaFondoHeader();
+  renderPnStorico();
+}
+
+// Versamento in banca: registrato come categoria 'versamento' con le stesse
+// regole di fonte già usate per le spese — la parte "cassetto" entra nel
+// calcolo del giorno (contante reale/incasso), la parte "fondo" incide solo
+// sul fondo cumulativo (storico), perché quei soldi non erano nel cassetto
+// di oggi. Un unico versamento può generare fino a 2 righe.
+async function pnSalvaVersamento(){
+  const data = gv('pnVersDataInp') || _pnOggi();
+  const cassetto = _pNum(gv('pnVersCassettoInp'));
+  const fondo = _pNum(gv('pnVersFondoInp'));
+  const note = (gv('pnVersNoteInp')||'').trim();
+  if(cassetto<=0 && fondo<=0){ toast('⚠️ Inserisci almeno un importo'); return; }
+  const descrizione = note || 'Versamento in banca';
+  const righe = [];
+  if(cassetto>0) righe.push({data, categoria:'versamento', importo:cassetto, fonte:'cassetto', descrizione});
+  if(fondo>0) righe.push({data, categoria:'versamento', importo:fondo, fonte:'fondo', descrizione});
+  try{
+    await sbFetch('prima_nota_movimenti', {method:'POST', body:JSON.stringify(righe.length===1?righe[0]:righe)});
+    toast('✓ Versamento registrato');
+  }catch(e){
+    toast('⚠️ Salvataggio fallito: '+String(e.message||e).slice(0,50));
+    return;
+  }
+  document.getElementById('pnVersCassettoInp').value = '';
+  document.getElementById('pnVersFondoInp').value = '';
+  document.getElementById('pnVersNoteInp').value = '';
+  await pnSyncCloud();
   await pnCaricaGiorno();
   pnAggiornaFondoHeader();
   renderPnStorico();
@@ -16610,7 +16747,6 @@ async function pnEliminaMovimento(id){
     closeMo();
     try{ await sbFetch('prima_nota_movimenti?id=eq.'+id, {method:'PATCH', headers:{...SB_H,'Prefer':'return=minimal'}, body:JSON.stringify({deleted_at:new Date().toISOString()})}); }catch(e){}
     await pnSyncCloud();
-    pnPopolaSelectFatture();
     await pnCaricaGiorno();
     pnAggiornaFondoHeader();
     renderPnStorico();
@@ -16620,6 +16756,20 @@ async function pnEliminaMovimento(id){
 
 // Fondo cumulativo calcolato fino (e incluso) alla data indicata.
 // Itera in ordine cronologico tutti i giorni con dati (conteggi o movimenti).
+// Fondo cumulativo calcolato fino (e incluso) alla data indicata.
+// Itera in ordine cronologico tutti i giorni con dati (conteggi o movimenti).
+//
+// Correzione importante rispetto alla prima versione: il fondo si aggiorna
+// con il contante CONTATO nel cassetto (V_d), non con "l'incasso reale"
+// (che include il riaggiunto delle spese/versamenti da cassetto). Il
+// riaggiunto serve SOLO per sapere quanto si è venduto davvero quel giorno
+// (report), ma quei soldi non sono mai fisicamente entrati nel cassetto —
+// sono usciti prima ancora di essere contati, quindi non vanno fatti
+// "rientrare" nel fondo. Esempio: fondo ieri 1.000, cassetto contato oggi
+// 350 (dopo aver già pagato 100 di fattura da lì), altri 200 pagati dal
+// fondo per un'altra fattura → fondo stasera = 1.000 + 350 − 200 = 1.150
+// (non 1.250: i 100 pagati dal cassetto sono già usciti dal conteggio di
+// 350, non si sottraggono una seconda volta né si riaggiungono al fondo).
 function pnCalcolaFondo(finoAData){
   const dateSet = new Set();
   pnConteggi.forEach(c=>{ if(!finoAData || c.data<=finoAData) dateSet.add(c.data); });
@@ -16633,8 +16783,8 @@ function pnCalcolaFondo(finoAData){
     const movimentiGiorno = pnMovimenti.filter(m=>m.data===d);
     const speseCassetto = movimentiGiorno.filter(m=>m.fonte==='cassetto').reduce((s,m)=>s+m.importo,0);
     const speseFondo = movimentiGiorno.filter(m=>m.fonte==='fondo').reduce((s,m)=>s+m.importo,0);
-    const contanteReale = contantiContati + speseCassetto;
-    fondo = fondo + contanteReale - speseFondo;
+    const contanteReale = contantiContati + speseCassetto; // solo per il report "incasso reale"
+    fondo = fondo + contantiContati - speseFondo;           // il fondo si muove sul contato, non sul ricostruito
     perGiorno[d] = { contantiContati, speseCassetto, speseFondo, contanteReale, fondoFineGiorno: fondo, pos: conteggio ? conteggio.pos : 0 };
   });
   return { fondo, perGiorno };
@@ -16662,20 +16812,35 @@ async function pnCaricaGiorno(){
 // Scarica dal proxy SumUp le transazioni del giorno selezionato in Prima Nota
 // e le somma nel campo "SumUp" — riusa la stessa Edge Function e la stessa
 // tabella condivisa "incassi" già usate dalla Chiusura giornaliera esistente.
+// Nota fuso orario: la data di una transazione va giudicata in ora italiana,
+// non spezzando la giornata a mezzanotte UTC (altrimenti le vendite serali
+// rischiano di finire nel giorno sbagliato) — per questo la finestra richiesta
+// all'API è più larga di un giorno pieno e il filtro vero avviene dopo,
+// convertendo ogni timestamp in data locale Europe/Rome.
+function _pnDataRoma(isoTimestamp){
+  try{ return new Date(isoTimestamp).toLocaleDateString('sv-SE', {timeZone:'Europe/Rome'}); }
+  catch(e){ return String(isoTimestamp||'').slice(0,10); }
+}
+
 async function pnScaricaSumUp(){
   const data = gv('pnDataInp') || _pnOggi();
+  const esitoEl = document.getElementById('pnSumUpEsito');
+  if(esitoEl){ esitoEl.textContent = '⏳ Scarico da SumUp...'; esitoEl.style.color = 'var(--ink3)'; }
   try{
-    toast('⏳ Scarico SumUp...');
-    const oldest = data+'T00:00:00Z', newest = data+'T23:59:59Z';
-    const fnUrl = SB_URL+'/functions/v1/sumup-proxy?action=transactions&limit=200&oldest_time='+encodeURIComponent(oldest)+'&newest_time='+encodeURIComponent(newest);
+    const base = new Date(data+'T00:00:00Z');
+    const oldestD = new Date(base); oldestD.setUTCDate(oldestD.getUTCDate()-1);
+    const newestD = new Date(base); newestD.setUTCDate(newestD.getUTCDate()+2);
+    const fnUrl = SB_URL+'/functions/v1/sumup-proxy?action=transactions&limit=200'
+      + '&oldest_time='+encodeURIComponent(oldestD.toISOString())
+      + '&newest_time='+encodeURIComponent(newestD.toISOString());
     const resp = await fetch(fnUrl, {headers:{Authorization:'Bearer '+SB_KEY}});
-    const data2 = await resp.json();
-    if(!resp.ok) throw new Error((data2 && data2.error) || 'Errore SumUp');
-    const items = Array.isArray(data2.items) ? data2.items : [];
+    const json = await resp.json();
+    if(!resp.ok) throw new Error((json && json.error) ? json.error : ('HTTP '+resp.status));
+    const items = Array.isArray(json.items) ? json.items : [];
     const successi = items.filter(t=>t.status==='SUCCESSFUL');
     const nuoviRecord = successi.map(t=>({
       id: sumupIdBigint(t.transaction_code || t.id),
-      data: (t.timestamp||'').slice(0,10),
+      data: _pnDataRoma(t.timestamp),
       importo: t.amount || 0, esito:'ok', tipo:t.payment_type||'',
       idTrans: t.transaction_code || t.id || '', source:'sumup', payoutDate: t.payout_date || null
     })).filter(r=>r.data && r.importo>0);
@@ -16689,8 +16854,14 @@ async function pnScaricaSumUp(){
     const totale = (incassi||[]).filter(x=>x.source==='sumup' && x.data===data).reduce((s,x)=>s+(x.importo||0),0);
     document.getElementById('pnPosSumUpInp').value = _fNum(totale);
     pnRecalcGiorno();
-    toast('✓ SumUp: '+fmt(totale));
+    const msg = totale>0
+      ? '✓ '+fmt(totale)+' trovati per il '+new Date(data+'T12:00:00').toLocaleDateString('it-IT')
+      : '✓ Nessuna transazione SumUp trovata per questo giorno ('+items.length+' lette nel periodo esteso)';
+    if(esitoEl){ esitoEl.textContent = msg; esitoEl.style.color = 'var(--ink3)'; }
+    toast(totale>0 ? '✓ SumUp: '+fmt(totale) : '✓ SumUp: nessuna transazione');
   }catch(e){
+    const msg = '❌ '+String(e.message||e).slice(0,80);
+    if(esitoEl){ esitoEl.textContent = msg; esitoEl.style.color = 'var(--red)'; }
     toast('⚠️ SumUp: '+String(e.message||e).slice(0,60));
   }
 }
@@ -16713,8 +16884,8 @@ function pnRecalcGiorno(){
   const posNumiaLive = _pNum(gv('pnPosNumiaInp'));
   const posLive = posSumUpLive + posNumiaLive;
   document.getElementById('pnPosInp').value = _fNum(posLive);
-  const contanteRealeLive = contantiLive + speseCassetto;
-  const fondoFineGiornoLive = fondoIeri + contanteRealeLive - speseFondo;
+  const contanteRealeLive = contantiLive + speseCassetto; // solo per "incasso reale" del report
+  const fondoFineGiornoLive = fondoIeri + contantiLive - speseFondo; // il fondo si muove sul contato, non sul ricostruito
 
   document.getElementById('pnSpeseCassettoOggi').textContent = fmt(speseCassetto);
   document.getElementById('pnSpeseFondoOggi').textContent = fmt(speseFondo);
