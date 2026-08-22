@@ -478,6 +478,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
     <div style="border-top:1px solid var(--sep);margin:20px 0 16px"></div>
 
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:10px">💾 Esporta registro</div>
+    <button onclick="chiudiImpostazioni();apriEsportazioneAvanzata();" style="width:100%;padding:12px;border:1.5px solid var(--blue);border-radius:var(--radius-sm);background:var(--blue-light);font-family:'Inter',-apple-system,sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:var(--blue);margin-bottom:8px;text-align:left">&#128228; Esportazione avanzata (fatture, Prima Nota, banca, carta...)</button>
     <button onclick="chiudiImpostazioni();scaricaBackup();" style="width:100%;padding:12px;border:1.5px solid var(--sep);border-radius:var(--radius-sm);background:var(--surface);font-family:'Inter',-apple-system,sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:var(--ink);margin-bottom:6px;text-align:left">&#128229; Esporta backup JSON</button>
     <div style="position:relative;margin-bottom:16px">
       <button style="width:100%;padding:12px;border:1.5px solid var(--sep);border-radius:var(--radius-sm);background:var(--surface);font-family:'Inter',-apple-system,sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:var(--ink);text-align:left">&#128228; Importa da backup</button>
@@ -7016,6 +7017,207 @@ async function _ripristinaDalCestino(id){
   }catch(e){}
   toast('✓ Ripristinata dal Cestino');
   apriCestino(); // ricarica la lista del cestino aggiornata
+}
+
+// ══════════════════════════════════════════════════════════════
+// ESPORTAZIONE AVANZATA — multi-sezione, con filtri combinabili.
+// Copre sezioni che non avevano MAI avuto un export prima: Prima Nota,
+// riconciliazione bancaria, carta Nexi, chiusure/incassi, versamenti.
+// ══════════════════════════════════════════════════════════════
+function apriEsportazioneAvanzata(){
+  const existing = document.getElementById('expAvMo');
+  if(existing) existing.remove();
+  const mo = document.createElement('div');
+  mo.id = 'expAvMo';
+  mo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:900;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)';
+  const sheet = document.createElement('div');
+  sheet.id = 'expAvSheet';
+  sheet.style.cssText = 'background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:88vh;overflow-y:auto;animation:slideUp .3s cubic-bezier(.32,.72,0,1)';
+  sheet.innerHTML = `
+    <div style="padding:16px 20px 8px;border-bottom:1px solid var(--sep);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:var(--bg);z-index:1">
+      <span style="font-size:17px;font-weight:700">📤 Esportazione avanzata</span>
+      <button onclick="document.getElementById('expAvMo').remove()" style="background:var(--surface2);border:none;border-radius:99px;width:30px;height:30px;font-size:17px;cursor:pointer">&times;</button>
+    </div>
+    <div style="padding:16px 20px 28px">
+
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">Sezioni da includere</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+        ${['fatture:🧾 Fatture (registro)','primanota:📒 Prima Nota (movimenti cassa)','banca:🏦 Riconciliazione bancaria','carta:💳 Carta di credito Nexi','chiusure:📊 Chiusure giornaliere e incassi POS','versamenti:🏦 Versamenti in banca'].map(s=>{
+          const [id,label]=s.split(':');
+          return `<label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer"><input type="checkbox" id="expSec_${id}" checked style="width:18px;height:18px">${label}</label>`;
+        }).join('')}
+      </div>
+
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">Periodo</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
+        <input type="date" id="expDal" style="padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface2);-webkit-appearance:none">
+        <input type="date" id="expAl" style="padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface2);-webkit-appearance:none">
+      </div>
+      <div style="font-size:10px;color:var(--ink3);margin-top:-10px;margin-bottom:16px">Lascia vuoto per includere tutto lo storico</div>
+
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">Fornitore / descrizione contiene</div>
+      <input type="text" id="expForn" placeholder="Es. Kimbo (lascia vuoto per tutti)" style="width:100%;padding:10px 12px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;margin-bottom:16px">
+
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">Metodo di pagamento (solo Fatture)</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
+        ${['contanti:Contanti','bonifico:Bonifico','assegno:Assegno','carta:Carta'].map(s=>{
+          const [id,label]=s.split(':');
+          return `<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;background:var(--surface2);padding:6px 10px;border-radius:8px"><input type="checkbox" id="expPag_${id}" style="width:16px;height:16px">${label}</label>`;
+        }).join('')}
+      </div>
+      <div style="font-size:10px;color:var(--ink3);margin-top:-10px;margin-bottom:16px">Nessuno selezionato = tutti i metodi</div>
+
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">Fonte (solo Prima Nota)</div>
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;background:var(--surface2);padding:6px 10px;border-radius:8px"><input type="checkbox" id="expFonte_cassetto" style="width:16px;height:16px">💵 Cassetto</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;background:var(--surface2);padding:6px 10px;border-radius:8px"><input type="checkbox" id="expFonte_fondo" style="width:16px;height:16px">💰 Fondo</label>
+      </div>
+
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">Riconciliato (solo Banca/Carta)</div>
+      <div style="display:flex;gap:8px;margin-bottom:16px" id="expRiconGroup">
+        <button type="button" class="pag-btn sc" id="expRicon-tutti" onclick="_setExpRicon('tutti')" style="flex:1;font-size:12px;padding:9px 4px">Tutti</button>
+        <button type="button" class="pag-btn" id="expRicon-si" onclick="_setExpRicon('si')" style="flex:1;font-size:12px;padding:9px 4px">Solo riconciliati</button>
+        <button type="button" class="pag-btn" id="expRicon-no" onclick="_setExpRicon('no')" style="flex:1;font-size:12px;padding:9px 4px">Solo non riconc.</button>
+      </div>
+
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">Formato</div>
+      <div style="display:flex;gap:8px;margin-bottom:20px" id="expFormatGroup">
+        <button type="button" class="pag-btn sc" id="expFmt-xlsx" onclick="_setExpFormato('xlsx')" style="flex:1">📗 Excel</button>
+        <button type="button" class="pag-btn" id="expFmt-csv" onclick="_setExpFormato('csv')" style="flex:1">📄 CSV</button>
+      </div>
+      <div style="font-size:10px;color:var(--ink3);margin-top:-14px;margin-bottom:16px">Excel: un file con un foglio per sezione. CSV: un file separato per ogni sezione selezionata.</div>
+
+      <button class="btn btn-p" onclick="_eseguiEsportazioneAvanzata()" style="width:100%;font-size:16px;padding:14px">📤 Esporta</button>
+    </div>`;
+  mo.appendChild(sheet);
+  mo.onclick = e=>{ if(e.target===mo) mo.remove(); };
+  document.body.appendChild(mo);
+}
+
+let _expRicon = 'tutti', _expFormato = 'xlsx';
+function _setExpRicon(v){
+  _expRicon = v;
+  ['tutti','si','no'].forEach(k=>{ const b=document.getElementById('expRicon-'+k); if(b) b.className='pag-btn'+(k===v?' sc':''); });
+}
+function _setExpFormato(v){
+  _expFormato = v;
+  ['xlsx','csv'].forEach(k=>{ const b=document.getElementById('expFmt-'+k); if(b) b.className='pag-btn'+(k===v?' sc':''); });
+}
+
+function _expInRange(data, dal, al){
+  if(!data) return false;
+  if(dal && data<dal) return false;
+  if(al && data>al) return false;
+  return true;
+}
+function _expContiene(testo, filtro){
+  if(!filtro) return true;
+  return (testo||'').toLowerCase().includes(filtro.toLowerCase());
+}
+
+async function _eseguiEsportazioneAvanzata(){
+  const dal = gv('expDal'), al = gv('expAl');
+  const forn = (gv('expForn')||'').trim();
+  const metodi = ['contanti','bonifico','assegno','carta'].filter(m=>document.getElementById('expPag_'+m).checked);
+  const fonti = ['cassetto','fondo'].filter(f=>document.getElementById('expFonte_'+f).checked);
+  const sezioni = {
+    fatture: document.getElementById('expSec_fatture').checked,
+    primanota: document.getElementById('expSec_primanota').checked,
+    banca: document.getElementById('expSec_banca').checked,
+    carta: document.getElementById('expSec_carta').checked,
+    chiusure: document.getElementById('expSec_chiusure').checked,
+    versamenti: document.getElementById('expSec_versamenti').checked
+  };
+  if(!Object.values(sezioni).some(Boolean)){ toast('⚠️ Seleziona almeno una sezione'); return; }
+  toast('⏳ Preparo l\'esportazione...');
+
+  const fogli = []; // {nome, righe: [[...]]}
+
+  if(sezioni.fatture){
+    let rows = fatture.filter(f=>_expInRange(f.data,dal,al) && _expContiene(f.fornitore,forn));
+    if(metodi.length) rows = rows.filter(f=>metodi.includes(f.pagamento));
+    const head = ['Data','Fornitore','Numero','Importo','Pagamento','Stato','Scadenza','Note'];
+    const body = rows.map(f=>[f.data||'', f.fornitore||'', f.numero||'', f.importo||0, f.pagamento||'', f.stato||'', f.scadenza||'', f.note||'']);
+    fogli.push({nome:'Fatture', righe:[head, ...body]});
+  }
+
+  if(sezioni.primanota){
+    if(typeof pnSyncCloud==='function') await pnSyncCloud();
+    let movi = (pnMovimenti||[]).filter(m=>_expInRange(m.data,dal,al) && _expContiene(m.descrizione,forn));
+    if(fonti.length) movi = movi.filter(m=>fonti.includes(m.fonte));
+    const headM = ['Data','Categoria','Fonte','Importo','Descrizione'];
+    const bodyM = movi.map(m=>[m.data||'', m.categoria||'', m.fonte||'', m.importo||0, m.descrizione||'']);
+    fogli.push({nome:'Prima Nota - Movimenti', righe:[headM, ...bodyM]});
+
+    let cont = (pnConteggi||[]).filter(c=>_expInRange(c.data,dal,al));
+    const headC = ['Data','Contanti contati','Pos SumUp','Pos Numia','Pos totale','Note'];
+    const bodyC = cont.map(c=>[c.data||'', c.contantiContati||0, c.posSumUp||0, c.posNumia||0, c.pos||0, c.note||'']);
+    fogli.push({nome:'Prima Nota - Conteggi', righe:[headC, ...bodyC]});
+  }
+
+  if(sezioni.banca){
+    let rows = (_bancaMovimenti||[]).filter(m=>_expInRange(m.data,dal,al) && _expContiene(m.descrizione,forn));
+    if(_expRicon==='si') rows = rows.filter(m=>m.abbinata);
+    if(_expRicon==='no') rows = rows.filter(m=>!m.abbinata);
+    const head = ['Data','Descrizione','Importo','Tipo','Banca','Riconciliato'];
+    const body = rows.map(m=>[m.data||'', m.descrizione||'', m.importo||0, m.tipo||'', m.banca||'', m.abbinata?'Sì':'No']);
+    fogli.push({nome:'Riconciliazione bancaria', righe:[head, ...body]});
+  }
+
+  if(sezioni.carta){
+    let rows = (_cartaMovimenti||[]).filter(m=>_expInRange(m.data,dal,al) && (_expContiene(m.descrizione,forn) || _expContiene(m.titolare,forn)));
+    if(_expRicon==='si') rows = rows.filter(m=>m.abbinata);
+    if(_expRicon==='no') rows = rows.filter(m=>!m.abbinata);
+    const head = ['Data','Descrizione','Importo','Titolare','Riconciliato'];
+    const body = rows.map(m=>[m.data||'', m.descrizione||'', m.importo||0, m.titolare||'', m.abbinata?'Sì':'No']);
+    fogli.push({nome:'Carta di credito Nexi', righe:[head, ...body]});
+  }
+
+  if(sezioni.chiusure){
+    let rowsCh = (chiusure||[]).filter(c=>_expInRange(c.data,dal,al));
+    const headCh = ['Data','Cassa (fiscale)','Pos fiscale','Pos banca','Totale corrispettivi','Non riscosso'];
+    const bodyCh = rowsCh.map(c=>[c.data||'', c.cassa||0, c.pos||0, c.pos_banca||0, c.totale_corrispettivi||c.totaleCorrispettivi||0, c.non_riscosso||0]);
+    fogli.push({nome:'Chiusure giornaliere', righe:[headCh, ...bodyCh]});
+
+    let rowsInc = (incassi||[]).filter(i=>_expInRange(i.data,dal,al));
+    const headInc = ['Data','Importo','Fonte','Tipo'];
+    const bodyInc = rowsInc.map(i=>[i.data||'', i.importo||0, i.source||'', i.tipo||'']);
+    fogli.push({nome:'Incassi POS', righe:[headInc, ...bodyInc]});
+  }
+
+  if(sezioni.versamenti){
+    let rows = (versamenti||[]).filter(v=>_expInRange(v.data,dal,al));
+    const head = ['Data','Importo','Note'];
+    const body = rows.map(v=>[v.data||'', v.importo||0, v.note||'']);
+    fogli.push({nome:'Versamenti', righe:[head, ...body]});
+  }
+
+  const vuoti = fogli.filter(f=>f.righe.length<=1);
+  if(vuoti.length===fogli.length){ toast('⚠️ Nessun dato trovato con questi filtri'); return; }
+
+  const suffisso = (dal||al) ? '_'+(dal||'inizio')+'_'+(al||'oggi') : '';
+  if(_expFormato==='xlsx'){
+    if(typeof XLSX==='undefined'){ toast('⚠️ Libreria Excel non disponibile'); return; }
+    const wb = XLSX.utils.book_new();
+    fogli.forEach(f=>{
+      const ws = XLSX.utils.aoa_to_sheet(f.righe);
+      XLSX.utils.book_append_sheet(wb, ws, f.nome.slice(0,31));
+    });
+    const buf = XLSX.write(wb,{type:'array',bookType:'xlsx'});
+    condividi(buf, 'export_ceraldi'+suffisso+'.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  } else {
+    fogli.forEach((f,i)=>{
+      const csv = '\ufeff'+f.righe.map(r=>r.map(c=>{
+        const s = String(c==null?'':c).replace(/"/g,'""');
+        return /[;\n\r"]/.test(s) ? '"'+s+'"' : s;
+      }).join(';')).join('\n');
+      setTimeout(()=>{
+        condividi(csv, f.nome.replace(/[^a-z0-9]+/gi,'_')+suffisso+'.csv', 'text/csv;charset=utf-8');
+      }, i*400); // scaglionato: molti browser bloccano download multipli simultanei
+    });
+  }
+  const mo = document.getElementById('expAvMo'); if(mo) mo.remove();
+  toast('✓ Esportazione avviata');
 }
 
 function apriPuliziaFornitori(){
