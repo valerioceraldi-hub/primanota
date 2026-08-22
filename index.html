@@ -587,6 +587,11 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
       <button type="button" onclick="pnAggiungiFornVeloce()" style="border:none;background:none;color:var(--blue);font-size:11px;font-weight:700;cursor:pointer;padding:2px 0">➕ Aggiungi ai fornitori</button>
     </div>
 
+    <div style="margin-bottom:8px">
+      <input type="date" id="pnSpesaDataInp" style="width:100%;padding:9px 10px;border:1.5px solid var(--sep);border-radius:10px;font-size:13px;font-family:inherit;background:var(--surface2);box-sizing:border-box;-webkit-appearance:none">
+    </div>
+    <script>(function(){var d=document.getElementById('pnSpesaDataInp'); if(d&&!d.value) d.value=new Date().toISOString().slice(0,10);})();</script>
+
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0">
       <button class="pag-btn" id="pnfb-cassetto" onclick="pnSetFonte('cassetto')" style="padding:9px 4px;font-size:13px">💵 Cassetto</button>
       <button class="pag-btn" id="pnfb-fondo" onclick="pnSetFonte('fondo')" style="padding:9px 4px;font-size:13px">💰 Fondo</button>
@@ -1367,6 +1372,7 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
     <div class="rcard-body" id="rbody-fornitori">
       <div style="display:flex;gap:6px;padding:0 0 12px;overflow-x:auto;-webkit-overflow-scrolling:touch">
         <button onclick="document.getElementById('fornSec-rep').scrollIntoView({behavior:'smooth',block:'start'})" style="flex-shrink:0;padding:6px 12px;border:1px solid var(--sep);border-radius:99px;background:var(--surface2);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;color:var(--ink)">📊 Report</button>
+        <button onclick="document.getElementById('fornSec-elenco').scrollIntoView({behavior:'smooth',block:'start'})" style="flex-shrink:0;padding:6px 12px;border:1px solid var(--sep);border-radius:99px;background:var(--surface2);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;color:var(--ink)">👥 Elenco</button>
         <button onclick="document.getElementById('fornSec-diz').scrollIntoView({behavior:'smooth',block:'start'})" style="flex-shrink:0;padding:6px 12px;border:1px solid var(--sep);border-radius:99px;background:var(--surface2);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;color:var(--ink)">📖 Dizionario</button>
         <button onclick="document.getElementById('fornSec-pag').scrollIntoView({behavior:'smooth',block:'start'})" style="flex-shrink:0;padding:6px 12px;border:1px solid var(--sep);border-radius:99px;background:var(--surface2);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;color:var(--ink)">⚙️ Pagamenti</button>
       </div>
@@ -1385,6 +1391,17 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
           <button onclick="annullaUltimaUnificazione()" style="grid-column:1/3;padding:12px 8px;border:1.5px solid var(--sep);border-radius:var(--radius-sm);background:var(--surface);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;color:var(--ink);text-align:center;line-height:1.4">&#8617; Annulla ultima unificazione</button>
         </div>
       </div>
+      <div id="fornSec-elenco-wrap"><details style="border-top:1px solid var(--sep);padding-top:14px;margin-bottom:2px" id="fornSec-elenco" ontoggle="if(this.open) _renderGestioneFornitori('')">
+        <summary style="cursor:pointer;font-size:14px;font-weight:600;padding:6px 0;list-style:none;display:flex;align-items:center;justify-content:space-between">
+          <span>&#128100; Elenco fornitori <span id="rsub-elencoforn" style="font-size:11px;color:var(--ink3);font-weight:400;margin-left:4px"></span></span>
+          <span style="color:var(--ink3)">&#8250;</span>
+        </summary>
+        <div style="padding-top:10px">
+          <p style="font-size:12px;color:var(--ink3);margin-bottom:10px;line-height:1.5;background:var(--surface2);border-radius:8px;padding:10px">✏️ corregge il nome ovunque, anche sulle fatture già registrate con quel nome · 🗑 rimuove solo dai suggerimenti futuri, le fatture restano invariate.</p>
+          <input type="text" id="gestFornCerca" placeholder="Cerca fornitore..." oninput="_renderGestioneFornitori(this.value)" style="width:100%;padding:11px 12px;border:1.5px solid var(--sep);border-radius:var(--radius-sm);font-family:inherit;font-size:14px;background:var(--surface);box-sizing:border-box;margin-bottom:10px">
+          <div id="gestFornLista"></div>
+        </div>
+      </details></div>
       <div id="fornSec-diz"><details style="border-top:1px solid var(--sep);padding-top:14px;margin-bottom:2px">
         <summary style="cursor:pointer;font-size:14px;font-weight:600;padding:6px 0;list-style:none;display:flex;align-items:center;justify-content:space-between">
           <span>&#128218; Dizionario nomi <span id="rsub-dizforn" style="font-size:11px;color:var(--ink3);font-weight:400;margin-left:4px"></span></span>
@@ -6829,6 +6846,76 @@ function _calcolaGruppiFornitoriDuplicati(){
 async function dbDeleteForn(nome){
   try{ await sbFetch('fornitori?nome=eq.'+encodeURIComponent(nome), {method:'DELETE'}); }
   catch(e){ console.warn('Forn delete warn', e); }
+}
+
+// ── GESTIONE FORNITORI — vedi tutti, rinomina, elimina ──
+function _renderGestioneFornitori(filtro){
+  const el = document.getElementById('gestFornLista');
+  if(!el) return;
+  const sub = document.getElementById('rsub-elencoforn');
+  if(sub) sub.textContent = '('+fornitori.length+')';
+  const f = (filtro||'').trim().toLowerCase();
+  const elenco = [...fornitori].sort((a,b)=>a.localeCompare(b)).filter(n=>!f || n.toLowerCase().includes(f));
+  if(!elenco.length){ el.innerHTML = '<div style="text-align:center;color:var(--ink3);padding:24px;font-size:13px">Nessun fornitore trovato</div>'; return; }
+  el.innerHTML = elenco.map(n=>{
+    const nSicuro = esc(n).replace(/'/g,"\\'");
+    return `<div class="gf-row" data-nome="${esc(n)}" style="display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--sep)">
+      <span class="gf-nome" style="flex:1;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(n)}</span>
+      <button onclick="gestioneFornRinomina('${nSicuro}')" style="background:none;border:none;font-size:16px;cursor:pointer;padding:4px" title="Correggi il nome">✏️</button>
+      <button onclick="gestioneFornElimina('${nSicuro}')" style="background:none;border:none;font-size:16px;cursor:pointer;padding:4px" title="Rimuovi dai suggerimenti">🗑️</button>
+    </div>`;
+  }).join('');
+}
+
+function gestioneFornRinomina(nomeVecchio){
+  const row = document.querySelector('#gestFornLista .gf-row[data-nome="'+CSS.escape(nomeVecchio)+'"]');
+  if(!row) return;
+  row.innerHTML = `
+    <input type="text" class="gf-edit-inp" value="${esc(nomeVecchio)}" style="flex:1;padding:8px 10px;border:1.5px solid var(--blue);border-radius:8px;font-size:14px;background:var(--surface2)">
+    <button onclick="gestioneFornConfermaRinomina('${nomeVecchio.replace(/'/g,"\\'")}')" style="background:none;border:none;font-size:16px;cursor:pointer;padding:4px" title="Conferma">✅</button>
+    <button onclick="_renderGestioneFornitori(document.getElementById('gestFornCerca').value)" style="background:none;border:none;font-size:16px;cursor:pointer;padding:4px" title="Annulla">✕</button>`;
+  row.querySelector('.gf-edit-inp').focus();
+}
+
+async function gestioneFornConfermaRinomina(nomeVecchio){
+  const row = document.querySelector('#gestFornLista .gf-row[data-nome="'+CSS.escape(nomeVecchio)+'"]');
+  const nuovo = row ? row.querySelector('.gf-edit-inp').value.trim() : '';
+  if(!nuovo || nuovo===nomeVecchio){ _renderGestioneFornitori(document.getElementById('gestFornCerca').value); return; }
+  if(fornitori.includes(nuovo)){ toast('⚠️ Esiste già un fornitore con questo nome'); return; }
+  toast('⏳ Rinomino...');
+  // Rinomina anche sulle fatture già registrate con il nome vecchio, non solo
+  // nella lista suggerimenti — altrimenti restano agganciate a un nome sparito.
+  let fattureRinominate = 0;
+  for(let i=0;i<fatture.length;i++){
+    if((fatture[i].fornitore||'').trim()===nomeVecchio){
+      fatture[i].fornitore = nuovo;
+      try{ const _r=await dbUpdate(fatture[i]); if(_r&&_r[0])_updateCacheRow(_r[0]); }catch(e){}
+      fattureRinominate++;
+    }
+  }
+  await dbSaveForn(nuovo);
+  await dbDeleteForn(nomeVecchio);
+  const idx = fornitori.indexOf(nomeVecchio);
+  if(idx>=0) fornitori.splice(idx,1,nuovo); else fornitori.push(nuovo);
+  fornitori.sort();
+  if(typeof saveF==='function') saveF(fornitori);
+  if(typeof aggiornaDL==='function') aggiornaDL();
+  save(fatture); renderLista();
+  toast('✓ Rinominato'+(fattureRinominate>0?' — '+fattureRinominate+' fattur'+(fattureRinominate!==1?'e':'a')+' aggiornat'+(fattureRinominate!==1?'e':'a'):''));
+  _renderGestioneFornitori(document.getElementById('gestFornCerca').value);
+}
+
+function gestioneFornElimina(nome){
+  openMo('Elimina fornitore', 'Eliminare "'+nome+'" dalla lista fornitori? Le fatture già registrate con questo nome NON vengono toccate — sparisce solo dai suggerimenti.', async ()=>{
+    closeMo();
+    await dbDeleteForn(nome);
+    const idx = fornitori.indexOf(nome);
+    if(idx>=0) fornitori.splice(idx,1);
+    if(typeof saveF==='function') saveF(fornitori);
+    if(typeof aggiornaDL==='function') aggiornaDL();
+    toast('🗑 Fornitore eliminato');
+    _renderGestioneFornitori(document.getElementById('gestFornCerca').value);
+  }, 'user');
 }
 
 // ── CESTINO — vista ──
@@ -16701,10 +16788,11 @@ async function pnSalvaConteggio(){
 async function pnSalvaVeloce(){
   const importo = pnKeypadValore();
   const fornitore = (gv('pnFornVeloce')||'').trim();
+  const data = gv('pnSpesaDataInp') || _pnOggi();
   if(importo <= 0){ toast('⚠️ Inserisci un importo'); return; }
   if(!_pnFonte){ toast('⚠️ Scegli cassetto o fondo'); return; }
   const record = {
-    data: _pnOggi(),
+    data,
     categoria: 'spesa',
     importo,
     fonte: _pnFonte,
@@ -16719,9 +16807,12 @@ async function pnSalvaVeloce(){
     return;
   }
   pnChiudiKeypad();
-  // Reset veloce, pronto per il movimento successivo
+  // Reset veloce, pronto per il movimento successivo — la data torna sempre a
+  // oggi (se stavi registrando una spesa retroattiva, evita di lasciarla
+  // impostata per sbaglio anche sul prossimo movimento).
   document.getElementById('pnFornVeloce').value = '';
   document.getElementById('pnAggiungiFornBtn').style.display = 'none';
+  document.getElementById('pnSpesaDataInp').value = _pnOggi();
   pnKeypadReset();
   ['cassetto','fondo'].forEach(k=>{ const b=document.getElementById('pnfb-'+k); if(b) b.className='pag-btn'; });
   _pnFonte = '';
