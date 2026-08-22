@@ -478,7 +478,6 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
     <div style="border-top:1px solid var(--sep);margin:20px 0 16px"></div>
 
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:10px">💾 Esporta registro</div>
-    <button onclick="chiudiImpostazioni();apriEsportazioneAvanzata();" style="width:100%;padding:12px;border:1.5px solid var(--blue);border-radius:var(--radius-sm);background:var(--blue-light);font-family:'Inter',-apple-system,sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:var(--blue);margin-bottom:8px;text-align:left">&#128228; Esportazione avanzata (fatture, Prima Nota, banca, carta...)</button>
     <button onclick="chiudiImpostazioni();scaricaBackup();" style="width:100%;padding:12px;border:1.5px solid var(--sep);border-radius:var(--radius-sm);background:var(--surface);font-family:'Inter',-apple-system,sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:var(--ink);margin-bottom:6px;text-align:left">&#128229; Esporta backup JSON</button>
     <div style="position:relative;margin-bottom:16px">
       <button style="width:100%;padding:12px;border:1.5px solid var(--sep);border-radius:var(--radius-sm);background:var(--surface);font-family:'Inter',-apple-system,sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:var(--ink);text-align:left">&#128228; Importa da backup</button>
@@ -592,6 +591,11 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
       <input type="date" id="pnSpesaDataInp" style="width:100%;padding:9px 10px;border:1.5px solid var(--sep);border-radius:10px;font-size:13px;font-family:inherit;background:var(--surface2);box-sizing:border-box;-webkit-appearance:none">
     </div>
     <script>(function(){var d=document.getElementById('pnSpesaDataInp'); if(d&&!d.value) d.value=new Date().toISOString().slice(0,10);})();</script>
+
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink3);margin-bottom:8px;cursor:pointer">
+      <input type="checkbox" id="pnSpesaDdt" style="width:16px;height:16px">
+      📦 È il pagamento di un DDT (la fattura vera arriverà dopo, con data successiva)
+    </label>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0">
       <button class="pag-btn" id="pnfb-cassetto" onclick="pnSetFonte('cassetto')" style="padding:9px 4px;font-size:13px">💵 Cassetto</button>
@@ -1360,6 +1364,7 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
         <button class="action-btn" onclick="esportaExcel()"><span class="action-ico">&#128209;</span><span class="action-lbl">Excel</span></button>
         <button class="action-btn" onclick="esportaPDF()"><span class="action-ico">&#128196;</span><span class="action-lbl">PDF</span></button>
       </div>
+      <button onclick="apriEsportazioneAvanzata()" style="width:100%;margin-top:8px;padding:12px;border:1.5px solid var(--blue);border-radius:var(--radius-sm);background:var(--blue-light);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:var(--blue);text-align:left">&#128228; Esportazione avanzata (Prima Nota, banca, carta, chiusure...)</button>
     </div>
   </div>
 
@@ -1587,11 +1592,20 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
 
   <!-- SEZIONE: STORICO -->
   <div id="pn-storico" class="pn-sec" style="display:none">
+    <!-- Movimenti in contanti non ancora riconciliati con nessuna fattura da
+         più di 7 giorni — o li abbini a mano, o vuol dire che quella fattura
+         non è mai arrivata (es. mai emessa, o mai importata dal cassetto). -->
+    <div id="pnDaRiconciliareBox" style="display:none;background:#fff7ed;border:1.5px solid #fdba74;border-radius:var(--radius);padding:14px;margin-bottom:12px">
+      <div style="font-size:13px;font-weight:700;color:#9a3412;margin-bottom:8px">⏳ Da riconciliare (oltre 7 giorni)</div>
+      <div id="pnDaRiconciliareEl"></div>
+    </div>
+
     <div style="background:var(--surface);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);margin-bottom:12px">
       <div style="display:flex;gap:8px;margin-bottom:4px">
         <input type="date" id="pnStorDal" onchange="renderPnStorico()" style="flex:1;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface2);-webkit-appearance:none;min-width:0">
         <input type="date" id="pnStorAl" onchange="renderPnStorico()" style="flex:1;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface2);-webkit-appearance:none;min-width:0">
       </div>
+      <div id="pnScioperiEsito" style="font-size:10px;color:var(--ink3);margin-top:8px"></div>
     </div>
     <div id="pnStoricoEl"></div>
   </div>
@@ -1985,7 +1999,7 @@ async function inviaAiAssistente(){
 // Entrambe possono pesare centinaia di KB a riga e mandano in timeout (57014) la SELECT
 // quando le righe sono centinaia. Foto e XML grezzo vengono caricati on-demand per la
 // singola fattura aperta (vedi apriF / aprifatturaAllegata).
-const SLIM_COLS_FATTURE = 'id,tipo,fornitore,numero,fatt_num,num_ddt,data,importo,pagamento,assegno,ass_int,ass_banca,bon_iban,bon_caus,bon_data,bon_rif,riconciliata,riconciliazione,note,stato,scadenza,fattura_allegata_name,xml_github_path,source,rate,ts,parz_pagato,data_pagamento,pec_verificata,pec_verificata_at,pec_id,iva,iva_breakdown,totale_imponibile,totale_imposta,incompleta,deleted_at';
+const SLIM_COLS_FATTURE = 'id,tipo,fornitore,numero,fatt_num,num_ddt,data,importo,pagamento,pagamento_origine,pagamento_impostato_il,assegno,ass_int,ass_banca,bon_iban,bon_caus,bon_data,bon_rif,riconciliata,riconciliazione,note,stato,scadenza,fattura_allegata_name,xml_github_path,source,rate,ts,parz_pagato,data_pagamento,pec_verificata,pec_verificata_at,pec_id,iva,iva_breakdown,totale_imponibile,totale_imposta,incompleta,deleted_at';
 
 async function sbFetch(path, opts={}){
   const method = (opts.method||'GET').toUpperCase();
@@ -2124,7 +2138,7 @@ function dbToApp(r){
   return {
     id:r.id, tipo:r.tipo||'fattura', fornitore:r.fornitore, numero:r.numero||'',
     fattNum:r.fatt_num||'', numDdt:r.num_ddt||'', data:r.data||'', importo:parseFloat(r.importo)||0,
-    pagamento:r.pagamento||'', assegno:r.assegno||'', assInt:r.ass_int||'',
+    pagamento:r.pagamento||'', pagamentoOrigine:r.pagamento_origine||'', pagamentoImpostatoIl:r.pagamento_impostato_il||'', assegno:r.assegno||'', assInt:r.ass_int||'',
     assBanca:r.ass_banca||'', bonIban:r.bon_iban||'', bonCaus:r.bon_caus||'',
     bonData:r.bon_data||'', bonRif:r.bon_rif||'', riconciliata:r.riconciliata||false,
     riconciliazione:r.riconciliazione||null,
@@ -2151,7 +2165,7 @@ function appToDB(f){
   return {
     id:f.id, tipo:f.tipo||'fattura', fornitore:f.fornitore, numero:f.numero||'',
     fatt_num:f.fattNum||'', num_ddt:f.numDdt||'', data:f.data||null, importo:f.importo||0,
-    pagamento:f.pagamento||'', assegno:f.assegno||'', ass_int:f.assInt||'',
+    pagamento:f.pagamento||'', pagamento_origine:f.pagamentoOrigine||null, pagamento_impostato_il:f.pagamentoImpostatoIl||null, assegno:f.assegno||'', ass_int:f.assInt||'',
     ass_banca:f.assBanca||'', bon_iban:f.bonIban||'', bon_caus:f.bonCaus||'',
     bon_data:f.bonData||null, bon_rif:f.bonRif||'', riconciliata:f.riconciliata||false,
     riconciliazione:f.riconciliazione||null,
@@ -3712,6 +3726,8 @@ async function __salvaDavveroInner(px){
     stato, scadenza:gv(px+'Scad')||'', foto, fatturaAllegata:'', parzPagato,
     dataPagamento: stato==='pagata'||stato==='parziale' ? (gv(px+'Data')||'') : '',
     incompleta: mancanti.length>0 ? mancanti : [],
+    pagamentoOrigine: 'manuale',
+    pagamentoImpostatoIl: new Date().toISOString(),
     _pnFonte: pag==='contanti' ? ((px==='r'?_rPnFonte:_mPnFonte)||'cassetto') : null
   };
   if(px==='r' && Object.keys(_aiLastScan).length>0) registraCorrezioni(px);
@@ -5685,6 +5701,18 @@ async function salvaEdit(){
   if(!(parseFloat((gv('eImp2')||'0').replace(',','.'))||0)) mancantiEdit.push('Importo');
   if(!ePag) mancantiEdit.push('Pagamento');
 
+  // Avviso richiesto da Valerio: se il pagamento era già stato impostato (da
+  // qualunque origine) e ora lo si cambia in qualcos'altro, avvisa prima di
+  // procedere invece di sovrascrivere in silenzio.
+  const _vecchioPag = fatture[idx].pagamento;
+  const _vecchiaOrigine = fatture[idx].pagamentoOrigine;
+  const _vecchiaDataImp = fatture[idx].pagamentoImpostatoIl;
+  if(_vecchioPag && ePag && ePag !== _vecchioPag){
+    const _origineTxt = _vecchiaOrigine==='prima_nota' ? 'automaticamente da Prima Nota' : (_vecchiaOrigine==='manuale' ? 'a mano' : (_vecchiaOrigine==='xml' ? 'da un import XML' : ''));
+    const _dataTxt = _vecchiaDataImp ? new Date(_vecchiaDataImp).toLocaleDateString('it-IT') : '';
+    if(!confirm('⚠️ Il pagamento di questa fattura era già impostato come "'+_vecchioPag+'"'+(_origineTxt?' ('+_origineTxt+(_dataTxt?', il '+_dataTxt:'')+')':'')+'.\n\nVuoi cambiarlo in "'+ePag+'"?')) return;
+  }
+
   const parzPagato=eStato==='parziale'?parseFloat((gv('eParzPagato')||'0').replace(',','.'))||0:0;
   var _eRiconciliataOra = !!(document.getElementById('eRiconciliata') && document.getElementById('eRiconciliata').checked);
   fatture[idx]={
@@ -5704,7 +5732,9 @@ async function salvaEdit(){
     // restava un residuo testuale nelle note che nessuna spunta poteva
     // rimuovere in modo pulito.
     riconciliazione: _eRiconciliataOra ? fatture[idx].riconciliazione : null,
-    incompleta: mancantiEdit
+    incompleta: mancantiEdit,
+    pagamentoOrigine: 'manuale',
+    pagamentoImpostatoIl: (ePag !== _vecchioPag) ? new Date().toISOString() : _vecchiaDataImp
     // fatturaAllegata è preservata da ...fatture[idx] (spread)
   };
   // Aggiorna memoria layout da modifica
@@ -6387,6 +6417,7 @@ async function importaMassivoXml(input){
         data: data || '',
         importo,
         pagamento: pagamento || defForn.pagamento || '',
+        pagamentoOrigine: 'xml',
         bonIban: iban || '',
         bonCaus: '', bonData: '', bonRif: '',
         assegno: '', assInt: '', assBanca: '',
@@ -6409,6 +6440,10 @@ async function importaMassivoXml(input){
 
       fatture.unshift(nuova);
       await dbInsert(nuova);
+      // Prova ad agganciare automaticamente un movimento Prima Nota già
+      // registrato per questa spesa in contanti (data+importo+fornitore, o
+      // — per i DDT — importo+fornitore+fattura successiva alla data del DDT).
+      if(typeof pnTentaMatchPerFattura==='function') pnTentaMatchPerFattura(nuova).catch(()=>{});
 
       // Nota di credito con fattura collegata indicata nell'XML: se quella fattura
       // è già tra quelle presenti, agganciala subito da sola invece di lasciare
@@ -9513,6 +9548,13 @@ setTimeout(function(){
       }
     }catch(e){ console.warn('[Auto-IVA] avvio fallito:', e); }
   }, 30000);
+
+  // ── SCIOPERI ANM/EAV in background, ad ogni avvio ──
+  // Prima girava solo aprendo la tab Prima Nota, ma da quando l'inserimento
+  // veloce è in prima pagina quella tab si apre di rado — quindi la cache
+  // rischiava di non aggiornarsi mai. La scrittura è idempotente (ignora
+  // i duplicati), quindi farla girare ad ogni avvio è sicuro.
+  setTimeout(()=>{ if(typeof pnAggiornaScioperiNapoli==='function') pnAggiornaScioperiNapoli(); }, 8000);
 }
 // init() spostata in fondo al file: deve partire SOLO dopo che tutte le
 // variabili (let/const) e funzioni dell'intero script sono state dichiarate,
@@ -14095,8 +14137,14 @@ function renderRiconciliazione(){
       return x.abbinata && x.fatturaId===matchCerto.id && x.id!==m.id;
     });
 
+    // Stessa cautela dell'assegno: se questa fattura ha già un pagamento
+    // impostato a mano o da Prima Nota, il match automatico NON si applica in
+    // silenzio — finisce in "da confermare" così l'utente vede l'avviso
+    // esplicito (già presente in _cfAbbina) prima di sovrascriverla.
+    var _pagGiaAssegnatoAuto = matchCerto && (matchCerto.pagamentoOrigine==='manuale' || matchCerto.pagamentoOrigine==='prima_nota');
+
     var _defDiv1 = matchCerto ? _defaultDiverso(matchCerto.fornitore) : null;
-    if(matchCerto && verificato && matchCerto.stato==='pagata' && !_defDiv1 && !isAssegno && !_matchCertoGiaAgganciato){
+    if(matchCerto && verificato && matchCerto.stato==='pagata' && !_defDiv1 && !isAssegno && !_matchCertoGiaAgganciato && !_pagGiaAssegnatoAuto){
       m.abbinata       = true;
       m.fatturaId      = matchCerto.id;
       m.fatturaLabel   = (matchCerto.fornitore||'') + ' N°' + (matchCerto.numero||'');
@@ -15401,7 +15449,18 @@ function _cfAbbina(movIdx, fattId, isParziale){
   var conf=(isParziale?'Pagamento PARZIALE':'Abbina')+' a:\n'+f.fornitore+' N°'+f.numero+' ('+fmt(impF)+')';
   if(diff>0.50) conf+='\nBanca: '+fmt(imp)+' — diff: '+fmt(diff);
   if(movAltrove) conf+='\n\n⚠️ Questa fattura è già abbinata al movimento del '+movAltrove.data+', che resterà senza fattura.';
+  // Avviso esplicito richiesto da Valerio: se questa fattura ha già un
+  // pagamento impostato a mano o da Prima Nota (non solo se è "contanti" —
+  // qualunque scelta già fatta su questa fattura è un segnale da mostrare
+  // prima di sovrascriverla riconciliandola anche con un movimento bancario).
+  var _pagGiaAssegnato = f.pagamentoOrigine==='manuale' || f.pagamentoOrigine==='prima_nota';
+  if(_pagGiaAssegnato){
+    var _origineTxt = f.pagamentoOrigine==='prima_nota' ? 'automaticamente da Prima Nota' : 'a mano nel Registro';
+    var _dataTxt = f.pagamentoImpostatoIl ? ', il '+new Date(f.pagamentoImpostatoIl).toLocaleDateString('it-IT') : '';
+    conf+='\n\n⚠️ Questa fattura ha già un pagamento impostato ('+(f.pagamento||'—')+') '+_origineTxt+_dataTxt+'. Vuoi comunque abbinarla anche a questo movimento bancario?';
+  }
   if(!confirm(conf)) return;
+  if(_pagGiaAssegnato){ f.pagamentoOrigine='manuale'; f.pagamentoImpostatoIl=new Date().toISOString(); } // scelta esplicita confermata ora, non più toccabile dal motore automatico
   if(movAltrove){
     movAltrove.abbinata=false; movAltrove.fatturaId=null; movAltrove.fatturaLabel='';
     salvaMovimentoBanca(movAltrove).catch(function(e){console.warn('salvaMovimentoBanca:',e);});
@@ -16799,7 +16858,12 @@ async function aprisemPrimaNota(){
   pnAggiornaFondoHeader();
   // In background, non blocca l'apertura della tab: aggiorna la cache degli
   // scioperi ANM/EAV noti (solo quelli futuri pubblicati dalla fonte pubblica).
-  pnAggiornaScioperiNapoli();
+  // Mostra l'esito appena disponibile (utile per capire se sta funzionando,
+  // invece di doverlo controllare dagli strumenti sviluppatore).
+  pnAggiornaScioperiNapoli().then(()=>{
+    const el = document.getElementById('pnScioperiEsito');
+    if(el && window._pnScioperiEsito) el.textContent = window._pnScioperiEsito;
+  });
 }
 
 async function pnSyncCloud(){
@@ -16809,7 +16873,7 @@ async function pnSyncCloud(){
       sbFetchAll('prima_nota_movimenti?select=*&deleted_at=is.null&order=data.asc')
     ]);
     pnConteggi = (c||[]).map(r=>({id:r.id, data:r.data, contantiContati:r.contanti_contati||0, pos:r.pos||0, posSumUp:r.pos_sumup||0, posNumia:r.pos_numia||0, note:r.note||''}));
-    pnMovimenti = (m||[]).map(r=>({id:r.id, data:r.data, categoria:r.categoria, importo:r.importo||0, fonte:r.fonte, descrizione:r.descrizione||'', fatturaId:r.fattura_id, origineEsterna:r.origine_esterna}));
+    pnMovimenti = (m||[]).map(r=>({id:r.id, data:r.data, categoria:r.categoria, importo:r.importo||0, fonte:r.fonte, descrizione:r.descrizione||'', fatturaId:r.fattura_id, origineEsterna:r.origine_esterna, ddt:!!r.ddt}));
   }catch(e){ console.warn('Prima Nota sync fallito:', e.message||e); }
 }
 
@@ -16984,6 +17048,136 @@ async function pnSalvaConteggio(){
   renderPnStorico();
 }
 
+// ══════════════════════════════════════════════════════════════
+// RICONCILIAZIONE AUTOMATICA PRIMA NOTA ↔ FATTURE (Step 2, 22/08)
+// Priorità: 1) pagamento scelto A MANO su una fattura (Registro/Modifica/Edit,
+// pagamentoOrigine='manuale') vince sempre — il motore non la tocca mai.
+// 2) match automatico (data+importo+fornitore identico/quasi identico — o per
+// i movimenti DDT solo importo+fornitore, con la fattura sempre successiva
+// alla data del DDT) vince sul pagamento arrivato via import XML in blocco
+// (spesso solo un default del fornitore, non una scelta vera). Se ambiguo
+// (più di un candidato), non si tocca nulla — resta per la riconciliazione
+// manuale nella sezione "Da riconciliare".
+// ══════════════════════════════════════════════════════════════
+
+function _pnFornSimile(nomeA, nomeB){
+  if(!nomeA || !nomeB) return false;
+  try{
+    if(typeof _normForn==='function' && _normForn(nomeA) === _normForn(nomeB)) return true;
+    if(typeof _fornitori_simili==='function') return _fornitori_simili(nomeA, nomeB);
+  }catch(e){}
+  return nomeA.trim().toLowerCase() === nomeB.trim().toLowerCase();
+}
+
+// Direzione 1: è appena arrivata/importata una fattura (XML in blocco) →
+// cerca un movimento Prima Nota già registrato e non ancora collegato.
+async function pnTentaMatchPerFattura(fattura){
+  if(!fattura || fattura.pagamentoOrigine === 'manuale') return;
+  if(!pnMovimenti || !pnMovimenti.length) await pnSyncCloud();
+  const candidati = (pnMovimenti||[]).filter(m=>{
+    if(m.categoria!=='spesa' || m.fatturaId) return false;
+    if(Math.abs((m.importo||0) - (fattura.importo||0)) > 0.01) return false;
+    if(!_pnFornSimile(m.descrizione, fattura.fornitore)) return false;
+    return m.ddt ? (fattura.data >= m.data) : (fattura.data === m.data);
+  });
+  if(candidati.length !== 1) return; // 0 = niente da fare, >1 = ambiguo → manuale
+  await _pnEseguiMatch(candidati[0], fattura);
+}
+
+// Direzione 2: è appena stato registrato un movimento Prima Nota → cerca tra
+// le fatture già presenti (arrivate prima) quella corrispondente.
+async function pnTentaMatchFatturaPerMovimento(movimento){
+  const candidati = (fatture||[]).filter(f=>{
+    if(f.pagamentoOrigine === 'manuale') return false;
+    if((pnMovimenti||[]).some(m=>m.fatturaId===f.id)) return false; // già collegata
+    if(Math.abs((f.importo||0) - (movimento.importo||0)) > 0.01) return false;
+    if(!_pnFornSimile(f.fornitore, movimento.descrizione)) return false;
+    return movimento.ddt ? (f.data >= movimento.data) : (f.data === movimento.data);
+  });
+  if(candidati.length !== 1) return;
+  await _pnEseguiMatch(movimento, candidati[0]);
+}
+
+async function _pnEseguiMatch(movimento, fattura){
+  try{
+    await sbFetch('prima_nota_movimenti?id=eq.'+movimento.id, {method:'PATCH', headers:{...SB_H,'Prefer':'return=minimal'}, body:JSON.stringify({fattura_id: fattura.id})});
+    const idx = fatture.findIndex(x=>x.id===fattura.id);
+    if(idx>=0){
+      fatture[idx].pagamento = 'contanti';
+      fatture[idx].pagamentoOrigine = 'prima_nota';
+      fatture[idx].pagamentoImpostatoIl = new Date().toISOString();
+      const r = await dbUpdate(fatture[idx]);
+      if(r && r[0] && typeof _updateCacheRow==='function') _updateCacheRow(r[0]);
+    }
+    const mi = (pnMovimenti||[]).findIndex(m=>m.id===movimento.id);
+    if(mi>=0) pnMovimenti[mi].fatturaId = fattura.id;
+    toast('✓ Riconciliato con Prima Nota: '+(fattura.fornitore||'')+' '+fmt(fattura.importo));
+    if(typeof renderLista==='function') renderLista();
+    if(typeof pnRenderDaRiconciliare==='function') pnRenderDaRiconciliare();
+  }catch(e){ console.warn('pnTentaMatch: errore aggancio', e.message||e); }
+}
+
+// ── Sezione "Da riconciliare" — movimenti spesa senza fattura da oltre 7gg ──
+function pnRenderDaRiconciliare(){
+  const box = document.getElementById('pnDaRiconciliareBox');
+  const el = document.getElementById('pnDaRiconciliareEl');
+  if(!box || !el) return;
+  const oggi = new Date();
+  const vecchi = (pnMovimenti||[]).filter(m=>{
+    if(m.categoria!=='spesa' || m.fatturaId) return false;
+    const dataM = new Date(m.data+'T12:00:00');
+    return (oggi - dataM) > 7*86400000;
+  }).sort((a,b)=>(a.data||'').localeCompare(b.data));
+  if(!vecchi.length){ box.style.display='none'; return; }
+  box.style.display='block';
+  el.innerHTML = vecchi.map(m=>{
+    const giorni = Math.floor((oggi - new Date(m.data+'T12:00:00'))/86400000);
+    return `<div style="background:#fff;border-radius:8px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:center;gap:10px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600">${esc(m.descrizione||'Spesa')}</div>
+        <div style="font-size:11px;color:#9a3412">${new Date(m.data+'T12:00:00').toLocaleDateString('it-IT')} · ${giorni}gg fa${m.ddt?' · 📦 DDT':''}</div>
+      </div>
+      <div style="font-size:14px;font-weight:700;color:var(--red)">${fmt(m.importo)}</div>
+      <button onclick="pnApriAbbinaManuale(${m.id})" style="font-size:11px;color:var(--blue);background:none;border:1.5px solid var(--blue);border-radius:8px;padding:6px 10px;cursor:pointer;white-space:nowrap;flex-shrink:0">🔗 Abbina</button>
+    </div>`;
+  }).join('');
+}
+
+function pnApriAbbinaManuale(movId){
+  const m = pnMovimenti.find(x=>x.id===movId);
+  if(!m) return;
+  const collegate = new Set((pnMovimenti||[]).filter(x=>x.fatturaId).map(x=>x.fatturaId));
+  const candidati = (fatture||[]).filter(f=>f.pagamentoOrigine!=='manuale' && !collegate.has(f.id));
+  candidati.sort((a,b)=>Math.abs((a.importo||0)-m.importo) - Math.abs((b.importo||0)-m.importo));
+  const existing = document.getElementById('pnAbbinaMo');
+  if(existing) existing.remove();
+  const mo = document.createElement('div');
+  mo.id = 'pnAbbinaMo';
+  mo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:900;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)';
+  const righe = candidati.slice(0,30).map(f=>`
+    <div onclick="pnConfermaAbbinaManuale(${m.id},${f.id})" style="padding:12px 16px;border-bottom:1px solid var(--sep);cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+      <div><div style="font-size:14px;font-weight:600">${esc(f.fornitore||'')}</div><div style="font-size:11px;color:var(--ink3)">${esc(f.data||'')} · N° ${esc(f.numero||'')}</div></div>
+      <div style="font-size:14px;font-weight:700">${fmt(f.importo)}</div>
+    </div>`).join('') || '<div style="padding:20px;text-align:center;color:var(--ink3);font-size:13px">Nessuna fattura disponibile da abbinare</div>';
+  mo.innerHTML = `<div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:75vh;overflow-y:auto">
+    <div style="padding:16px 20px 8px;border-bottom:1px solid var(--sep);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:var(--bg)">
+      <span style="font-size:16px;font-weight:700">Abbina a una fattura</span>
+      <button onclick="document.getElementById('pnAbbinaMo').remove()" style="background:var(--surface2);border:none;border-radius:99px;width:30px;height:30px;font-size:17px;cursor:pointer">&times;</button>
+    </div>${righe}</div>`;
+  mo.onclick = e=>{ if(e.target===mo) mo.remove(); };
+  document.body.appendChild(mo);
+}
+
+async function pnConfermaAbbinaManuale(movId, fattId){
+  const m = pnMovimenti.find(x=>x.id===movId);
+  const f = fatture.find(x=>x.id===fattId);
+  if(!m || !f) return;
+  await _pnEseguiMatch(m, f);
+  const mo = document.getElementById('pnAbbinaMo'); if(mo) mo.remove();
+  pnRenderDaRiconciliare();
+  renderPnStorico();
+}
+
 // Salvataggio veloce: fornitore (facoltativo) + fonte (obbligatoria, scelta
 // esplicita) + importo dal tastierino. Data sempre oggi. Nessun collegamento
 // a fattura qui — la riconciliazione avviene dopo, quando la fattura arriva.
@@ -16991,6 +17185,7 @@ async function pnSalvaVeloce(){
   const importo = pnKeypadValore();
   const fornitore = (gv('pnFornVeloce')||'').trim();
   const data = gv('pnSpesaDataInp') || _pnOggi();
+  const ddt = !!(document.getElementById('pnSpesaDdt') && document.getElementById('pnSpesaDdt').checked);
   if(importo <= 0){ toast('⚠️ Inserisci un importo'); return; }
   if(!_pnFonte){ toast('⚠️ Scegli cassetto o fondo'); return; }
   const record = {
@@ -16999,10 +17194,13 @@ async function pnSalvaVeloce(){
     importo,
     fonte: _pnFonte,
     descrizione: fornitore || null,
-    fattura_id: null
+    fattura_id: null,
+    ddt
   };
+  let salvato = null;
   try{
-    await sbFetch('prima_nota_movimenti', {method:'POST', body:JSON.stringify(record)});
+    const r = await sbFetch('prima_nota_movimenti', {method:'POST', headers:{...SB_H,'Prefer':'return=representation'}, body:JSON.stringify(record)});
+    salvato = r && r[0];
     toast('✓ Salvato: '+fmt(importo)+(fornitore?' — '+fornitore:''));
   }catch(e){
     toast('⚠️ Salvataggio fallito: '+String(e.message||e).slice(0,50));
@@ -17015,6 +17213,7 @@ async function pnSalvaVeloce(){
   document.getElementById('pnFornVeloce').value = '';
   document.getElementById('pnAggiungiFornBtn').style.display = 'none';
   document.getElementById('pnSpesaDataInp').value = _pnOggi();
+  document.getElementById('pnSpesaDdt').checked = false;
   pnKeypadReset();
   ['cassetto','fondo'].forEach(k=>{ const b=document.getElementById('pnfb-'+k); if(b) b.className='pag-btn'; });
   _pnFonte = '';
@@ -17022,6 +17221,11 @@ async function pnSalvaVeloce(){
   await pnCaricaGiorno();
   pnAggiornaFondoHeader();
   renderPnStorico();
+  // Se la fattura per questa spesa è arrivata PRIMA (es. XML import), prova
+  // subito ad agganciarla — altrimenti resterà da riconciliare quando arriva.
+  if(salvato && typeof pnTentaMatchFatturaPerMovimento==='function'){
+    pnTentaMatchFatturaPerMovimento({id:salvato.id, data, importo, fonte:_pnFonte, descrizione:fornitore||null, ddt}).catch(()=>{});
+  }
 }
 
 // Versamento in banca: registrato come categoria 'versamento' con le stesse
@@ -17206,14 +17410,12 @@ function pnRecalcGiorno(){
   document.getElementById('pnFondoFineGiorno').textContent = fmt(fondoFineGiornoLive);
 }
 
-function pnRenderMovimentiGiorno(data){
-  const el = document.getElementById('pnMoviListaEl');
-  if(!el) return;
-  const rows = pnMovimenti.filter(m=>m.data===data).sort((a,b)=>(b.id||0)-(a.id||0));
-  if(!rows.length){ el.innerHTML = '<div style="text-align:center;color:var(--ink3);padding:16px;font-size:13px">Nessun movimento per questo giorno</div>'; return; }
+// Markup di una riga movimento, riusato sia dalla lista del giorno corrente
+// sia dall'elenco espandibile per-giorno dentro lo Storico.
+function _pnRigaMovimentoHtml(m){
   const icoCat = {spesa:'🧾', stipendio:'👤', versamento:'🏦', altro:'✏️'};
   const icoFonte = {cassetto:'💵 cassetto', fondo:'💰 fondo'};
-  el.innerHTML = rows.map(m=>`
+  return `
     <div style="background:var(--surface);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:8px;box-shadow:var(--shadow);display:flex;align-items:center;gap:12px">
       <div style="width:36px;height:36px;background:var(--surface2);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">${icoCat[m.categoria]||'📌'}</div>
       <div style="flex:1;min-width:0">
@@ -17227,7 +17429,32 @@ function pnRenderMovimentiGiorno(data){
           <button onclick="pnEliminaMovimento(${m.id})" style="font-size:10px;color:var(--ink3);background:none;border:none;cursor:pointer;padding:2px 4px">🗑 Elimina</button>
         </div>
       </div>
-    </div>`).join('');
+    </div>`;
+}
+
+function pnRenderMovimentiGiorno(data){
+  const el = document.getElementById('pnMoviListaEl');
+  if(!el) return;
+  const rows = pnMovimenti.filter(m=>m.data===data).sort((a,b)=>(b.id||0)-(a.id||0));
+  if(!rows.length){ el.innerHTML = '<div style="text-align:center;color:var(--ink3);padding:16px;font-size:13px">Nessun movimento per questo giorno</div>'; return; }
+  el.innerHTML = rows.map(_pnRigaMovimentoHtml).join('');
+}
+
+// Espande/richiude, dentro lo Storico, l'elenco dei movimenti di un giorno
+// specifico — con gli stessi bottoni Modifica/Elimina della tab Giorno, per
+// poter correggere anche un movimento di un giorno passato senza doverci
+// tornare con il selettore data.
+function _pnToggleStoricoGiorno(data){
+  const dId = 'pnStorGiorno_'+data.replace(/-/g,'');
+  const cont = document.getElementById(dId);
+  const arr = document.getElementById(dId+'_arr');
+  if(!cont) return;
+  const aperto = cont.style.display !== 'none';
+  if(aperto){ cont.style.display = 'none'; if(arr) arr.textContent = '▾'; return; }
+  const rows = pnMovimenti.filter(m=>m.data===data).sort((a,b)=>(b.id||0)-(a.id||0));
+  cont.innerHTML = rows.map(_pnRigaMovimentoHtml).join('');
+  cont.style.display = 'block';
+  if(arr) arr.textContent = '▴';
 }
 
 // Modifica di un movimento già salvato: bottom sheet con fornitore/descrizione,
@@ -17298,7 +17525,7 @@ function setPnTab(t, btn){
     if(sec) sec.style.display = (k===t) ? 'block' : 'none';
     if(chip) chip.classList.toggle('active', k===t);
   });
-  if(t==='storico') renderPnStorico();
+  if(t==='storico'){ renderPnStorico(); pnRenderDaRiconciliare(); }
 }
 
 // Coordinate Piazza Carità, Napoli — usate per il meteo storico
@@ -17332,6 +17559,7 @@ async function pnFetchMeteo(dal, al){
 async function pnAggiornaScioperiNapoli(){
   try{
     const resp = await fetch('https://scioperi.alemendoza.dev/api/v1/strikes');
+    if(!resp.ok) throw new Error('HTTP '+resp.status);
     const json = await resp.json();
     const strikes = (json.strikes||[]).filter(s=>
       s.region==='Campania' && /ANM|EAV|CUMANA|CIRCUMFLEGREA|CIRCUMVESUVIANA|METROPOLITAN/i.test(s.category||'')
@@ -17356,7 +17584,15 @@ async function pnAggiornaScioperiNapoli(){
     if(righe.length){
       await sbFetch('scioperi_napoli_trasporti', {method:'POST', headers:{...SB_H,'Prefer':'resolution=ignore-duplicates,return=minimal'}, body:JSON.stringify(righe)});
     }
-  }catch(e){ console.warn('Sciopero sync fallito:', e.message||e); }
+    // Esito visibile (non solo in console) — utile per capire se la
+    // sincronizzazione funziona davvero senza dover aprire gli strumenti sviluppatore.
+    window._pnScioperiEsito = righe.length
+      ? 'Sciopero: '+righe.length+' giorni trovati e salvati ('+strikes.length+' scioperi ANM/EAV in Campania)'
+      : 'Sciopero: nessuno sciopero ANM/EAV in programma al momento in Campania';
+  }catch(e){
+    window._pnScioperiEsito = '⚠️ Sincronizzazione scioperi fallita: '+String(e.message||e).slice(0,80);
+    console.warn('Sciopero sync fallito:', e.message||e);
+  }
 }
 
 async function pnFetchScioperi(dal, al){
@@ -17396,6 +17632,8 @@ async function renderPnStorico(){
     const meteoTxt = m ? `🌡️ ${Math.round(m.tmin)}–${Math.round(m.tmax)}°C · 🌧️ ${m.pioggia||0}mm` : '';
     const sc = scioperi[d];
     const scioperoTxt = sc && sc.length ? sc.map(s=>`🚨 Sciopero ${esc(s.linea)}`).join(' · ') : '';
+    const nMovi = pnMovimenti.filter(mv=>mv.data===d).length;
+    const dId = 'pnStorGiorno_'+d.replace(/-/g,'');
     return `<div style="background:var(--surface);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:8px;box-shadow:var(--shadow)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <span style="font-size:13px;font-weight:700">${label}</span>
@@ -17406,6 +17644,8 @@ async function renderPnStorico(){
         <span>Fondo fine giorno: ${fmt(g.fondoFineGiorno)}</span>
       </div>
       ${meteoTxt || scioperoTxt ? `<div style="font-size:11px;color:var(--ink3);margin-top:6px;padding-top:6px;border-top:1px solid var(--sep);display:flex;flex-wrap:wrap;gap:8px">${meteoTxt?`<span>${meteoTxt}</span>`:''}${scioperoTxt?`<span style="color:#c0392b;font-weight:600">${scioperoTxt}</span>`:''}</div>` : ''}
+      ${nMovi>0 ? `<div onclick="_pnToggleStoricoGiorno('${d}')" style="font-size:11px;color:var(--blue);font-weight:600;cursor:pointer;margin-top:8px;padding-top:8px;border-top:1px solid var(--sep)">✏️ ${nMovi} moviment${nMovi!==1?'i':'o'} — tocca per modificare <span id="${dId}_arr">▾</span></div>
+      <div id="${dId}" style="display:none;margin-top:6px"></div>` : ''}
     </div>`;
   }).join('');
 }
