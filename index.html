@@ -1592,6 +1592,12 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
 
   <!-- SEZIONE: STORICO -->
   <div id="pn-storico" class="pn-sec" style="display:none">
+    <!-- Riscansiona tutto lo storico: il motore automatico controlla solo i
+         NUOVI inserimenti (movimento o fattura appena salvati) — questo forza
+         il controllo anche su dati già esistenti prima che il motore fosse
+         costruito, o mai riprovati per qualunque motivo. -->
+    <button onclick="pnRiscansionaTutto()" style="width:100%;padding:11px;border:1.5px dashed var(--blue);border-radius:var(--radius-sm);background:var(--blue-light);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:var(--blue);margin-bottom:12px">🔄 Riprova riconciliazione su tutto lo storico</button>
+
     <!-- Movimenti in contanti non ancora riconciliati con nessuna fattura da
          più di 7 giorni — o li abbini a mano, o vuol dire che quella fattura
          non è mai arrivata (es. mai emessa, o mai importata dal cassetto). -->
@@ -17072,7 +17078,15 @@ function _pnFornSimile(nomeA, nomeB){
 // Direzione 1: è appena arrivata/importata una fattura (XML in blocco) →
 // cerca un movimento Prima Nota già registrato e non ancora collegato.
 async function pnTentaMatchPerFattura(fattura){
-  if(!fattura || fattura.pagamentoOrigine === 'manuale') return;
+  // "manuale" blocca il motore SOLO se quella scelta rifletteva un pagamento
+  // già avvenuto (stato pagata/parziale) — una fattura inserita a mano ma
+  // ancora "da pagare" ha un pagamento che è solo un'ipotesi futura, non un
+  // fatto: Prima Nota (che rappresenta un pagamento reale già avvenuto) deve
+  // poterla comunque aggiornare. Bug reale trovato da Valerio (fattura TIM
+  // 25,61€ dell'11/08, restava "da pagare" nonostante il movimento in Prima
+  // Nota corrispondesse in tutto).
+  if(!fattura) return;
+  if(fattura.pagamentoOrigine === 'manuale' && (fattura.stato==='pagata' || fattura.stato==='parziale')) return;
   if(!pnMovimenti || !pnMovimenti.length) await pnSyncCloud();
   const candidati = (pnMovimenti||[]).filter(m=>{
     if(m.categoria!=='spesa' || m.fatturaId) return false;
@@ -17088,7 +17102,7 @@ async function pnTentaMatchPerFattura(fattura){
 // le fatture già presenti (arrivate prima) quella corrispondente.
 async function pnTentaMatchFatturaPerMovimento(movimento){
   const candidati = (fatture||[]).filter(f=>{
-    if(f.pagamentoOrigine === 'manuale') return false;
+    if(f.pagamentoOrigine === 'manuale' && (f.stato==='pagata' || f.stato==='parziale')) return false;
     if((pnMovimenti||[]).some(m=>m.fatturaId===f.id)) return false; // già collegata
     if(Math.abs((f.importo||0) - (movimento.importo||0)) > 0.01) return false;
     if(!_pnFornSimile(f.fornitore, movimento.descrizione)) return false;
@@ -17106,6 +17120,15 @@ async function _pnEseguiMatch(movimento, fattura){
       fatture[idx].pagamento = 'contanti';
       fatture[idx].pagamentoOrigine = 'prima_nota';
       fatture[idx].pagamentoImpostatoIl = new Date().toISOString();
+      // BUG CORRETTO (22/08, segnalato da Valerio su fattura TIM 25,61€): il
+      // match agganciava il movimento e impostava pagamento='contanti', ma
+      // non toccava MAI lo stato — la fattura restava "da pagare" anche dopo
+      // un match riuscito. Ora, come una riconciliazione bancaria vera, porta
+      // la fattura a "pagata" con la data del movimento Prima Nota.
+      if(fatture[idx].stato !== 'pagata'){
+        fatture[idx].stato = 'pagata';
+        fatture[idx].dataPagamento = movimento.data || fatture[idx].data;
+      }
       const r = await dbUpdate(fatture[idx]);
       if(r && r[0] && typeof _updateCacheRow==='function') _updateCacheRow(r[0]);
     }
@@ -17113,6 +17136,7 @@ async function _pnEseguiMatch(movimento, fattura){
     if(mi>=0) pnMovimenti[mi].fatturaId = fattura.id;
     toast('✓ Riconciliato con Prima Nota: '+(fattura.fornitore||'')+' '+fmt(fattura.importo));
     if(typeof renderLista==='function') renderLista();
+    if(typeof aggiornaAlertBanner==='function') aggiornaAlertBanner();
     if(typeof pnRenderDaRiconciliare==='function') pnRenderDaRiconciliare();
   }catch(e){ console.warn('pnTentaMatch: errore aggancio', e.message||e); }
 }
@@ -17176,6 +17200,28 @@ async function pnConfermaAbbinaManuale(movId, fattId){
   const mo = document.getElementById('pnAbbinaMo'); if(mo) mo.remove();
   pnRenderDaRiconciliare();
   renderPnStorico();
+}
+
+// Il motore automatico controlla solo i NUOVI inserimenti (movimento appena
+// salvato in Prima Nota, o fattura appena arrivata via XML) — mai i dati già
+// esistenti prima di questa funzione, o rimasti orfani per qualunque motivo.
+// Questo riprova il match su TUTTI i movimenti spesa non ancora collegati,
+// uno per uno, così anche lo storico vecchio viene coperto.
+async function pnRiscansionaTutto(){
+  toast('⏳ Riscansiono lo storico...');
+  await pnSyncCloud();
+  const daProvare = (pnMovimenti||[]).filter(m=>m.categoria==='spesa' && !m.fatturaId);
+  let trovati = 0;
+  for(const m of daProvare){
+    const primaCollegati = (pnMovimenti||[]).filter(x=>x.fatturaId).length;
+    await pnTentaMatchFatturaPerMovimento(m);
+    const dopoCollegati = (pnMovimenti||[]).filter(x=>x.fatturaId).length;
+    if(dopoCollegati > primaCollegati) trovati++;
+  }
+  await pnSyncCloud();
+  renderPnStorico();
+  pnRenderDaRiconciliare();
+  toast(trovati>0 ? '✓ Riconciliati '+trovati+' movimenti su '+daProvare.length+' controllati' : 'Nessun nuovo abbinamento trovato su '+daProvare.length+' movimenti controllati');
 }
 
 // Salvataggio veloce: fornitore (facoltativo) + fonte (obbligatoria, scelta
