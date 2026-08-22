@@ -407,7 +407,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.43</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.44</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:14px">
     <button onclick="sincronizzaOra()" title="Sincronizza con Cloud" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;line-height:1">&#8635;</button>
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
@@ -17341,6 +17341,28 @@ async function pnSalvaVersamento(){
 async function pnEliminaMovimento(id){
   openMo('Elimina movimento', 'Eliminare questo movimento di Prima Nota?', async ()=>{
     closeMo();
+    // Se il movimento era collegato a una fattura E lo stato "pagata" era
+    // stato impostato dalla riconciliazione Prima Nota (non da una scelta
+    // manuale dell'utente), cancellare il movimento deve riportare la
+    // fattura a "da pagare" — altrimenti resta segnata pagata per un
+    // pagamento che, di fatto, non esiste più. Se invece l'utente aveva poi
+    // confermato/scelto il pagamento a mano (pagamentoOrigine='manuale'),
+    // quella scelta vince e non viene toccata (stesso principio di priorità
+    // usato ovunque in questo motore).
+    const m = (pnMovimenti||[]).find(x=>x.id===id);
+    if(m && m.fatturaId){
+      const idx = fatture.findIndex(f=>f.id===m.fatturaId);
+      if(idx>=0 && fatture[idx].pagamentoOrigine==='prima_nota'){
+        fatture[idx].stato = 'da_pagare';
+        fatture[idx].dataPagamento = '';
+        fatture[idx].pagamentoOrigine = '';
+        fatture[idx].pagamentoImpostatoIl = new Date().toISOString();
+        const r = await dbUpdate(fatture[idx]);
+        if(r && r[0] && typeof _updateCacheRow==='function') _updateCacheRow(r[0]);
+        if(typeof renderLista==='function') renderLista();
+        if(typeof aggiornaAlertBanner==='function') aggiornaAlertBanner();
+      }
+    }
     try{ await sbFetch('prima_nota_movimenti?id=eq.'+id, {method:'PATCH', headers:{...SB_H,'Prefer':'return=minimal'}, body:JSON.stringify({deleted_at:new Date().toISOString()})}); }catch(e){}
     await pnSyncCloud();
     await pnCaricaGiorno();
