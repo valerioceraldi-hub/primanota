@@ -1469,7 +1469,7 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
         <div>
           <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">🔵 SumUp <button onclick="pnScaricaSumUp()" style="border:none;background:none;color:var(--blue);font-size:10px;font-weight:700;cursor:pointer;padding:0">📥 Scarica</button></div>
-          <input type="text" id="pnPosSumUpInp" inputmode="decimal" placeholder="0,00" readonly oninput="pnRecalcGiorno()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right">
+          <input type="text" id="pnPosSumUpInp" inputmode="decimal" placeholder="0,00" oninput="pnRecalcGiorno()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right">
         </div>
         <div>
           <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">⚪ Numia (manuale)</div>
@@ -1489,9 +1489,8 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
     </div>
 
     <!-- Nuova spesa in contanti — inserimento veloce: fornitore con autocomplete,
-         fonte sempre esplicita (nessun default), tastierino numerico grande.
-         Niente più selettore fattura qui: la riconciliazione avviene dopo,
-         in automatico, quando arriva la fattura corrispondente. -->
+         fonte sempre esplicita (nessun default). L'importo si inserisce in un
+         overlay fisso (tastierino sempre in primo piano, mai da scrollare). -->
     <div style="background:var(--surface);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);margin-bottom:12px">
       <div style="font-size:15px;font-weight:700;margin-bottom:10px">➕ Nuova spesa in contanti</div>
 
@@ -1507,25 +1506,36 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
         <button class="pag-btn" id="pnfb-fondo" onclick="pnSetFonte('fondo')">💰 Dal fondo</button>
       </div>
 
-      <div style="text-align:center;font-size:34px;font-weight:800;padding:10px 0;color:var(--ink)">
-        € <span id="pnKeypadDisplay">0,00</span>
-      </div>
+      <button type="button" onclick="pnApriKeypad()" style="width:100%;text-align:center;font-size:30px;font-weight:800;padding:16px 0;color:var(--ink);background:var(--surface2);border:1.5px solid var(--sep);border-radius:10px;cursor:pointer">
+        € <span id="pnImportoAnteprima">0,00</span> <span style="font-size:16px;color:var(--ink3)">✏️</span>
+      </button>
+    </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
-        <button class="pag-btn" onclick="pnKeypadDigit('7')" style="font-size:20px;padding:16px 4px">7</button>
-        <button class="pag-btn" onclick="pnKeypadDigit('8')" style="font-size:20px;padding:16px 4px">8</button>
-        <button class="pag-btn" onclick="pnKeypadDigit('9')" style="font-size:20px;padding:16px 4px">9</button>
-        <button class="pag-btn" onclick="pnKeypadDigit('4')" style="font-size:20px;padding:16px 4px">4</button>
-        <button class="pag-btn" onclick="pnKeypadDigit('5')" style="font-size:20px;padding:16px 4px">5</button>
-        <button class="pag-btn" onclick="pnKeypadDigit('6')" style="font-size:20px;padding:16px 4px">6</button>
-        <button class="pag-btn" onclick="pnKeypadDigit('1')" style="font-size:20px;padding:16px 4px">1</button>
-        <button class="pag-btn" onclick="pnKeypadDigit('2')" style="font-size:20px;padding:16px 4px">2</button>
-        <button class="pag-btn" onclick="pnKeypadDigit('3')" style="font-size:20px;padding:16px 4px">3</button>
-        <button class="pag-btn" onclick="pnKeypadDigit('00')" style="font-size:18px;padding:16px 4px">00</button>
-        <button class="pag-btn" onclick="pnKeypadDigit('0')" style="font-size:20px;padding:16px 4px">0</button>
-        <button class="pag-btn" onclick="pnKeypadBackspace()" style="font-size:18px;padding:16px 4px">⌫</button>
+    <!-- Overlay tastierino: fisso su tutto lo schermo, sempre visibile senza scroll -->
+    <div id="pnKeypadOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:900;align-items:flex-end;justify-content:center">
+      <div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;padding:20px 20px calc(20px + env(safe-area-inset-bottom))">
+        <div style="text-align:center;font-size:38px;font-weight:800;margin-bottom:16px;color:var(--ink)">
+          € <span id="pnKeypadDisplay">0,00</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+          <button class="pag-btn" onclick="pnKeypadDigit('7')" style="font-size:22px;padding:18px 4px">7</button>
+          <button class="pag-btn" onclick="pnKeypadDigit('8')" style="font-size:22px;padding:18px 4px">8</button>
+          <button class="pag-btn" onclick="pnKeypadDigit('9')" style="font-size:22px;padding:18px 4px">9</button>
+          <button class="pag-btn" onclick="pnKeypadDigit('4')" style="font-size:22px;padding:18px 4px">4</button>
+          <button class="pag-btn" onclick="pnKeypadDigit('5')" style="font-size:22px;padding:18px 4px">5</button>
+          <button class="pag-btn" onclick="pnKeypadDigit('6')" style="font-size:22px;padding:18px 4px">6</button>
+          <button class="pag-btn" onclick="pnKeypadDigit('1')" style="font-size:22px;padding:18px 4px">1</button>
+          <button class="pag-btn" onclick="pnKeypadDigit('2')" style="font-size:22px;padding:18px 4px">2</button>
+          <button class="pag-btn" onclick="pnKeypadDigit('3')" style="font-size:22px;padding:18px 4px">3</button>
+          <button class="pag-btn" onclick="pnKeypadDigit('00')" style="font-size:19px;padding:18px 4px">00</button>
+          <button class="pag-btn" onclick="pnKeypadDigit('0')" style="font-size:22px;padding:18px 4px">0</button>
+          <button class="pag-btn" onclick="pnKeypadBackspace()" style="font-size:19px;padding:18px 4px">⌫</button>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button onclick="pnChiudiKeypad()" style="flex:1;padding:14px;border:1.5px solid var(--sep);border-radius:10px;background:var(--surface);font-size:15px;font-weight:600;cursor:pointer">Annulla</button>
+          <button class="btn btn-p" onclick="pnSalvaVeloce()" style="flex:2;font-size:17px;padding:14px">✓ Salva</button>
+        </div>
       </div>
-      <button class="btn btn-p" onclick="pnSalvaVeloce()" style="width:100%;font-size:17px;padding:14px">✓ Salva</button>
     </div>
 
     <!-- Versamento in banca — separato dalla riconciliazione estratto conto già
@@ -9156,30 +9166,39 @@ function _attivaAutocompleteFornitore(inputId){
   if(parent && getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
   var dd = document.createElement('div');
   dd.id = inputId+'_ac';
-  dd.style.cssText = 'position:absolute;left:0;right:0;z-index:500;background:var(--surface);border:1px solid var(--sep);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.15);max-height:180px;overflow-y:auto;display:none;margin-top:2px';
+  dd.style.cssText = 'position:absolute;left:0;right:0;z-index:700;background:var(--surface);border:1px solid var(--sep);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.15);max-height:180px;overflow-y:auto;display:none;margin-top:2px';
   parent.appendChild(dd);
 
+  function chiudi(){ dd.style.display='none'; }
   function render(){
     var v = inp.value.trim().toLowerCase();
-    if(!v){ dd.style.display='none'; return; }
+    if(!v){ chiudi(); return; }
     var match = (typeof fornitori!=='undefined'?fornitori:[]).filter(function(f){ return f.toLowerCase().indexOf(v)>=0; }).slice(0,6);
-    if(!match.length){ dd.style.display='none'; return; }
+    if(!match.length){ chiudi(); return; }
     dd.innerHTML = match.map(function(f){
-      return '<div class="ac-item" data-nome="'+esc(f)+'" style="padding:10px 13px;font-size:14px;border-bottom:1px solid var(--sep);cursor:pointer">'+esc(f)+'</div>';
+      return '<div class="ac-item" data-nome="'+esc(f)+'" style="padding:12px 13px;font-size:14px;border-bottom:1px solid var(--sep);cursor:pointer">'+esc(f)+'</div>';
     }).join('');
     dd.style.display = 'block';
   }
-  inp.addEventListener('input', render);
-  inp.addEventListener('focus', render);
-  inp.addEventListener('blur', function(){ setTimeout(function(){ dd.style.display='none'; }, 150); });
-  dd.addEventListener('mousedown', function(e){
+  function seleziona(e){
     e.preventDefault();
     var item = e.target.closest('.ac-item');
     if(!item) return;
     inp.value = item.getAttribute('data-nome');
-    dd.style.display = 'none';
+    chiudi();
     inp.dispatchEvent(new Event('input'));
-  });
+  }
+  inp.addEventListener('input', render);
+  inp.addEventListener('focus', render);
+  // Il tocco sull'elemento della lista chiude la tendina e riempie il campo —
+  // sia mousedown (desktop) sia touchstart (mobile), per affidabilità.
+  dd.addEventListener('mousedown', seleziona);
+  dd.addEventListener('touchstart', seleziona, {passive:false});
+  // Chiude anche toccando fuori dal campo e dalla tendina (non solo sul blur,
+  // che su alcuni tastierini mobili non scatta in modo affidabile).
+  document.addEventListener('mousedown', function(e){ if(e.target!==inp && !dd.contains(e.target)) chiudi(); });
+  document.addEventListener('touchstart', function(e){ if(e.target!==inp && !dd.contains(e.target)) chiudi(); }, {passive:true});
+  inp.addEventListener('blur', function(){ setTimeout(chiudi, 150); });
 }
 setTimeout(function(){
   ['mForn','rForn','eForn2','pnFornVeloce'].forEach(_attivaAutocompleteFornitore);
@@ -16505,6 +16524,9 @@ async function aprisemPrimaNota(){
   _pnFonte = '';
   await pnCaricaGiorno();
   pnAggiornaFondoHeader();
+  // In background, non blocca l'apertura della tab: aggiorna la cache degli
+  // scioperi ANM/EAV noti (solo quelli futuri pubblicati dalla fonte pubblica).
+  pnAggiornaScioperiNapoli();
 }
 
 async function pnSyncCloud(){
@@ -16540,16 +16562,21 @@ function pnAggiungiFornVeloce(){
   toast('✓ Fornitore aggiunto');
 }
 
-// ── Tastierino numerico veloce ──
+// ── Tastierino numerico veloce (overlay fisso, sempre in primo piano) ──
 let _pnKeypadCents = 0; // importo in centesimi, costruito cifra per cifra
 function pnKeypadReset(){
   _pnKeypadCents = 0;
   const el = document.getElementById('pnKeypadDisplay');
   if(el) el.textContent = '0,00';
+  const anteprima = document.getElementById('pnImportoAnteprima');
+  if(anteprima) anteprima.textContent = '0,00';
 }
 function _pnKeypadRender(){
+  const val = _fNum(_pnKeypadCents/100);
   const el = document.getElementById('pnKeypadDisplay');
-  if(el) el.textContent = _fNum(_pnKeypadCents/100);
+  if(el) el.textContent = val;
+  const anteprima = document.getElementById('pnImportoAnteprima');
+  if(anteprima) anteprima.textContent = val;
 }
 function pnKeypadDigit(d){
   // Limite di sicurezza: non oltre 999.999,99 (7 cifre + 2 decimali)
@@ -16565,6 +16592,14 @@ function pnKeypadBackspace(){
   _pnKeypadRender();
 }
 function pnKeypadValore(){ return _pnKeypadCents/100; }
+function pnApriKeypad(){
+  const ov = document.getElementById('pnKeypadOverlay');
+  if(ov) ov.style.display = 'flex';
+}
+function pnChiudiKeypad(){
+  const ov = document.getElementById('pnKeypadOverlay');
+  if(ov) ov.style.display = 'none';
+}
 
 // Menu a tendina per scegliere un fornitore già noto — usato dalla lista
 // fornitori del Registro. L'autocomplete a tendina (_attivaAutocompleteFornitore)
@@ -16699,6 +16734,7 @@ async function pnSalvaVeloce(){
     toast('⚠️ Salvataggio fallito: '+String(e.message||e).slice(0,50));
     return;
   }
+  pnChiudiKeypad();
   // Reset veloce, pronto per il movimento successivo
   document.getElementById('pnFornVeloce').value = '';
   document.getElementById('pnAggiungiFornBtn').style.display = 'none';
@@ -16909,9 +16945,72 @@ function pnRenderMovimentiGiorno(data){
       </div>
       <div style="text-align:right">
         <div style="font-size:15px;font-weight:700;color:var(--red)">−${fmt(m.importo)}</div>
-        <button onclick="pnEliminaMovimento(${m.id})" style="font-size:10px;color:var(--ink3);background:none;border:none;cursor:pointer;padding:2px 4px;margin-top:2px">🗑 Elimina</button>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:2px">
+          <button onclick="pnApriModifica(${m.id})" style="font-size:10px;color:var(--blue);background:none;border:none;cursor:pointer;padding:2px 4px">✏️ Modifica</button>
+          <button onclick="pnEliminaMovimento(${m.id})" style="font-size:10px;color:var(--ink3);background:none;border:none;cursor:pointer;padding:2px 4px">🗑 Elimina</button>
+        </div>
       </div>
     </div>`).join('');
+}
+
+// Modifica di un movimento già salvato: bottom sheet con fornitore/descrizione,
+// importo e fonte precompilati, PATCH al salvataggio.
+let _pnEditId = null, _pnEditFonte = null;
+function pnApriModifica(id){
+  const m = pnMovimenti.find(x=>x.id===id);
+  if(!m) return;
+  _pnEditId = id;
+  _pnEditFonte = m.fonte || 'cassetto';
+  const existing = document.getElementById('pnEditMo');
+  if(existing) existing.remove();
+  const mo = document.createElement('div');
+  mo.id = 'pnEditMo';
+  mo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:900;display:flex;align-items:flex-end;justify-content:center';
+  mo.innerHTML = `
+    <div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;padding:20px 20px calc(20px + env(safe-area-inset-bottom))">
+      <div style="font-size:17px;font-weight:700;margin-bottom:14px">Modifica movimento</div>
+      <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">Fornitore / descrizione</div>
+      <input type="text" id="pnEditDescInp" value="${esc(m.descrizione||'')}" style="width:100%;padding:12px;border:1.5px solid var(--sep);border-radius:8px;font-size:15px;background:var(--surface2);box-sizing:border-box;margin-bottom:10px">
+      <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">Importo €</div>
+      <input type="text" id="pnEditImportoInp" inputmode="decimal" value="${_fNum(m.importo)}" style="width:100%;padding:12px;border:1.5px solid var(--sep);border-radius:8px;font-size:15px;background:var(--surface2);box-sizing:border-box;margin-bottom:10px;text-align:right">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+        <button class="pag-btn ${m.fonte==='cassetto'?'sc':''}" id="pnEditFb-cassetto" onclick="pnSetEditFonte('cassetto')">💵 Da cassetto</button>
+        <button class="pag-btn ${m.fonte==='fondo'?'sc':''}" id="pnEditFb-fondo" onclick="pnSetEditFonte('fondo')">💰 Dal fondo</button>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="document.getElementById('pnEditMo').remove()" style="flex:1;padding:14px;border:1.5px solid var(--sep);border-radius:10px;background:var(--surface);font-size:15px;font-weight:600;cursor:pointer">Annulla</button>
+        <button class="btn btn-p" onclick="pnSalvaModifica()" style="flex:2;font-size:16px;padding:14px">💾 Salva modifiche</button>
+      </div>
+    </div>`;
+  document.body.appendChild(mo);
+}
+function pnSetEditFonte(f){
+  _pnEditFonte = f;
+  ['cassetto','fondo'].forEach(k=>{
+    const b = document.getElementById('pnEditFb-'+k);
+    if(b) b.className = 'pag-btn'+(k===f?' sc':'');
+  });
+}
+async function pnSalvaModifica(){
+  const importo = _pNum(gv('pnEditImportoInp'));
+  const descrizione = (gv('pnEditDescInp')||'').trim();
+  if(importo <= 0){ toast('⚠️ Inserisci un importo valido'); return; }
+  if(!_pnEditFonte){ toast('⚠️ Scegli cassetto o fondo'); return; }
+  try{
+    await sbFetch('prima_nota_movimenti?id=eq.'+_pnEditId, {
+      method:'PATCH', headers:{...SB_H,'Prefer':'return=minimal'},
+      body:JSON.stringify({importo, fonte:_pnEditFonte, descrizione: descrizione||null})
+    });
+    toast('✓ Movimento aggiornato');
+  }catch(e){
+    toast('⚠️ Salvataggio fallito: '+String(e.message||e).slice(0,50));
+    return;
+  }
+  const mo = document.getElementById('pnEditMo'); if(mo) mo.remove();
+  await pnSyncCloud();
+  await pnCaricaGiorno();
+  pnAggiornaFondoHeader();
+  renderPnStorico();
 }
 
 function setPnTab(t, btn){
@@ -16925,7 +17024,74 @@ function setPnTab(t, btn){
   if(t==='storico') renderPnStorico();
 }
 
-function renderPnStorico(){
+// Coordinate Piazza Carità, Napoli — usate per il meteo storico
+const PN_LAT = 40.8395, PN_LON = 14.2508;
+
+// Meteo storico (Open-Meteo, gratuito, senza chiave, copre qualunque data passata)
+async function pnFetchMeteo(dal, al){
+  try{
+    const url = 'https://archive-api.open-meteo.com/v1/archive?latitude='+PN_LAT+'&longitude='+PN_LON
+      + '&start_date='+dal+'&end_date='+al
+      + '&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=Europe%2FRome';
+    const resp = await fetch(url);
+    const json = await resp.json();
+    const out = {};
+    if(json.daily && json.daily.time){
+      json.daily.time.forEach((d,i)=>{
+        out[d] = { tmax: json.daily.temperature_2m_max[i], tmin: json.daily.temperature_2m_min[i], pioggia: json.daily.precipitation_sum[i] };
+      });
+    }
+    return out;
+  }catch(e){ console.warn('Meteo fallito:', e.message||e); return {}; }
+}
+
+// Scioperi ANM (metro/funicolare) ed EAV (Cumana/Circumflegrea/Circumvesuviana):
+// scarica le prossime date da un'API pubblica (MIT via alemendoza.dev) e le
+// salva in una tabella propria, così restano disponibili anche quando il
+// giorno diventa storico. LIMITE IMPORTANTE: quella fonte mostra solo gli
+// scioperi futuri al momento in cui vengono pubblicati — non un archivio
+// storico completo — quindi i giorni già passati PRIMA che questa funzione
+// iniziasse a girare non avranno mai questo dato. Da qui in avanti sì.
+async function pnAggiornaScioperiNapoli(){
+  try{
+    const resp = await fetch('https://scioperi.alemendoza.dev/api/v1/strikes');
+    const json = await resp.json();
+    const strikes = (json.strikes||[]).filter(s=>
+      s.region==='Campania' && /ANM|EAV|CUMANA|CIRCUMFLEGREA|CIRCUMVESUVIANA|METROPOLITAN/i.test(s.category||'')
+    );
+    const righe = [];
+    strikes.forEach(s=>{
+      const start = s.start_date_raw, end = s.end_date_raw||s.start_date_raw;
+      if(!start) return;
+      let d = new Date(start+'T12:00:00');
+      const endD = new Date(end+'T12:00:00');
+      let guard = 0;
+      while(d<=endD && guard<10){
+        righe.push({
+          data: d.toISOString().slice(0,10),
+          linea: /ANM/i.test(s.category) ? 'ANM (metro/funicolare)' : 'EAV (Cumana/Circumflegrea/Circumvesuviana)',
+          dettaglio: s.modality||'',
+          fonte_id: s.strike_id||null
+        });
+        d.setDate(d.getDate()+1); guard++;
+      }
+    });
+    if(righe.length){
+      await sbFetch('scioperi_napoli_trasporti', {method:'POST', headers:{...SB_H,'Prefer':'resolution=ignore-duplicates,return=minimal'}, body:JSON.stringify(righe)});
+    }
+  }catch(e){ console.warn('Sciopero sync fallito:', e.message||e); }
+}
+
+async function pnFetchScioperi(dal, al){
+  try{
+    const rows = await sbFetchAll('scioperi_napoli_trasporti?select=data,linea,dettaglio&data=gte.'+dal+'&data=lte.'+al);
+    const out = {};
+    (rows||[]).forEach(r=>{ (out[r.data] = out[r.data]||[]).push(r); });
+    return out;
+  }catch(e){ console.warn('Lettura scioperi fallita:', e.message||e); return {}; }
+}
+
+async function renderPnStorico(){
   const el = document.getElementById('pnStoricoEl');
   if(!el) return;
   let dal = gv('pnStorDal'), al = gv('pnStorAl');
@@ -16941,9 +17107,18 @@ function renderPnStorico(){
   const { perGiorno } = pnCalcolaFondo(al || null);
   const giorni = Object.keys(perGiorno).filter(d => (!dal || d>=dal) && (!al || d<=al)).sort().reverse();
   if(!giorni.length){ el.innerHTML = '<div style="text-align:center;color:var(--ink3);padding:20px;font-size:13px">Nessun dato nel periodo selezionato</div>'; return; }
+  el.innerHTML = '<div style="text-align:center;color:var(--ink3);padding:14px;font-size:12px">⏳ Carico meteo e scioperi...</div>';
+  const [meteo, scioperi] = await Promise.all([
+    pnFetchMeteo(giorni[giorni.length-1], giorni[0]),
+    pnFetchScioperi(giorni[giorni.length-1], giorni[0])
+  ]);
   el.innerHTML = giorni.map(d=>{
     const g = perGiorno[d];
     const label = new Date(d+'T12:00:00').toLocaleDateString('it-IT',{weekday:'short',day:'2-digit',month:'short'});
+    const m = meteo[d];
+    const meteoTxt = m ? `🌡️ ${Math.round(m.tmin)}–${Math.round(m.tmax)}°C · 🌧️ ${m.pioggia||0}mm` : '';
+    const sc = scioperi[d];
+    const scioperoTxt = sc && sc.length ? sc.map(s=>`🚨 Sciopero ${esc(s.linea)}`).join(' · ') : '';
     return `<div style="background:var(--surface);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:8px;box-shadow:var(--shadow)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <span style="font-size:13px;font-weight:700">${label}</span>
@@ -16953,6 +17128,7 @@ function renderPnStorico(){
         <span>Cassetto: ${fmt(g.speseCassetto)} · Fondo: ${fmt(g.speseFondo)}</span>
         <span>Fondo fine giorno: ${fmt(g.fondoFineGiorno)}</span>
       </div>
+      ${meteoTxt || scioperoTxt ? `<div style="font-size:11px;color:var(--ink3);margin-top:6px;padding-top:6px;border-top:1px solid var(--sep);display:flex;flex-wrap:wrap;gap:8px">${meteoTxt?`<span>${meteoTxt}</span>`:''}${scioperoTxt?`<span style="color:#c0392b;font-weight:600">${scioperoTxt}</span>`:''}</div>` : ''}
     </div>`;
   }).join('');
 }
