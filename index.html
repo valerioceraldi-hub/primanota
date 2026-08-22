@@ -527,7 +527,7 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
 ._dc-row:not(._dc-exp) ._dc-full{display:none !important}
 </style>
 
-<!-- BANNER SCADUTE -->
+<!-- BANNER SCADUTE (usato anche per "Primo caricamento dal Cloud...") -->
 <div style="padding:0 16px">
 <div class="alert-banner" id="alertBanner" onclick="_heroClickFiltro('scadute')">
   <span class="alert-banner-ico">&#9888;</span>
@@ -576,47 +576,97 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
     </div>
   </div>
 
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-    <p class="sec-title" style="margin:0;font-size:13px;font-weight:600;color:var(--ink3);text-transform:uppercase;letter-spacing:.4px">Registra fattura</p>
+  <!-- ➕ Nuova spesa in contanti — Prima Nota veloce, sempre visibile in prima
+       pagina. Fonte sempre esplicita (nessun default). L'importo si inserisce
+       in un overlay fisso (tastierino sempre in primo piano, mai da scrollare). -->
+  <div style="background:var(--surface);border-radius:16px;padding:14px;box-shadow:var(--shadow);margin-bottom:14px">
+    <div style="font-size:13px;font-weight:700;margin-bottom:8px;color:var(--ink3);text-transform:uppercase;letter-spacing:.4px">➕ Nuova spesa in contanti</div>
+
+    <div style="margin-bottom:4px;position:relative">
+      <input type="text" id="pnFornVeloce" placeholder="Fornitore o negozio" inputmode="text" autocomplete="off" autocorrect="off" autocapitalize="words" oninput="pnCheckFornNuovo()" style="width:100%;padding:10px 12px;border:1.5px solid var(--sep);border-radius:10px;font-size:14px;background:var(--surface2);box-sizing:border-box">
+    </div>
+    <div id="pnAggiungiFornBtn" style="display:none;margin-bottom:8px">
+      <button type="button" onclick="pnAggiungiFornVeloce()" style="border:none;background:none;color:var(--blue);font-size:11px;font-weight:700;cursor:pointer;padding:2px 0">➕ Aggiungi ai fornitori</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0">
+      <button class="pag-btn" id="pnfb-cassetto" onclick="pnSetFonte('cassetto')" style="padding:9px 4px;font-size:13px">💵 Cassetto</button>
+      <button class="pag-btn" id="pnfb-fondo" onclick="pnSetFonte('fondo')" style="padding:9px 4px;font-size:13px">💰 Fondo</button>
+    </div>
+
+    <button type="button" onclick="pnApriKeypad()" style="width:100%;text-align:center;font-size:24px;font-weight:800;padding:12px 0;color:var(--ink);background:var(--surface2);border:1.5px solid var(--sep);border-radius:10px;cursor:pointer">
+      € <span id="pnImportoAnteprima">0,00</span> <span style="font-size:14px;color:var(--ink3)">✏️</span>
+    </button>
+  </div>
+
+  <!-- Overlay tastierino: fisso su tutto lo schermo, sempre visibile senza scroll -->
+  <div id="pnKeypadOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:900;align-items:flex-end;justify-content:center">
+    <div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;padding:20px 20px calc(20px + env(safe-area-inset-bottom))">
+      <div style="text-align:center;font-size:38px;font-weight:800;margin-bottom:16px;color:var(--ink)">
+        € <span id="pnKeypadDisplay">0,00</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+        <button class="pag-btn" onclick="pnKeypadDigit('7')" style="font-size:22px;padding:18px 4px">7</button>
+        <button class="pag-btn" onclick="pnKeypadDigit('8')" style="font-size:22px;padding:18px 4px">8</button>
+        <button class="pag-btn" onclick="pnKeypadDigit('9')" style="font-size:22px;padding:18px 4px">9</button>
+        <button class="pag-btn" onclick="pnKeypadDigit('4')" style="font-size:22px;padding:18px 4px">4</button>
+        <button class="pag-btn" onclick="pnKeypadDigit('5')" style="font-size:22px;padding:18px 4px">5</button>
+        <button class="pag-btn" onclick="pnKeypadDigit('6')" style="font-size:22px;padding:18px 4px">6</button>
+        <button class="pag-btn" onclick="pnKeypadDigit('1')" style="font-size:22px;padding:18px 4px">1</button>
+        <button class="pag-btn" onclick="pnKeypadDigit('2')" style="font-size:22px;padding:18px 4px">2</button>
+        <button class="pag-btn" onclick="pnKeypadDigit('3')" style="font-size:22px;padding:18px 4px">3</button>
+        <button class="pag-btn" onclick="pnKeypadDigit('00')" style="font-size:19px;padding:18px 4px">00</button>
+        <button class="pag-btn" onclick="pnKeypadDigit('0')" style="font-size:22px;padding:18px 4px">0</button>
+        <button class="pag-btn" onclick="pnKeypadBackspace()" style="font-size:19px;padding:18px 4px">⌫</button>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="pnChiudiKeypad()" style="flex:1;padding:14px;border:1.5px solid var(--sep);border-radius:10px;background:var(--surface);font-size:15px;font-weight:600;cursor:pointer">Annulla</button>
+        <button class="btn btn-p" onclick="pnSalvaVeloce()" style="flex:2;font-size:17px;padding:14px">✓ Salva</button>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+    <p class="sec-title" style="margin:0;font-size:12px;font-weight:600;color:var(--ink3);text-transform:uppercase;letter-spacing:.4px">Registra fattura</p>
     <span id="aiBadge" style="display:none;align-items:center;gap:4px;background:var(--green-light);color:#1a7a3a;border-radius:99px;padding:4px 10px;font-size:11px;font-weight:600">&#129504; IA addestrata</span>
   </div>
 
-  <!-- Griglia 2x2 pulsanti — come foto originale -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+  <!-- Griglia 2x2 pulsanti — versione compatta -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
     <!-- Fotocamera -->
-    <div class="upload-area" style="padding:18px 10px;position:relative;cursor:pointer;border-radius:var(--radius)" onclick="apriCamera()">
-      <span class="upload-icon" style="font-size:28px">&#128247;</span>
-      <h3 style="font-size:14px;font-weight:700;margin-bottom:2px">Fotocamera</h3>
-      <p style="font-size:11px;color:var(--ink3)">Con guida AI</p>
+    <div class="upload-area" style="padding:11px 8px;position:relative;cursor:pointer;border-radius:14px" onclick="apriCamera()">
+      <span class="upload-icon" style="font-size:21px">&#128247;</span>
+      <h3 style="font-size:12.5px;font-weight:700;margin-bottom:1px">Fotocamera</h3>
+      <p style="font-size:10px;color:var(--ink3)">Con guida AI</p>
     </div>
     <!-- Galleria -->
-    <div class="upload-area" style="padding:18px 10px;position:relative;border-radius:var(--radius)">
+    <div class="upload-area" style="padding:11px 8px;position:relative;border-radius:14px">
       <input type="file" id="fileInput" accept="image/*" onchange="onFileSelected(this)">
-      <span class="upload-icon" style="font-size:28px">&#128444;&#65039;</span>
-      <h3 style="font-size:14px;font-weight:700;margin-bottom:2px">Galleria</h3>
-      <p style="font-size:11px;color:var(--ink3)">JPG · PNG</p>
+      <span class="upload-icon" style="font-size:21px">&#128444;&#65039;</span>
+      <h3 style="font-size:12.5px;font-weight:700;margin-bottom:1px">Galleria</h3>
+      <p style="font-size:10px;color:var(--ink3)">JPG · PNG</p>
     </div>
     <!-- File PDF/XML -->
-    <div class="upload-area" style="padding:18px 10px;position:relative;border-radius:var(--radius)">
+    <div class="upload-area" style="padding:11px 8px;position:relative;border-radius:14px">
       <input type="file" id="fileInputDoc" accept=".pdf,.xml,application/pdf,text/xml,application/xml" onchange="onDocumentoSelected(this)">
-      <span class="upload-icon" style="font-size:28px">&#128196;</span>
-      <h3 style="font-size:14px;font-weight:700;margin-bottom:2px">File</h3>
-      <p style="font-size:11px;color:var(--ink3)">PDF · XML</p>
+      <span class="upload-icon" style="font-size:21px">&#128196;</span>
+      <h3 style="font-size:12.5px;font-weight:700;margin-bottom:1px">File</h3>
+      <p style="font-size:10px;color:var(--ink3)">PDF · XML</p>
     </div>
     <!-- Manuale -->
-    <div class="upload-area" style="padding:18px 10px;position:relative;cursor:pointer;border-radius:var(--radius)" onclick="toggleManuale()">
-      <span class="upload-icon" style="font-size:28px">&#9998;&#65039;</span>
-      <h3 style="font-size:14px;font-weight:700;margin-bottom:2px">Manuale</h3>
-      <p style="font-size:11px;color:var(--ink3)">Inserimento diretto</p>
+    <div class="upload-area" style="padding:11px 8px;position:relative;cursor:pointer;border-radius:14px" onclick="toggleManuale()">
+      <span class="upload-icon" style="font-size:21px">&#9998;&#65039;</span>
+      <h3 style="font-size:12.5px;font-weight:700;margin-bottom:1px">Manuale</h3>
+      <p style="font-size:10px;color:var(--ink3)">Inserimento diretto</p>
     </div>
   </div>
   <!-- Badge file selezionato -->
   <!-- Input nascosto per import massivo XML -->
   <input type="file" id="inputBulkXml" accept=".xml,.p7m,text/xml,application/xml" multiple style="display:none" onchange="importaMassivoXml(this)">
 
-  <!-- Bottone import massivo -->
-  <button onclick="document.getElementById('inputBulkXml').click()" style="width:100%;padding:13px;border:1.5px dashed var(--blue);border-radius:var(--radius-sm);background:var(--blue-light);font-family:'Inter',-apple-system,sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:var(--blue);margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:8px">
-    <span style="font-size:20px">📥</span> Importa più fatture XML
+  <!-- Bottone import massivo — discreto, subito sotto la griglia -->
+  <button onclick="document.getElementById('inputBulkXml').click()" style="width:100%;padding:9px;border:1px dashed var(--sep);border-radius:10px;background:transparent;font-family:'Inter',-apple-system,sans-serif;font-size:12px;font-weight:600;cursor:pointer;color:var(--ink3);margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:6px">
+    <span style="font-size:14px">📥</span> Importa più fatture XML
   </button>
   <!-- Progress import massivo -->
   <div id="bulkXmlProgress" style="display:none;background:var(--surface);border-radius:var(--radius-sm);padding:14px;margin-bottom:12px;box-shadow:var(--shadow)">
@@ -1450,56 +1500,6 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
 
   <!-- SEZIONE: GIORNO -->
   <div id="pn-giorno" class="pn-sec">
-
-    <!-- Nuova spesa in contanti — inserimento veloce: fornitore con autocomplete,
-         fonte sempre esplicita (nessun default). L'importo si inserisce in un
-         overlay fisso (tastierino sempre in primo piano, mai da scrollare). -->
-    <div style="background:var(--surface);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);margin-bottom:12px">
-      <div style="font-size:15px;font-weight:700;margin-bottom:10px">➕ Nuova spesa in contanti</div>
-
-      <div style="margin-bottom:4px;position:relative">
-        <input type="text" id="pnFornVeloce" placeholder="Fornitore o negozio" inputmode="text" autocomplete="off" autocorrect="off" autocapitalize="words" oninput="pnCheckFornNuovo()" style="width:100%;padding:12px;border:1.5px solid var(--sep);border-radius:8px;font-size:15px;background:var(--surface2);box-sizing:border-box">
-      </div>
-      <div id="pnAggiungiFornBtn" style="display:none;margin-bottom:10px">
-        <button type="button" onclick="pnAggiungiFornVeloce()" style="border:none;background:none;color:var(--blue);font-size:12px;font-weight:700;cursor:pointer;padding:2px 0">➕ Aggiungi ai fornitori</button>
-      </div>
-
-      <div id="pnFonteRow" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0">
-        <button class="pag-btn" id="pnfb-cassetto" onclick="pnSetFonte('cassetto')">💵 Da cassetto</button>
-        <button class="pag-btn" id="pnfb-fondo" onclick="pnSetFonte('fondo')">💰 Dal fondo</button>
-      </div>
-
-      <button type="button" onclick="pnApriKeypad()" style="width:100%;text-align:center;font-size:30px;font-weight:800;padding:16px 0;color:var(--ink);background:var(--surface2);border:1.5px solid var(--sep);border-radius:10px;cursor:pointer">
-        € <span id="pnImportoAnteprima">0,00</span> <span style="font-size:16px;color:var(--ink3)">✏️</span>
-      </button>
-    </div>
-
-    <!-- Overlay tastierino: fisso su tutto lo schermo, sempre visibile senza scroll -->
-    <div id="pnKeypadOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:900;align-items:flex-end;justify-content:center">
-      <div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;padding:20px 20px calc(20px + env(safe-area-inset-bottom))">
-        <div style="text-align:center;font-size:38px;font-weight:800;margin-bottom:16px;color:var(--ink)">
-          € <span id="pnKeypadDisplay">0,00</span>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
-          <button class="pag-btn" onclick="pnKeypadDigit('7')" style="font-size:22px;padding:18px 4px">7</button>
-          <button class="pag-btn" onclick="pnKeypadDigit('8')" style="font-size:22px;padding:18px 4px">8</button>
-          <button class="pag-btn" onclick="pnKeypadDigit('9')" style="font-size:22px;padding:18px 4px">9</button>
-          <button class="pag-btn" onclick="pnKeypadDigit('4')" style="font-size:22px;padding:18px 4px">4</button>
-          <button class="pag-btn" onclick="pnKeypadDigit('5')" style="font-size:22px;padding:18px 4px">5</button>
-          <button class="pag-btn" onclick="pnKeypadDigit('6')" style="font-size:22px;padding:18px 4px">6</button>
-          <button class="pag-btn" onclick="pnKeypadDigit('1')" style="font-size:22px;padding:18px 4px">1</button>
-          <button class="pag-btn" onclick="pnKeypadDigit('2')" style="font-size:22px;padding:18px 4px">2</button>
-          <button class="pag-btn" onclick="pnKeypadDigit('3')" style="font-size:22px;padding:18px 4px">3</button>
-          <button class="pag-btn" onclick="pnKeypadDigit('00')" style="font-size:19px;padding:18px 4px">00</button>
-          <button class="pag-btn" onclick="pnKeypadDigit('0')" style="font-size:22px;padding:18px 4px">0</button>
-          <button class="pag-btn" onclick="pnKeypadBackspace()" style="font-size:19px;padding:18px 4px">⌫</button>
-        </div>
-        <div style="display:flex;gap:8px">
-          <button onclick="pnChiudiKeypad()" style="flex:1;padding:14px;border:1.5px solid var(--sep);border-radius:10px;background:var(--surface);font-size:15px;font-weight:600;cursor:pointer">Annulla</button>
-          <button class="btn btn-p" onclick="pnSalvaVeloce()" style="flex:2;font-size:17px;padding:14px">✓ Salva</button>
-        </div>
-      </div>
-    </div>
 
     <!-- Movimenti del giorno -->
     <div id="pnMoviListaEl"></div>
@@ -8122,24 +8122,13 @@ async function apriXmlFoto(id){
 }
 
 // ── ALERT BANNER SCADUTE + BADGE TAB ──
+// Disattivato su richiesta (21/08): non mostra più il banner rosso "fatture
+// scadute non pagate" in prima pagina. Il banner stesso resta nel DOM invariato
+// (usato anche per "Primo caricamento dal Cloud...", che non è toccato da qui).
 function aggiornaAlertBanner(){
-  const oggi2=new Date(); oggi2.setHours(0,0,0,0);
-  const scadute=fatture.filter(f=>{
-    const st=f.stato||'pagata';
-    if(st==='pagata') return false;
-    if(!f.scadenza) return false;
-    return new Date(f.scadenza+'T12:00:00')<oggi2;
-  });
-  const incomplete=fatture.filter(f=>f.incompleta&&f.incompleta.length>0);
   const banner=document.getElementById('alertBanner');
-  const txt=document.getElementById('alertBannerTxt');
   if(!banner) return;
-  if(scadute.length>0){
-    banner.classList.add('on');
-    txt.textContent=scadute.length+(scadute.length>1?' fatture scadute':' fattura scaduta')+' non pagat'+(scadute.length>1?'e':'a');
-  } else {
-    banner.classList.remove('on');
-  }
+  banner.classList.remove('on');
 }
 
 
@@ -16508,7 +16497,7 @@ var _incTabGroup = {
 
 let pnConteggi = [];   // {id, data, contantiContati, pos, note}
 let pnMovimenti = [];  // {id, data, categoria, importo, fonte, descrizione, fatturaId, origineEsterna}
-let _pnFonte = 'cassetto';
+let _pnFonte = ''; // richiede sempre una scelta esplicita, mai un default
 let _pnTabAttivo = 'giorno';
 
 function _pnOggi(){ return new Date().toISOString().slice(0,10); }
@@ -16519,10 +16508,6 @@ async function aprisemPrimaNota(){
   if(dIn && !dIn.value) dIn.value = _pnOggi();
   if(vdIn && !vdIn.value) vdIn.value = _pnOggi();
   await pnSyncCloud();
-  _attivaAutocompleteFornitore('pnFornVeloce');
-  pnKeypadReset();
-  ['cassetto','fondo'].forEach(k=>{ const b=document.getElementById('pnfb-'+k); if(b) b.className='pag-btn'; });
-  _pnFonte = '';
   await pnCaricaGiorno();
   pnAggiornaFondoHeader();
   // In background, non blocca l'apertura della tab: aggiorna la cache degli
