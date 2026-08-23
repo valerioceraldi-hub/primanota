@@ -407,7 +407,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.53</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.54</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:14px">
     <button onclick="sincronizzaOra()" title="Sincronizza con Cloud" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;line-height:1">&#8635;</button>
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
@@ -577,7 +577,7 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
   <!-- ➕ Nuova spesa in contanti — Prima Nota veloce, sempre visibile in prima
        pagina. Fonte sempre esplicita (nessun default). L'importo si inserisce
        in un overlay fisso (tastierino sempre in primo piano, mai da scrollare). -->
-  <div style="background:var(--surface);border-radius:16px;padding:14px;box-shadow:var(--shadow);margin-bottom:14px">
+  <div style="background:var(--surface);border-radius:16px;padding:14px;box-shadow:var(--shadow);margin-bottom:14px;border:2.5px solid var(--blue)">
     <div style="font-size:13px;font-weight:700;margin-bottom:8px;color:var(--ink3);text-transform:uppercase;letter-spacing:.4px">➕ Nuova spesa in contanti</div>
 
     <div style="margin-bottom:4px;position:relative">
@@ -1084,6 +1084,11 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
         <div>
           <div style="font-size:16px;font-weight:700">Chiusura giornaliera</div>
           <div style="font-size:12px;color:var(--ink3);margin-top:2px" id="chgData">—</div>
+          <!-- Riga compatta con meteo/scioperi/totale Prima Nota di quel
+               giorno (23/08, richiesta esplicita): un'unica riga, non un
+               blocco esteso — se vuoi vedere di più, tocchi per aprire. -->
+          <div id="chgInfoCompatta" style="font-size:11px;color:var(--ink3);margin-top:4px;cursor:pointer" onclick="_chgToggleInfoEstesa()"></div>
+          <div id="chgInfoEstesa" style="display:none;font-size:11px;color:var(--ink3);margin-top:4px;background:var(--surface2);border-radius:8px;padding:8px 10px"></div>
         </div>
         <input type="date" id="chgDataInp" onchange="caricaChiusuraGiorno()" style="padding:8px 10px;border:1.5px solid var(--sep);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface);-webkit-appearance:none">
       </div>
@@ -10257,6 +10262,47 @@ async function caricaChiusuraGiorno(){
   }
   _chgRecalc();
   _renderPosDetails(data);
+  _chgAggiornaInfoCompatta(data);
+}
+
+// Riga compatta sotto la data: meteo + sciopero (se c'è) + totale Prima Nota
+// di quel giorno — tutto in una riga sola per non appesantire la lettura;
+// tocco per espandere se serve vedere il dettaglio di Prima Nota (cassetto/
+// fondo/movimenti), invece di duplicare tutto qui sempre aperto.
+async function _chgAggiornaInfoCompatta(data){
+  const elC = document.getElementById('chgInfoCompatta');
+  const elE = document.getElementById('chgInfoEstesa');
+  if(!elC || !elE) return;
+  elC.textContent = '⏳ Carico...';
+  elE.style.display = 'none';
+  elE.innerHTML = '';
+  try{
+    const [meteo, scioperi] = await Promise.all([
+      (typeof pnFetchMeteo==='function' ? pnFetchMeteo(data, data) : {}),
+      (typeof pnFetchScioperi==='function' ? pnFetchScioperi(data, data) : {})
+    ]);
+    const m = meteo && meteo[data];
+    const sc = scioperi && scioperi[data];
+    const { perGiorno } = (typeof pnCalcolaFondo==='function') ? pnCalcolaFondo(data) : {perGiorno:{}};
+    const g = perGiorno && perGiorno[data];
+    const parti = [];
+    if(g) parti.push('📒 Prima Nota: '+fmt(g.contanteReale + g.pos));
+    if(m) parti.push('🌡️ '+Math.round(m.tmin)+'–'+Math.round(m.tmax)+'°C');
+    if(sc && sc.length) parti.push('🚨 sciopero');
+    elC.innerHTML = parti.length ? parti.join(' · ')+' <span style="color:var(--blue)">›</span>' : '';
+    // Dettaglio esteso, mostrato solo al tocco
+    const righeEstese = [];
+    if(g) righeEstese.push('📒 Prima Nota — cassetto: '+fmt(g.speseCassetto)+' · fondo: '+fmt(g.speseFondo)+' · fondo fine giorno: '+fmt(g.fondoFineGiorno));
+    if(m) righeEstese.push('🌡️ Meteo: '+Math.round(m.tmin)+'–'+Math.round(m.tmax)+'°C · 🌧️ '+(m.pioggia||0)+'mm');
+    if(sc && sc.length) sc.forEach(s=>righeEstese.push('🚨 '+esc(s.linea)+(s.dettaglio?' — '+esc(s.dettaglio):'')));
+    elE.innerHTML = righeEstese.length ? righeEstese.map(r=>'<div style="margin-bottom:3px">'+r+'</div>').join('') : '<div>Nessun dato aggiuntivo per questo giorno</div>';
+  }catch(e){
+    elC.textContent = '';
+  }
+}
+function _chgToggleInfoEstesa(){
+  const elE = document.getElementById('chgInfoEstesa');
+  if(elE) elE.style.display = elE.style.display==='none' ? '' : 'none';
 }
 
 function _renderPosDetails(data){
@@ -10792,6 +10838,15 @@ function renderIncLista(){
     const totNumiaSolo = _incassiGiorno.filter(function(x){return x.source==='numia';}).reduce(function(s,x){return s+(x.importo||0);},0);
     const totSumupSolo = _incassiGiorno.filter(function(x){return x.source==='sumup';}).reduce(function(s,x){return s+(x.importo||0);},0);
     const totNumiaCard = totNumiaSolo + totSumupSolo;
+    // FIX (23/08, richiesta esplicita): quando c'è dato SOLO da una fonte
+    // (es. solo SumUp riconciliato, Numia non ancora caricato per quel
+    // giorno) il totale veniva mostrato come se fosse completo — sembrava
+    // un vero "Estratto carta POS" e uno scostamento contro i Pagamenti
+    // elettronici sembrava un problema reale, quando in realtà mancava
+    // semplicemente un pezzo di dato. Ora, quando manca una delle due
+    // fonti, lo dice esplicitamente invece di lasciare intuire.
+    const soloUnaFonte = (totNumiaSolo>0) !== (totSumupSolo>0); // XOR: esattamente una delle due, non zero né entrambe
+    const fonteMancante = totNumiaSolo>0 ? 'Numia' : (totSumupSolo>0 ? 'SumUp' : null);
     // Riga in linea con "Pagamenti elettronici": qui confrontiamo col CSV Numia
     // (non con la banca) — stessa logica del riepilogo mensile/annuale. L'estratto
     // conto banca riconcilia SEPARATAMENTE contro Numia nel blocco sottostante.
@@ -10802,9 +10857,10 @@ function renderIncLista(){
          <tr><td style="padding:2px 0;color:var(--ink3);padding-left:12px;font-size:12px">· SumUp</td><td style="padding:2px 0;text-align:right;font-size:12px;color:var(--ink3)">${fmt(totSumupSolo)}</td></tr>`
       : '';
     const rigaPosBanca = totNumiaCard > 0 ? `
-      <tr><td style="padding:5px 0;color:#0066cc">💳 Estratto carta POS</td><td style="padding:5px 0;text-align:right;color:#0066cc">${fmt(totNumiaCard)} ${coincide?'✅':''}</td></tr>
+      <tr><td style="padding:5px 0;color:#0066cc">💳 Estratto carta POS${soloUnaFonte?` <span style="background:#fff3cd;color:#856404;padding:1px 7px;border-radius:99px;font-weight:700;font-size:10px">⚠️ solo ${fonteMancante}</span>`:''}</td><td style="padding:5px 0;text-align:right;color:#0066cc">${fmt(totNumiaCard)} ${(coincide && !soloUnaFonte)?'✅':''}</td></tr>
       ${_righeFontiPOS}
-      ${coincide ? '' : `<tr><td style="padding:5px 0;color:${scostPOS<0?'var(--red)':'#b36a00'};padding-left:12px">· Differenza vs Pagamenti elettronici</td><td style="padding:5px 0;text-align:right;font-weight:600;color:${scostPOS<0?'var(--red)':'#b36a00'}">${scostPOS>=0?'+':''}${fmt(scostPOS)}</td></tr>`}`
+      ${soloUnaFonte ? `<tr><td colspan="2" style="padding:2px 0 5px;font-size:11px;color:#856404">Manca ancora ${fonteMancante==='Numia'?'import CSV Numia':'sincronizzazione SumUp'} per questo giorno — il confronto sotto non è affidabile finché non arriva anche quel dato.</td></tr>` : ''}
+      ${(coincide || soloUnaFonte) ? '' : `<tr><td style="padding:5px 0;color:${scostPOS<0?'var(--red)':'#b36a00'};padding-left:12px">· Differenza vs Pagamenti elettronici</td><td style="padding:5px 0;text-align:right;font-weight:600;color:${scostPOS<0?'var(--red)':'#b36a00'}">${scostPOS>=0?'+':''}${fmt(scostPOS)}</td></tr>`}`
       : (posBanca > 0 ? `<tr><td style="padding:5px 0;color:#0066cc">🏦 Estratto conto banca</td><td style="padding:5px 0;text-align:right;color:#0066cc">${fmt(posBanca)}</td></tr>` : '');
     const scostBancaNumia = (posBanca > 0 && totNumiaCard > 0) ? Math.round((posBanca - totNumiaCard)*100)/100 : null;
     const coincideBancaNumia = scostBancaNumia !== null && Math.abs(scostBancaNumia) < 0.50;
@@ -10814,7 +10870,9 @@ function renderIncLista(){
       <tr><td style="padding:5px 0;color:var(--ink2);font-weight:600">🔄 Banca vs estratto carta POS</td><td></td></tr>
       <tr><td style="padding:5px 0;color:var(--ink3);padding-left:12px">· Estratto conto banca</td><td style="padding:5px 0;text-align:right">${fmt(posBanca)}</td></tr>
       <tr><td colspan="2" style="text-align:center;padding:6px 0">
-        ${coincideBancaNumia
+        ${soloUnaFonte
+          ? `<span style="background:#fff3cd;color:#856404;padding:3px 10px;border-radius:99px;font-weight:700;font-size:12px">⚠️ dato parziale — manca ${fonteMancante}</span>`
+          : coincideBancaNumia
           ? '<span style="background:var(--green-light);color:#1a7a3a;padding:3px 10px;border-radius:99px;font-weight:700;font-size:12px">✓ Riconciliato</span>'
           : `<span style="background:var(--red-light);color:var(--red);padding:3px 10px;border-radius:99px;font-weight:700;font-size:12px">⚠️ Scostamento ${fmt(Math.abs(scostBancaNumia))}</span>`}
       </td></tr>` : '';
@@ -10851,7 +10909,7 @@ function renderIncLista(){
       <!-- Riga riassuntiva (tap per espandere) -->
       <div onclick="toggleChiusuraDetail('${detailId}')" style="padding:12px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
         <div style="flex:1;min-width:0">
-          <div style="font-size:13px;font-weight:600">${dataLabel} ${c.pos_riconciliata?(nonQuadraBancaNumia?'<span style="font-size:10px;background:var(--red-light);color:var(--red);padding:2px 6px;border-radius:99px;font-weight:700;margin-left:4px">🏦 Riconciliata ⚠️</span>':'<span style="font-size:10px;background:var(--blue-light);color:var(--blue);padding:2px 6px;border-radius:99px;font-weight:700;margin-left:4px">🏦 Riconciliata</span>'):''}</div>
+          <div style="font-size:13px;font-weight:600">${dataLabel} ${c.pos_riconciliata?(soloUnaFonte?`<span style="font-size:10px;background:#fff3cd;color:#856404;padding:2px 6px;border-radius:99px;font-weight:700;margin-left:4px">🏦 solo ${fonteMancante}</span>`:nonQuadraBancaNumia?'<span style="font-size:10px;background:var(--red-light);color:var(--red);padding:2px 6px;border-radius:99px;font-weight:700;margin-left:4px">🏦 Riconciliata ⚠️</span>':'<span style="font-size:10px;background:var(--blue-light);color:var(--blue);padding:2px 6px;border-radius:99px;font-weight:700;margin-left:4px">🏦 Riconciliata</span>'):''}</div>
           <div style="font-size:11px;color:var(--ink3);margin-top:2px">${sintesi}</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
