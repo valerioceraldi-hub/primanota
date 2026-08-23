@@ -407,7 +407,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.47</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.48</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:14px">
     <button onclick="sincronizzaOra()" title="Sincronizza con Cloud" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;line-height:1">&#8635;</button>
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
@@ -629,7 +629,7 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
       </div>
       <div style="display:flex;gap:8px">
         <button onclick="pnChiudiKeypad()" style="flex:1;padding:14px;border:1.5px solid var(--sep);border-radius:10px;background:var(--surface);font-size:15px;font-weight:600;cursor:pointer">Annulla</button>
-        <button class="btn btn-p" onclick="pnSalvaVeloce()" style="flex:2;font-size:17px;padding:14px">✓ Salva</button>
+        <button class="btn btn-p" id="pnSalvaVeloceBtn" onclick="pnSalvaVeloce()" style="flex:2;font-size:17px;padding:14px">✓ Salva</button>
       </div>
     </div>
   </div>
@@ -797,7 +797,7 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
       <div class="rate-list" id="rRateList"></div>
       <button class="add-rata-btn" onclick="addRata('r')">&#43; Aggiungi rata</button>
     </div>
-    <button class="btn btn-p" onclick="salva('r')">&#128190; Salva</button>
+    <button class="btn btn-p" id="rSalvaBtn" onclick="salva('r')">&#128190; Salva</button>
     <button class="btn btn-s mt8" onclick="resetFoto()">&#8617; Ricomincia</button>
   </div>
 
@@ -921,7 +921,7 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
       </div>
       <img id="mFotoPreview" style="display:none;width:100%;max-height:160px;object-fit:contain;border-radius:var(--radius-sm);margin-top:8px;border:1px solid var(--sep)" alt="">
     </div>
-    <button class="btn btn-p" onclick="salva('m')">&#128190; Salva</button>
+    <button class="btn btn-p" id="mSalvaBtn" onclick="salva('m')">&#128190; Salva</button>
   </div>
 </div>
 
@@ -2575,6 +2575,15 @@ async function dbUpdate(f){
         try{ localStorage.setItem('cf_xml_'+f.id, updated[0].fattura_allegata); }catch(e){}
       }
     } else localStorage.removeItem(FATTURE_TS_KEY); // fallback: forza ricarica
+    // BUG REALE (trovato in audit 23/08): mancava questo return. dbUpdate
+    // restituiva sempre undefined, anche a salvataggio riuscito — 13 punti
+    // diversi nel file fanno `const r = await dbUpdate(...); if(r&&r[0])
+    // _updateCacheRow(r[0])` assumendo che il valore di ritorno sia la riga
+    // aggiornata: quella condizione era SEMPRE falsa, quel secondo aggiornamento
+    // cache non scattava mai. Non causava dati sbagliati (dbUpdate aggiorna già
+    // la cache da sola qui sopra), ma era codice scritto per fare una cosa che
+    // in realtà non faceva mai — ora restituisce davvero la riga.
+    return updated;
   }catch(e){
     console.error('Update error',e);
     const msg = e.message||'';
@@ -2585,6 +2594,7 @@ async function dbUpdate(f){
     } else {
       toast('⚠️ Errore salvataggio: '+msg.slice(0,60));
     }
+    return null;
   }
 }
 
@@ -3044,6 +3054,7 @@ async function _bulkAzione(action){
     openMo('Segna pagate', `Segnare ${count} fattur${count>1?'e come pagate':'a come pagata'} oggi?`, async ()=>{
       closeMo();
       const oggiStr = new Date().toISOString().slice(0,10);
+      let okCount = 0, failCount = 0;
       for(const f of sel){
         const idx = fatture.findIndex(x=>x.id===f.id);
         if(idx<0) continue;
@@ -3053,12 +3064,20 @@ async function _bulkAzione(action){
         fatture[idx].pagamento = metodo;
         fatture[idx].dataPag = oggiStr;
         if(fatture[idx].parzPagato) fatture[idx].parzPagato = 0;
-        try{ await dbUpdate(fatture[idx]); }catch(e){}
+        // dbUpdate ora restituisce davvero l'esito (null se fallita, la riga se
+        // ok) — prima questo try/catch non serviva a nulla: dbUpdate non
+        // lanciava mai un'eccezione, mostrava solo un suo toast interno e non
+        // c'era modo di sapere QUANTE delle fatture selezionate erano andate
+        // storte in un'operazione di gruppo.
+        const esito = await dbUpdate(fatture[idx]);
+        if(esito) okCount++; else failCount++;
       }
       save(fatture);
       _uscitaSelezione();
       aggiornaAlertBanner();
-      toast(`✓ ${count} segnate come pagate`);
+      toast(failCount>0
+        ? `⚠️ ${okCount} segnate come pagate, ${failCount} non salvate (riprova)`
+        : `✓ ${count} segnate come pagate`);
     }, 'user');
     return;
   }
@@ -3125,15 +3144,19 @@ async function _applicaMetodoMassa(metodo){
   const mo = document.getElementById('bulkMetodoMo');
   if(mo) mo.remove();
   const ids = [..._selIds];
+  let okCount = 0, failCount = 0;
   for(const id of ids){
     const idx = fatture.findIndex(f=>f.id===id);
     if(idx<0) continue;
     fatture[idx].pagamento = metodo;
-    try{ await dbUpdate(fatture[idx]); }catch(e){}
+    const esito = await dbUpdate(fatture[idx]);
+    if(esito) okCount++; else failCount++;
   }
   save(fatture);
   _uscitaSelezione();
-  toast(`✓ Metodo aggiornato su ${ids.length} fatture`);
+  toast(failCount>0
+    ? `⚠️ Metodo aggiornato su ${okCount}, ${failCount} non salvate (riprova)`
+    : `✓ Metodo aggiornato su ${okCount} fatture`);
 }
 
 function setPresetRegistro(preset, btn){
@@ -3711,7 +3734,28 @@ async function _salvaDavvero(px){
   }
   await __salvaDavveroInner(px);
 }
+// Lock di rientranza: impedisce che due tap ravvicinati (o una connessione
+// lenta) facciano partire due salvataggi concorrenti della stessa fattura —
+// stesso identico bug (e stesso fix) già trovato e corretto in Ceraldi
+// Presenze sulle timbrature manuali doppie. Qui il rischio è lo stesso: tra
+// il click e la fine di `await dbInsert(f)` il browser può processare un
+// secondo click prima che il primo abbia finito, creando due fatture quasi
+// identiche con id diversi (Date.now() non basta da solo a prevenirlo).
+let _salvaInCorso = false;
 async function __salvaDavveroInner(px){
+  if(_salvaInCorso) return;
+  _salvaInCorso = true;
+  const btn = document.getElementById(px==='r'?'rSalvaBtn':'mSalvaBtn');
+  const btnTestoOriginale = btn ? btn.innerHTML : null;
+  if(btn){ btn.disabled = true; btn.innerHTML = '⏳ Salvo…'; }
+  try{
+    await __salvaDavveroInnerCorpo(px);
+  } finally {
+    _salvaInCorso = false;
+    if(btn){ btn.disabled = false; if(btnTestoOriginale!=null) btn.innerHTML = btnTestoOriginale; }
+  }
+}
+async function __salvaDavveroInnerCorpo(px){
   const pag=px==='r'?rPag:mPag;
   const forn=gv(px+'Forn').trim();
   const tipo=px==='r'?rTipo:mTipo;
@@ -3721,7 +3765,7 @@ async function __salvaDavveroInner(px){
   const parzPagato=stato==='parziale'?parseFloat((gv(px+'ParzPagato')||'0').replace(',','.'))||0:0;
   const mancanti=campiMancanti(px);
   const f={
-    id:Date.now(), tipo, fornitore:forn||'—', numero:gv(px+'Num').trim(),
+    id:Date.now()+Math.floor(Math.random()*10000), tipo, fornitore:forn||'—', numero:gv(px+'Num').trim(),
     fattNum:gv(px+'FattNum')||'',
     numDdt:tipo==='fattura'?(gv(px+'NumDdt')||'').trim():'',
     data:gv(px+'Data'), importo:parseFloat((gv(px+'Imp')||'0').replace(',','.'))||0,
@@ -6044,8 +6088,11 @@ async function ricalcolaIvaFattureXml(idList, opts){
         // Aliquota prevalente (quella con più imponibile) come legacy `iva`
         const prev = Object.entries(info.breakdown).sort((a,b)=>b[1].imponibile-a[1].imponibile)[0];
         if(prev) fatture[idx].iva = parseFloat(prev[0]);
-        try{ await dbUpdate(fatture[idx]); }catch(e){}
-        aggiornate++;
+        // BUG: "aggiornate++" scattava anche se dbUpdate falliva in silenzio
+        // (il try/catch attorno non serviva a nulla, dbUpdate non lancia mai)
+        // — ora si controlla davvero l'esito prima di contarla come riuscita.
+        const esitoIva = await dbUpdate(fatture[idx]);
+        if(esitoIva) aggiornate++; else errori++;
       }catch(e){
         errori++;
         console.warn('IVA fetch error per id',f.id,e.message);
@@ -8327,7 +8374,7 @@ function comprFoto(dataUrl, cb){
 let _fotoMoFatturaId = null;
 
 async function apriF(id){
-  const f=fatture.find(x=>x.id==id);
+  const f=fatture.find(x=>x.id===id);
   if(!f) return;
   // Lazy-load: la foto (base64) non è più caricata con la lista per evitare
   // il timeout su Supabase. La scarichiamo qui on-demand se serve.
@@ -8400,7 +8447,7 @@ function closeFotoMo(){
 
 // ── CONDIVISIONE REGISTRAZIONE ──
 function condividiRegistrazione(id){
-  const f=fatture.find(x=>x.id==id);
+  const f=fatture.find(x=>x.id===id);
   if(!f) return;
   const df=f.data?new Date(f.data).toLocaleDateString('it-IT',{day:'2-digit',month:'long',year:'numeric'}):'—';
   const pag={contanti:'Contanti 💵',bonifico:'Bonifico 🏦',assegno:'Assegno 📝'}[f.pagamento]||f.pagamento||'—';
@@ -8545,9 +8592,11 @@ async function _eseguiAggancioXml(fattManuale, fattConXml){
   if(idx<0){ toast('Fattura non trovata'); return; }
   fatture[idx].xmlGithubPath = fattConXml.xmlGithubPath;
   save(fatture);
-  try{ await dbUpdate(fatture[idx]); }catch(e){}
+  // Il toast di successo scattava a prescindere dall'esito reale del
+  // salvataggio — ora riflette se ha davvero funzionato.
+  const esitoXml = await dbUpdate(fatture[idx]);
   renderLista();
-  toast('✅ XML collegato: N°' + (fattConXml.numero||'?'));
+  toast(esitoXml ? '✅ XML collegato: N°' + (fattConXml.numero||'?') : '⚠️ Collegamento non salvato, riprova');
 }
 
 // ── GRAFICO FORNITORI ──
@@ -17276,13 +17325,30 @@ async function pnRiscansionaTutto(){
 // Salvataggio veloce: fornitore (facoltativo) + fonte (obbligatoria, scelta
 // esplicita) + importo dal tastierino. Data sempre oggi. Nessun collegamento
 // a fattura qui — la riconciliazione avviene dopo, quando la fattura arriva.
+// Lock di rientranza (stesso motivo/stesso fix di __salvaDavveroInner sopra):
+// questo pulsante viene premuto al banco sotto pressione, il rischio di
+// doppio tap è reale.
+let _pnSalvaVeloceInCorso = false;
 async function pnSalvaVeloce(){
+  if(_pnSalvaVeloceInCorso) return;
   const importo = pnKeypadValore();
   const fornitore = (gv('pnFornVeloce')||'').trim();
   const data = gv('pnSpesaDataInp') || _pnOggi();
   const ddt = !!(document.getElementById('pnSpesaDdt') && document.getElementById('pnSpesaDdt').checked);
   if(importo <= 0){ toast('⚠️ Inserisci un importo'); return; }
   if(!_pnFonte){ toast('⚠️ Scegli cassetto o fondo'); return; }
+  _pnSalvaVeloceInCorso = true;
+  const btnPn = document.getElementById('pnSalvaVeloceBtn');
+  const testoBtnPnOrig = btnPn ? btnPn.innerHTML : null;
+  if(btnPn){ btnPn.disabled = true; btnPn.innerHTML = '⏳ Salvo…'; }
+  try{
+    await _pnSalvaVeloceCorpo({importo, fornitore, data, ddt});
+  } finally {
+    _pnSalvaVeloceInCorso = false;
+    if(btnPn){ btnPn.disabled = false; if(testoBtnPnOrig!=null) btnPn.innerHTML = testoBtnPnOrig; }
+  }
+}
+async function _pnSalvaVeloceCorpo({importo, fornitore, data, ddt}){
   const record = {
     data,
     categoria: 'spesa',
