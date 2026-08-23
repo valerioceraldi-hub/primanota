@@ -407,7 +407,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.63</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.64</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:14px">
     <button onclick="sincronizzaOra()" title="Sincronizza con Cloud" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;line-height:1">&#8635;</button>
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
@@ -1553,21 +1553,11 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
           <button class="btn btn-p" onclick="aggiungiPagDefault()">+ Salva</button>
         </div>
       </details></div>
-      <div id="fornSec-rate"><details style="border-top:1px solid var(--sep);padding-top:14px;margin-top:2px">
-        <summary style="cursor:pointer;font-size:14px;font-weight:600;padding:6px 0;list-style:none;display:flex;align-items:center;justify-content:space-between">
-          <span>&#129513; Fornitori a rate <span id="rsub-fornrate" style="font-size:11px;color:var(--ink3);font-weight:400;margin-left:4px"></span></span>
-          <span style="color:var(--ink3)">&#8250;</span>
-        </summary>
-        <div style="padding-top:10px">
-          <p style="font-size:12px;color:var(--ink3);margin-bottom:10px;line-height:1.5;background:var(--surface2);border-radius:8px;padding:10px">Per questi fornitori, quando un assegno o bonifico non corrisponde a una singola fattura, l&#39;app cerca automaticamente se corrisponde alla somma di più fatture insieme (pagamento a tranche).</p>
-          <div id="fornRateList" style="margin-bottom:10px"></div>
-          <div style="position:relative;margin-bottom:8px">
-            <input type="text" id="fornRateInput" placeholder="Scegli fornitore..." style="width:100%;padding:11px 40px 11px 12px;border:1.5px solid var(--sep);border-radius:var(--radius-sm);font-family:inherit;font-size:14px;background:var(--surface);color:var(--ink);box-sizing:border-box" readonly onclick="apriDropdownFornRate()" onfocus="apriDropdownFornRate()">
-            <span style="position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--ink3);font-size:14px;pointer-events:none">&#9660;</span>
-          </div>
-          <button class="btn btn-p" onclick="aggiungiFornRate()">+ Aggiungi alla lista</button>
-        </div>
-      </details></div>
+      <!-- "Fornitori a rate" rimossa (23/08): il vecchio motore la ignorava
+           completamente (bug reale segnalato da Valerio), e la versione
+           corretta della ricerca pagamenti a rate (bottone "🧮 Rate" sulla
+           singola fattura nel Registro) parte già dal fornitore della
+           fattura stessa — non serve più nessuna lista da mantenere qui. -->
     </div>
   </div>
 
@@ -3219,7 +3209,6 @@ function apriImpostazioni(){
     document.getElementById('syncNewCount').textContent=lastNew;
   }
   m.style.display='flex';
-  try{ renderFornRateList(); }catch(e){}
 }
 function chiudiImpostazioni(){
   document.getElementById('modalApiKey').style.display='none';
@@ -4453,6 +4442,12 @@ function renderLista(){
     if(hasFattAllegata) extraBtns.push(`<button class="fi-act-btn success" onclick="aprifatturaAllegata(${f.id})">📄 Doc.</button>`);
     else if(isDdt&&ddtOpen) extraBtns.push(`<button class="fi-act-btn" onclick="allegaFatturaDdt(${f.id})">📎 Allega</button>`);
     if(haFotoQualsiasi) extraBtns.push(`<button class="fi-act-btn" onclick="apriF('${f.id}')">📷 Foto</button>`);
+    // Ricerca pagamento a rate (23/08): solo per fatture ancora aperte con
+    // metodo assegno/bonifico — con altri metodi (contanti/carta) il
+    // concetto di "più movimenti bancari insieme" non si applica.
+    if((st==='da_pagare'||st==='parziale') && (f.pagamento==='assegno'||f.pagamento==='bonifico')){
+      extraBtns.push(`<button class="fi-act-btn" onclick="event.stopPropagation();_apriCercaRateFattura('${f.id}')">🧮 Rate</button>`);
+    }
     // Quick-pay: bottone verde visibile solo se "Da pagare" o "Parziale" — MAI per note di credito
     const quickPayBtn = (!isNotaCredito && (st==='da_pagare' || st==='parziale'))
       ? `<button class="fi-act-btn" onclick="quickPay(${f.id})" style="background:var(--green-light);color:#1a7a3a;border:1px solid var(--green);font-weight:700">✓ Paga ora</button>`
@@ -6725,77 +6720,11 @@ function renderPagDefault(){
   }).join('');
 }
 
-// ── FORNITORI A RATE (per il match combinato nella riconciliazione bancaria) ──
-function apriDropdownFornRate(){
-  const inp = document.getElementById('fornRateInput');
-  if(!inp) return;
-  const nomiDaFatture = new Set((fatture||[]).map(f=>(f.fornitore||'').trim()).filter(n=>n && n!=='—'));
-  const collator = new Intl.Collator('it', {sensitivity:'base'});
-  const nomi = [...nomiDaFatture].sort(collator.compare);
-  if(!nomi.length){ toast('Nessun fornitore trovato nelle fatture'); return; }
-  const existing = document.getElementById('fornRateDropdownMo');
-  if(existing) existing.remove();
-  const mo = document.createElement('div');
-  mo.id = 'fornRateDropdownMo';
-  mo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:800;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)';
-  const sheet = document.createElement('div');
-  sheet.style.cssText = 'background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:75vh;overflow-y:auto;animation:slideUp .3s cubic-bezier(.32,.72,0,1)';
-  const hdr = document.createElement('div');
-  hdr.style.cssText = 'padding:16px 20px 8px;border-bottom:1px solid var(--sep);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg)';
-  hdr.innerHTML = '<span style="font-size:17px;font-weight:700">Scegli fornitore</span>';
-  const closeBtn = document.createElement('button');
-  closeBtn.innerHTML = '&#215;';
-  closeBtn.style.cssText = 'background:var(--surface2);border:none;border-radius:99px;width:30px;height:30px;font-size:17px;cursor:pointer';
-  closeBtn.onclick = ()=>mo.remove();
-  hdr.appendChild(closeBtn);
-  sheet.appendChild(hdr);
-  nomi.forEach(n=>{
-    const row = document.createElement('div');
-    row.style.cssText = 'padding:14px 20px;border-bottom:1px solid var(--sep);font-size:15px;cursor:pointer';
-    row.textContent = n;
-    row.onclick = ()=>{ inp.value = n; mo.remove(); };
-    sheet.appendChild(row);
-  });
-  mo.appendChild(sheet);
-  mo.onclick = e=>{ if(e.target===mo) mo.remove(); };
-  document.body.appendChild(mo);
-}
-
-async function aggiungiFornRate(){
-  const inp = document.getElementById('fornRateInput');
-  const nome = (inp.value||'').trim();
-  if(!nome){ toast('⚠️ Scegli un fornitore'); return; }
-  const lista = cacheGet(KFORN_RATE, []);
-  if(lista.some(n=>n.toLowerCase()===nome.toLowerCase())){ toast('Già presente in lista'); inp.value=''; return; }
-  lista.push(nome);
-  await sbSaveImpostazione(KFORN_RATE, lista);
-  inp.value = '';
-  renderFornRateList();
-  toast('✓ Aggiunto: '+nome);
-}
-
-async function rimuoviFornRate(nome){
-  const lista = cacheGet(KFORN_RATE, []).filter(n=>n!==nome);
-  await sbSaveImpostazione(KFORN_RATE, lista);
-  renderFornRateList();
-}
-
-function renderFornRateList(){
-  const el = document.getElementById('fornRateList');
-  const sub = document.getElementById('rsub-fornrate');
-  if(!el) return;
-  const lista = cacheGet(KFORN_RATE, []);
-  if(sub) sub.textContent = lista.length ? '('+lista.length+')' : '';
-  if(!lista.length){
-    el.innerHTML = '<p style="font-size:13px;color:var(--ink3);text-align:center;padding:8px 0">Nessun fornitore in lista</p>';
-    return;
-  }
-  el.innerHTML = lista.map(n=>`
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:10px 12px;background:var(--surface2);border-radius:var(--radius-sm);margin-bottom:6px">
-      <div style="font-size:14px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(n)}</div>
-      <button onclick="rimuoviFornRate('${esc(n).replace(/'/g,"\\'")}')" style="border:none;background:var(--red-light);color:var(--red);border-radius:8px;padding:6px 10px;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0">✕</button>
-    </div>`).join('');
-}
+// "Fornitori a rate" e le sue funzioni (apriDropdownFornRate, aggiungiFornRate,
+// rimuoviFornRate, renderFornRateList) sono state rimosse il 23/08: il vecchio
+// motore le ignorava del tutto (bug reale), e la ricerca corretta (bottone
+// "🧮 Rate" sulla singola fattura nel Registro, vedi _apriCercaRateFattura)
+// parte già dal fornitore della fattura stessa — nessuna lista da mantenere.
 
 // Cerca, tra i fornitori marcati "a rate", una combinazione di fatture non pagate
 // la cui somma corrisponde all'importo del movimento bancario (±0,50€).
@@ -6882,6 +6811,150 @@ function _trovaCombinazioniEsatte(imp, fornitoriAmmessi, dataMovimento){
     };
   });
   return {combinazioni:combinazioni, troppiCandidati:false, candidatiUsati:outstanding.length, incompleta: passi>=MAX_PASSI};
+}
+
+// Ricerca CORRETTA (23/08, richiesta esplicita di Valerio — la vecchia
+// direzione era al contrario): il caso reale è "una fattura pagata con PIÙ
+// assegni/bonifici insieme" (rate), non "un movimento che copre più fatture".
+// Si parte da UNA fattura specifica (fornitore già noto, nessuna ambiguità
+// da risolvere) e si cerca, tra i movimenti bancari NON ancora abbinati a
+// nessuna fattura, quella combinazione la cui somma corrisponde ESATTAMENTE
+// al residuo da pagare — stesso algoritmo (DP + potatura) di
+// _trovaCombinazioniEsatte, solo invertito: i "candidati" sono movimenti,
+// non fatture.
+function _trovaMovimentiPerFattura(fatturaId){
+  const f = (fatture||[]).find(function(x){ return String(x.id)===String(fatturaId); });
+  if(!f) return {errore:'Fattura non trovata'};
+  if(f.tipo==='ddt') return {errore:'I DDT non hanno un pagamento da riconciliare'};
+  const impF = f.importo||0;
+  const residuo = f.stato==='parziale' ? Math.max(0, impF-(f.parzPagato||0)) : impF;
+  if(residuo<=0.01) return {errore:'Questa fattura non ha un residuo da pagare'};
+  if(f.pagamento!=='assegno' && f.pagamento!=='bonifico'){
+    return {errore:'La ricerca di pagamenti a rate funziona solo per fatture con metodo assegno o bonifico'};
+  }
+  const eAssegnoAtteso = f.pagamento==='assegno';
+  // Finestra temporale: dalla data fattura fino a 90 giorni dopo — un
+  // pagamento a rate arriva sempre dopo l'emissione, mai prima.
+  const dataMin = f.data ? new Date(f.data+'T12:00:00') : null;
+  const dataMax = dataMin ? new Date(dataMin.getTime()+90*86400000) : null;
+  const candidati = (_bancaMovimenti||[]).filter(function(m){
+    if(m.abbinata) return false; // solo movimenti ancora liberi
+    const eAssegno = /assegno/i.test(m.sottotipo||'') || /assegno/i.test(m.tipo||'');
+    if(eAssegno !== eAssegnoAtteso) return false;
+    if(dataMin && m.data && new Date(m.data+'T12:00:00') < dataMin) return false;
+    if(dataMax && m.data && new Date(m.data+'T12:00:00') > dataMax) return false;
+    return true;
+  });
+  if(candidati.length < 2) return {combinazioni:[], troppiCandidati:false, candidatiUsati:candidati.length};
+  if(candidati.length > 35) return {combinazioni:[], troppiCandidati:true, candidatiUsati:candidati.length};
+
+  const targetCents = Math.round(residuo*100);
+  const cents = candidati.map(function(m){ return Math.round(Math.abs(m.importo)*100); });
+  const n = cents.length;
+  const suffixReach = new Array(n+1);
+  suffixReach[n] = new Set([0]);
+  for(let i=n-1;i>=0;i--){
+    const prev = suffixReach[i+1];
+    const cur = new Set(prev);
+    for(const s of prev) cur.add(s+cents[i]);
+    suffixReach[i] = cur;
+  }
+  if(!suffixReach[0].has(targetCents)){
+    return {combinazioni:[], troppiCandidati:false, candidatiUsati:candidati.length};
+  }
+  const soluzioni = [];
+  const MAX_SOLUZIONI = 5;
+  let passi = 0;
+  const MAX_PASSI = 2000000;
+  function backtrack(idx, rimanente, scelti){
+    passi++;
+    if(passi > MAX_PASSI || soluzioni.length >= MAX_SOLUZIONI) return;
+    if(rimanente === 0 && scelti.length > 0){ soluzioni.push(scelti.slice()); return; }
+    if(idx >= n) return;
+    if(!suffixReach[idx].has(rimanente)) return;
+    scelti.push(idx);
+    backtrack(idx+1, rimanente-cents[idx], scelti);
+    scelti.pop();
+    backtrack(idx+1, rimanente, scelti);
+  }
+  backtrack(0, targetCents, []);
+  const combinazioni = soluzioni.map(function(sol){
+    return {
+      movimenti: sol.map(function(i){ return candidati[i]; }),
+      somma: sol.reduce(function(s,i){ return s+Math.abs(candidati[i].importo); }, 0)
+    };
+  });
+  return {combinazioni:combinazioni, troppiCandidati:false, candidatiUsati:candidati.length, fattura:f, incompleta: passi>=MAX_PASSI};
+}
+
+// Apre l'overlay con l'esito della ricerca per una fattura specifica.
+function _apriCercaRateFattura(fatturaId){
+  const f = (fatture||[]).find(function(x){ return String(x.id)===String(fatturaId); });
+  if(!f) return;
+  toast('🧮 Ricerca pagamenti a rate…', 2000);
+  setTimeout(function(){
+    const esito = _trovaMovimentiPerFattura(fatturaId);
+    if(esito.errore){ alert(esito.errore); return; }
+    if(esito.troppiCandidati){
+      alert('Troppi movimenti liberi da controllare ('+esito.candidatiUsati+') per una ricerca sicura in automatico.');
+      return;
+    }
+    if(!esito.combinazioni.length){
+      alert('Nessuna combinazione di movimenti '+(f.pagamento==='assegno'?'assegno':'bonifico')+' liberi corrisponde esattamente al residuo di questa fattura ('+fmt(f.stato==='parziale'?Math.max(0,(f.importo||0)-(f.parzPagato||0)):(f.importo||0))+'), su '+esito.candidatiUsati+' movimenti liberi controllati.');
+      return;
+    }
+    const existing = document.getElementById('_rateOv');
+    if(existing) existing.remove();
+    const ov = document.createElement('div');
+    ov.id = '_rateOv';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:900;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)';
+    let hh = '<div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:80vh;overflow-y:auto;padding:20px">';
+    hh += '<div style="font-size:17px;font-weight:700;margin-bottom:4px">Pagamenti a rate trovati</div>';
+    hh += '<div style="font-size:13px;color:var(--ink3);margin-bottom:16px">'+esc(f.fornitore||'')+' N°'+esc(f.numero||'')+' — residuo '+fmt(f.stato==='parziale'?Math.max(0,(f.importo||0)-(f.parzPagato||0)):(f.importo||0))+'</div>';
+    esito.combinazioni.forEach(function(combo, idx){
+      hh += '<div style="background:var(--surface2);border-radius:12px;padding:12px;margin-bottom:10px">';
+      hh += '<div style="font-size:12px;font-weight:700;color:var(--ink3);margin-bottom:8px">Combinazione '+(idx+1)+' — '+combo.movimenti.length+' movimenti, totale '+fmt(combo.somma)+'</div>';
+      combo.movimenti.forEach(function(m){
+        hh += '<div style="font-size:12px;padding:4px 0;border-bottom:1px solid var(--sep)">'+esc(m.data||'')+' — '+fmt(Math.abs(m.importo))+' — '+esc((m.descrizione||'').slice(0,60))+'</div>';
+      });
+      hh += '<button onclick="_confermaRateFattura(\''+fatturaId+'\','+idx+')" style="width:100%;margin-top:10px;padding:10px;border:none;border-radius:8px;background:var(--green);color:#fff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">✓ Conferma questa combinazione</button>';
+      hh += '</div>';
+    });
+    hh += '<button onclick="document.getElementById(\'_rateOv\').remove()" style="width:100%;padding:10px;border:1px solid var(--sep);border-radius:8px;background:var(--surface);color:var(--ink3);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">Annulla</button>';
+    hh += '</div>';
+    ov.innerHTML = hh;
+    ov.onclick = function(e){ if(e.target===ov) ov.remove(); };
+    document.body.appendChild(ov);
+    window._rateCombinazioni = esito.combinazioni; // per il conferma successivo
+  }, 50);
+}
+
+// Applica la combinazione scelta: ogni movimento selezionato viene abbinato
+// alla STESSA fattura (il modello dati lo permette già — più movimenti
+// possono puntare allo stesso fatturaId, non serve nessuna modifica al
+// database), poi la fattura passa a "pagata".
+async function _confermaRateFattura(fatturaId, comboIdx){
+  const f = (fatture||[]).find(function(x){ return String(x.id)===String(fatturaId); });
+  const combo = (window._rateCombinazioni||[])[comboIdx];
+  if(!f || !combo) return;
+  const ov = document.getElementById('_rateOv');
+  if(ov) ov.remove();
+  combo.movimenti.forEach(function(m){
+    m.abbinata = true;
+    m.fatturaId = f.id;
+    m.fatturaLabel = (f.fornitore||'')+' N°'+(f.numero||'');
+    if(typeof salvaMovimentoBanca==='function') salvaMovimentoBanca(m);
+  });
+  const ultimaData = combo.movimenti.reduce(function(max,m){ return (m.data||'') > max ? m.data : max; }, '');
+  f.stato = 'pagata';
+  f.dataPagamento = ultimaData || f.dataPagamento;
+  f.riconciliata = true;
+  f.pagamentoOrigine = 'manuale';
+  f.pagamentoImpostatoIl = new Date().toISOString();
+  if(typeof dbUpdate==='function') await dbUpdate(f);
+  if(typeof renderLista==='function') renderLista();
+  if(typeof renderRiconciliazione==='function' && document.getElementById('view-banca') && document.getElementById('view-banca').classList.contains('active')) renderRiconciliazione();
+  toast('✓ Fattura segnata pagata con '+combo.movimenti.length+' movimenti', {forza:true});
 }
 
 async function applicaPagDefaultFornitore(forn){
@@ -9758,7 +9831,7 @@ async function sincronizzaOra(){
   toast('Sincronizzazione in corso...');
   const ok=await loadAll(true); // forceRefresh: ignora cache
   aggiornaDL(); renderLista(); aggiornaAlertBanner(); updRiep();
-  renderDizForn(); renderPagDefault(); renderFornRateList(); aggiornaMenuAI();
+  renderDizForn(); renderPagDefault(); aggiornaMenuAI();
   // Mancavano del tutto: senza queste, "Sincronizza ora" non aggiornava mai
   // chiusure/versamenti/POS/movimenti banca — solo le fatture.
   // forceFull=true (23/08): "Sincronizza ora" deve garantire un vero
@@ -15550,29 +15623,27 @@ function _cfCercaCombinazioni(){
   if(!m) return;
 
   var eAssegno = /assegno/i.test(m.sottotipo||'') || /assegno/i.test(m.tipo||'');
-  var fornitoriAmmessi = null; // null = nessun vincolo trovato -> non si procede
+  var fornitoriPrioritari = null;
 
   if(eAssegno){
-    // Gli assegni non hanno un beneficiario scritto nel movimento — non c'è
-    // niente da leggere in descrizione. Restringiamo ai fornitori che hanno
-    // "assegno" come metodo di pagamento predefinito, invece di guardare
-    // tutti i fornitori (troppo rischio di falsi positivi con importi piccoli).
+    // Gli assegni non hanno un beneficiario scritto nel movimento. FIX
+    // (23/08, richiesta esplicita di Valerio): prima questa lista era un
+    // FILTRO ESCLUSIVO — se un fornitore non aveva "assegno" come pagamento
+    // predefinito, non veniva mai controllato, punto. Ora è solo un ORDINE
+    // DI PRIORITÀ: si prova prima con questi (più sicuro, meno fatture da
+    // combinare = meno rischio di un incrocio casuale), e se non si trova
+    // nulla si allarga a TUTTI i fornitori con fatture aperte, avvisando
+    // che il risultato è meno sicuro — non si esclude più nessuno a priori.
     var db = cacheGet(KDP, {});
-    fornitoriAmmessi = Object.keys(db).filter(function(k){
+    fornitoriPrioritari = Object.keys(db).filter(function(k){
       var v = db[k];
       var pag = typeof v==='string' ? v : (v&&v.pagamento);
       return pag==='assegno';
     });
-    if(!fornitoriAmmessi.length){
-      alert('Nessun fornitore ha "assegno" impostato come metodo di pagamento predefinito (Impostazioni → Pagamento default). Senza questo la ricerca automatica per assegni non ha un punto di partenza sicuro — usa "+2" per selezionare a mano.');
-      return;
-    }
   } else {
     // Bonifico/SDD: il beneficiario è scritto nella descrizione del
-    // movimento — la ricerca deve limitarsi SOLO a quel fornitore, mai
-    // "a tutti" (con tante fatture piccole in giro, il rischio di trovare
-    // una combinazione che torna per puro caso ma è quella sbagliata è reale
-    // e già successo).
+    // movimento — si prova prima a restringere a quel fornitore (più
+    // sicuro), poi si allarga se non basta.
     var descLow=(m.descrizione||'').toLowerCase();
     var candidatiForn = fatture.filter(function(f){
       var forn=(f.fornitore||'').toLowerCase();
@@ -15581,23 +15652,36 @@ function _cfCercaCombinazioni(){
       return parole.some(function(p){return descLow.indexOf(p)>=0;});
     });
     var fornitoreGuess = candidatiForn.length ? candidatiForn[0].fornitore : null;
-    if(!fornitoreGuess){
-      alert('Non riesco a riconoscere il beneficiario dalla descrizione di questo movimento, quindi non posso restringere la ricerca a un fornitore preciso. Digita il nome del fornitore nel campo di ricerca qui sopra, poi riprova.');
-      return;
-    }
-    fornitoriAmmessi = [fornitoreGuess];
+    fornitoriPrioritari = fornitoreGuess ? [fornitoreGuess] : [];
   }
 
   toast('🧮 Ricerca combinazioni in corso…', 2000);
   setTimeout(function(){
-    var esito = _trovaCombinazioniEsatte(imp, fornitoriAmmessi, m.data);
+    // Fase 1: solo i fornitori prioritari (se ce ne sono)
+    var esito = fornitoriPrioritari.length
+      ? _trovaCombinazioniEsatte(imp, fornitoriPrioritari, m.data)
+      : {combinazioni:[], troppiCandidati:false, candidatiUsati:0};
+    var usatoFallback = false;
+    if(!esito.combinazioni.length && !esito.troppiCandidati){
+      // Fase 2: nessun risultato tra i prioritari — allarga a TUTTI i
+      // fornitori con almeno una fattura aperta, invece di fermarsi qui.
+      var tuttiFornitori = [...new Set((fatture||[])
+        .filter(function(f){ return f.stato==='da_pagare' || f.stato==='parziale'; })
+        .map(function(f){ return (f.fornitore||'').trim(); })
+        .filter(Boolean))];
+      esito = _trovaCombinazioniEsatte(imp, tuttiFornitori, m.data);
+      usatoFallback = true;
+    }
     if(esito.troppiCandidati){
       alert('Troppe fatture da controllare ('+esito.candidatiUsati+') per una ricerca automatica sicura. Usa "+2" per selezionarle a mano.');
       return;
     }
     if(!esito.combinazioni.length){
-      alert('Nessuna combinazione esatta trovata tra i fornitori ammessi ('+fornitoriAmmessi.join(', ')+') su '+esito.candidatiUsati+' fatture aperte controllate.\n\nProva "+2" per selezionare a mano.');
+      alert('Nessuna combinazione esatta trovata su '+esito.candidatiUsati+' fatture aperte controllate (provato prima i fornitori con pagamento assegno predefinito, poi tutti gli altri).\n\nProva "+2" per selezionare a mano.');
       return;
+    }
+    if(usatoFallback){
+      toast('⚠️ Trovata allargando la ricerca oltre i fornitori "assegno" predefiniti — verifica con attenzione', {forza:true});
     }
     if(esito.combinazioni.length === 1){
       _cfApplicaCombinazione(esito.combinazioni[0]);
