@@ -407,7 +407,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.56</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.57</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:14px">
     <button onclick="sincronizzaOra()" title="Sincronizza con Cloud" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;line-height:1">&#8635;</button>
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
@@ -1047,6 +1047,17 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
     <div id="saldoCassaDettaglio" style="display:none"></div>
   </div>
 
+  <!-- FONDO CASSA — spostato qui da Prima Nota (23/08): contante reale
+       cumulativo, diverso dal Saldo Cassa Stimato sopra (quello segue solo
+       i corrispettivi "sui libri", questo il contante reale totale, extra
+       compreso — confermato con Valerio). Sempre visibile su ogni
+       sotto-scheda di Cassa, come prima lo era su tutto il tab Prima Nota. -->
+  <div style="background:var(--ink);border-radius:var(--radius);padding:14px 16px;margin-bottom:12px;box-shadow:var(--shadow)">
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:rgba(255,255,255,.5);margin-bottom:6px">💰 Fondo cassa (contante accumulato)</div>
+    <div id="pnFondoValore" style="font-size:30px;font-weight:800;color:#fff;margin-bottom:4px">€ 0,00</div>
+    <div id="pnFondoData" style="font-size:11px;color:rgba(255,255,255,.4)">—</div>
+  </div>
+
   <!-- Tab interni -->
   <!-- MACRO-GRUPPI CASSA (livello 1) -->
   <div class="chip-row" style="margin-bottom:8px;background:var(--surface);padding:6px;border-radius:14px;box-shadow:var(--shadow);overflow-x:auto;display:flex;gap:4px">
@@ -1131,26 +1142,92 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
       <div style="font-size:13px;font-weight:700;margin-bottom:8px">📊 Dettaglio POS importato</div>
       <div id="chgPosList" style="font-size:12px;color:var(--ink3)"></div>
     </div>
+
+    <!-- CONTEGGIO GIORNALIERO (Prima Nota) — spostato qui da un tab separato
+         (23/08, richiesta esplicita di Valerio): la data non ha un suo
+         selettore proprio, segue quella scelta sopra per la Chiusura
+         giornaliera (chgDataInp) — un solo selettore data per tutta la
+         pagina "Oggi" invece di due scollegati tra loro. -->
+    <input type="hidden" id="pnDataInp">
+    <div id="pnMoviListaEl"></div>
+    <div style="background:var(--surface);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);margin-bottom:12px">
+      <div style="font-size:16px;font-weight:700;margin-bottom:12px">Conteggio giornaliero (Prima Nota)</div>
+      <!-- Solo contante qui — i pagamenti elettronici si inseriscono già in
+           Chiusura giornaliera sopra, inserirli anche qui era un doppione
+           (stesso identico dato in due posti) ed era la causa del calcolo
+           sbagliato "incasso reale" più sotto, che sommava per errore
+           contante ed elettronico come se fossero la stessa voce (23/08,
+           segnalato da Valerio con screenshot). -->
+      <div style="margin-bottom:10px">
+        <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">💵 Contanti contati (cassetto) — incasso reale totale, corrispettivi compresi</div>
+        <input type="text" id="pnContantiInp" inputmode="decimal" placeholder="0,00" oninput="pnRecalcGiorno()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right;font-weight:600">
+      </div>
+      <input type="text" id="pnNoteInp" placeholder="Note (opzionale)" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;margin-bottom:10px">
+      <button class="btn btn-p" onclick="pnSalvaConteggio()" style="width:100%">💾 Salva conteggio del giorno</button>
+
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--sep)">
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px"><span style="color:var(--ink3)">Spese pagate da cassetto oggi</span><b id="pnSpeseCassettoOggi">€ 0,00</b></div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px"><span style="color:var(--ink3)">Spese pagate dal fondo oggi</span><b id="pnSpeseFondoOggi">€ 0,00</b></div>
+        <div style="display:flex;justify-content:space-between;font-size:14px;margin-top:8px;padding-top:8px;border-top:1px solid var(--sep)"><span style="font-weight:700">💰 Incasso lordo in contanti</span><b id="pnIncassoReale" style="font-weight:800">€ 0,00</b></div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px"><span style="color:var(--ink3)">Netto (tolte le spese di oggi)</span><b id="pnIncassoNetto">€ 0,00</b></div>
+      </div>
+    </div>
   </div>
 
   <!-- SEZIONE: VERSAMENTI IN BANCA -->
   <div id="inc-versamenti" class="inc-sec" style="display:none">
-    <!-- Form aggiungi versamento -->
+    <!-- Form aggiungi versamento — ridisegnato (23/08, richiesta esplicita)
+         con lo stesso stile tastierino + scelta esplicita cassetto/fondo già
+         usato per la spesa veloce di Prima Nota, invece del semplice campo
+         numerico di prima. Un solo inserimento aggiorna sia il Saldo Cassa
+         Stimato (tabella versamenti, YTD) sia il Fondo Cassa (Prima Nota,
+         cumulativo) — prima erano due sistemi scollegati. -->
     <div style="background:var(--surface);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);margin-bottom:12px">
       <div style="font-size:15px;font-weight:700;margin-bottom:12px">➕ Nuovo versamento</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
-        <div>
-          <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">Data</div>
-          <input type="date" id="verData" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;font-family:inherit;background:var(--surface2);box-sizing:border-box;-webkit-appearance:none">
+      <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">Data</div>
+      <input type="date" id="verData" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;font-family:inherit;background:var(--surface2);box-sizing:border-box;-webkit-appearance:none;margin-bottom:10px">
+      <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">Note (opzionale)</div>
+      <input type="text" id="verNote" placeholder="Es. Versamento mattina, versamento settimanale..." style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;margin-bottom:10px">
+      <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">Da dove viene questo contante</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
+        <button class="pag-btn" id="versfb-cassetto" onclick="versSetFonte('cassetto')" style="padding:9px 4px;font-size:13px">💵 Cassetto</button>
+        <button class="pag-btn" id="versfb-fondo" onclick="versSetFonte('fondo')" style="padding:9px 4px;font-size:13px">💰 Fondo</button>
+      </div>
+      <button type="button" onclick="versApriKeypad()" style="width:100%;text-align:center;font-size:24px;font-weight:800;padding:12px 0;color:var(--ink);background:var(--surface2);border:1.5px solid var(--sep);border-radius:10px;cursor:pointer">
+        € <span id="versImportoAnteprima">0,00</span> <span style="font-size:14px;color:var(--ink3)">✏️</span>
+      </button>
+    </div>
+
+    <!-- Overlay tastierino versamento — stessa struttura del tastierino
+         spesa veloce, id separati per non collidere con quello. -->
+    <div id="versKeypadOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:900;align-items:flex-end;justify-content:center">
+      <div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;padding:20px 20px calc(20px + env(safe-area-inset-bottom))">
+        <div style="text-align:center;font-size:38px;font-weight:800;margin-bottom:12px;color:var(--ink)">
+          € <span id="versKeypadDisplay">0,00</span>
         </div>
-        <div>
-          <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">Importo €</div>
-          <input type="text" id="verImporto" inputmode="decimal" placeholder="0,00" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">
+          <button class="pag-btn" id="versfb-cassetto-kp" onclick="versSetFonte('cassetto')" style="padding:9px 4px;font-size:13px">💵 Cassetto</button>
+          <button class="pag-btn" id="versfb-fondo-kp" onclick="versSetFonte('fondo')" style="padding:9px 4px;font-size:13px">💰 Fondo</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+          <button class="pag-btn" onclick="versKeypadDigit('7')" style="font-size:22px;padding:18px 4px">7</button>
+          <button class="pag-btn" onclick="versKeypadDigit('8')" style="font-size:22px;padding:18px 4px">8</button>
+          <button class="pag-btn" onclick="versKeypadDigit('9')" style="font-size:22px;padding:18px 4px">9</button>
+          <button class="pag-btn" onclick="versKeypadDigit('4')" style="font-size:22px;padding:18px 4px">4</button>
+          <button class="pag-btn" onclick="versKeypadDigit('5')" style="font-size:22px;padding:18px 4px">5</button>
+          <button class="pag-btn" onclick="versKeypadDigit('6')" style="font-size:22px;padding:18px 4px">6</button>
+          <button class="pag-btn" onclick="versKeypadDigit('1')" style="font-size:22px;padding:18px 4px">1</button>
+          <button class="pag-btn" onclick="versKeypadDigit('2')" style="font-size:22px;padding:18px 4px">2</button>
+          <button class="pag-btn" onclick="versKeypadDigit('3')" style="font-size:22px;padding:18px 4px">3</button>
+          <button class="pag-btn" onclick="versKeypadDigit('00')" style="font-size:19px;padding:18px 4px">00</button>
+          <button class="pag-btn" onclick="versKeypadDigit('0')" style="font-size:22px;padding:18px 4px">0</button>
+          <button class="pag-btn" onclick="versKeypadBackspace()" style="font-size:19px;padding:18px 4px">⌫</button>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button onclick="versChiudiKeypad()" style="flex:1;padding:14px;border:1.5px solid var(--sep);border-radius:10px;background:var(--surface);font-size:15px;font-weight:600;cursor:pointer">Annulla</button>
+          <button class="btn btn-p" id="versSalvaBtn" onclick="versSalvaVersamento()" style="flex:2;font-size:17px;padding:14px">✓ Salva versamento</button>
         </div>
       </div>
-      <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">Note (opzionale)</div>
-      <input type="text" id="verNote" placeholder="Es. Versamento mattina, versamento settimanale..." style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;margin-bottom:12px">
-      <button class="btn btn-p" onclick="salvaVersamento()" style="width:100%">🏦 Salva versamento</button>
     </div>
 
     <!-- Lista versamenti -->
@@ -1159,6 +1236,18 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
 
   <!-- SEZIONE: STORICO -->
   <div id="inc-lista" class="inc-sec" style="display:none">
+    <!-- Spostati qui da Prima Nota (23/08): riconciliazione automatica,
+         prossimi scioperi, da riconciliare — prima vivevano in un tab
+         separato, ora sono parte dello stesso Storico. -->
+    <button onclick="pnRiscansionaTutto()" style="width:100%;padding:11px;border:1.5px dashed var(--blue);border-radius:var(--radius-sm);background:var(--blue-light);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:var(--blue);margin-bottom:12px">🔄 Riprova riconciliazione su tutto lo storico</button>
+    <div id="pnProssimiScioperiBox" style="display:none;background:#fef2f2;border:1.5px solid #fca5a5;border-radius:var(--radius);padding:14px;margin-bottom:12px">
+      <div style="font-size:13px;font-weight:700;color:#991b1b;margin-bottom:8px">🚨 Prossimi scioperi ANM/EAV</div>
+      <div id="pnProssimiScioperiEl"></div>
+    </div>
+    <div id="pnDaRiconciliareBox" style="display:none;background:#fff7ed;border:1.5px solid #fdba74;border-radius:var(--radius);padding:14px;margin-bottom:12px">
+      <div style="font-size:13px;font-weight:700;color:#9a3412;margin-bottom:8px">⏳ Da riconciliare (oltre 7 giorni)</div>
+      <div id="pnDaRiconciliareEl"></div>
+    </div>
     <div id="incListaEl"></div>
   </div>
 
@@ -1517,119 +1606,12 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
 
 </div>
 
-<!-- PRIMA NOTA — sistema di cassa contanti separato e indipendente dal
-     sistema esistente (chiusure_giornaliere / versamenti / saldo cassa stimato) -->
-<div id="view-primanota" class="view">
-
-  <!-- FONDO CASSA — sempre visibile in cima -->
-  <div style="background:var(--ink);border-radius:var(--radius);padding:14px 16px;margin-bottom:12px;box-shadow:var(--shadow)">
-    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:rgba(255,255,255,.5);margin-bottom:6px">💰 Fondo cassa (contante accumulato)</div>
-    <div id="pnFondoValore" style="font-size:30px;font-weight:800;color:#fff;margin-bottom:4px">€ 0,00</div>
-    <div id="pnFondoData" style="font-size:11px;color:rgba(255,255,255,.4)">—</div>
-  </div>
-
-  <!-- SOTTO-TAB -->
-  <div class="chip-row" style="margin-bottom:12px;background:var(--surface);padding:6px;border-radius:14px;box-shadow:var(--shadow);overflow-x:auto;display:flex;gap:4px">
-    <button class="chip active" id="pntab-giorno" onclick="setPnTab('giorno',this)" style="flex:1;border:none;font-weight:700">📅 Giorno</button>
-    <button class="chip" id="pntab-storico" onclick="setPnTab('storico',this)" style="flex:1;border:none;font-weight:700">📋 Storico</button>
-  </div>
-
-  <!-- SEZIONE: GIORNO -->
-  <div id="pn-giorno" class="pn-sec">
-
-    <!-- Movimenti del giorno -->
-    <div id="pnMoviListaEl"></div>
-
-    <div style="background:var(--surface);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);margin-bottom:12px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <div style="font-size:16px;font-weight:700">Conteggio giornaliero</div>
-        <input type="date" id="pnDataInp" onchange="pnCaricaGiorno()" style="padding:8px 10px;border:1.5px solid var(--sep);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface);-webkit-appearance:none">
-      </div>
-
-      <!-- Solo contante qui — i pagamenti elettronici si inseriscono già in
-           Cassa → Chiusura giornaliera, inserirli anche qui era un doppione
-           (stesso identico dato in due posti) ed era la causa del calcolo
-           sbagliato "incasso reale" più sotto, che sommava per errore
-           contante ed elettronico come se fossero la stessa voce (23/08,
-           segnalato da Valerio con screenshot). -->
-      <div style="margin-bottom:10px">
-        <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">💵 Contanti contati (cassetto)</div>
-        <input type="text" id="pnContantiInp" inputmode="decimal" placeholder="0,00" oninput="pnRecalcGiorno()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right;font-weight:600">
-      </div>
-      <input type="text" id="pnNoteInp" placeholder="Note (opzionale)" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;margin-bottom:10px">
-      <button class="btn btn-p" onclick="pnSalvaConteggio()" style="width:100%">💾 Salva conteggio del giorno</button>
-
-      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--sep)">
-        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px"><span style="color:var(--ink3)">Spese pagate da cassetto oggi</span><b id="pnSpeseCassettoOggi">€ 0,00</b></div>
-        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px"><span style="color:var(--ink3)">Spese pagate dal fondo oggi</span><b id="pnSpeseFondoOggi">€ 0,00</b></div>
-        <div style="display:flex;justify-content:space-between;font-size:14px;margin-top:8px;padding-top:8px;border-top:1px solid var(--sep)"><span style="font-weight:700">💰 Incasso lordo in contanti</span><b id="pnIncassoReale" style="font-weight:800">€ 0,00</b></div>
-        <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px"><span style="color:var(--ink3)">Netto (tolte le spese di oggi)</span><b id="pnIncassoNetto">€ 0,00</b></div>
-      </div>
-    </div>
-
-    <!-- Versamento in banca — separato dalla riconciliazione estratto conto già
-         presente in Cassa: qui serve solo a dire da dove FISICAMENTE esce il
-         contante versato, per aggiornare i report di Prima Nota. Puoi dividere
-         un unico versamento in due importi se una parte viene dal cassetto di
-         oggi e una parte dal fondo accumulato. -->
-    <div style="background:var(--surface);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);margin-bottom:12px">
-      <div style="font-size:15px;font-weight:700;margin-bottom:4px">🏦 Versamento in banca</div>
-      <div style="font-size:11px;color:var(--ink3);margin-bottom:10px">La parte da cassetto entra nel report di oggi; la parte da fondo va solo nello storico, senza toccare il giornaliero.</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
-        <div>
-          <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">💵 Da cassetto €</div>
-          <input type="text" id="pnVersCassettoInp" inputmode="decimal" placeholder="0,00" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right">
-        </div>
-        <div>
-          <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">💰 Da fondo €</div>
-          <input type="text" id="pnVersFondoInp" inputmode="decimal" placeholder="0,00" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right">
-        </div>
-      </div>
-      <div style="margin-bottom:10px">
-        <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">Data</div>
-        <input type="date" id="pnVersDataInp" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;font-family:inherit;background:var(--surface2);box-sizing:border-box;-webkit-appearance:none">
-      </div>
-      <input type="text" id="pnVersNoteInp" placeholder="Note (opzionale)" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;margin-bottom:10px">
-      <button class="btn btn-p" onclick="pnSalvaVersamento()" style="width:100%">💾 Salva versamento</button>
-    </div>
-  </div>
-
-  <!-- SEZIONE: STORICO -->
-  <div id="pn-storico" class="pn-sec" style="display:none">
-    <!-- Riscansiona tutto lo storico: il motore automatico controlla solo i
-         NUOVI inserimenti (movimento o fattura appena salvati) — questo forza
-         il controllo anche su dati già esistenti prima che il motore fosse
-         costruito, o mai riprovati per qualunque motivo. -->
-    <button onclick="pnRiscansionaTutto()" style="width:100%;padding:11px;border:1.5px dashed var(--blue);border-radius:var(--radius-sm);background:var(--blue-light);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:var(--blue);margin-bottom:12px">🔄 Riprova riconciliazione su tutto lo storico</button>
-
-    <!-- Prossimi scioperi ANM/EAV: sempre visibile qui, indipendentemente
-         dall'intervallo di date impostato nello Storico più sotto — prima
-         bisognava allargare "al" fino a raggiungere la data giusta e
-         scorrere per trovarli, scomodo per qualcosa che interessa sapere
-         subito appena si apre Prima Nota. -->
-    <div id="pnProssimiScioperiBox" style="display:none;background:#fef2f2;border:1.5px solid #fca5a5;border-radius:var(--radius);padding:14px;margin-bottom:12px">
-      <div style="font-size:13px;font-weight:700;color:#991b1b;margin-bottom:8px">🚨 Prossimi scioperi ANM/EAV</div>
-      <div id="pnProssimiScioperiEl"></div>
-    </div>
-
-    <!-- Movimenti in contanti non ancora riconciliati con nessuna fattura da
-         più di 7 giorni — o li abbini a mano, o vuol dire che quella fattura
-         non è mai arrivata (es. mai emessa, o mai importata dal cassetto). -->
-    <div id="pnDaRiconciliareBox" style="display:none;background:#fff7ed;border:1.5px solid #fdba74;border-radius:var(--radius);padding:14px;margin-bottom:12px">
-      <div style="font-size:13px;font-weight:700;color:#9a3412;margin-bottom:8px">⏳ Da riconciliare (oltre 7 giorni)</div>
-      <div id="pnDaRiconciliareEl"></div>
-    </div>
-
-    <div style="background:var(--surface);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);margin-bottom:12px">
-      <div style="display:flex;gap:8px;margin-bottom:4px">
-        <input type="date" id="pnStorDal" onchange="renderPnStorico()" style="flex:1;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface2);-webkit-appearance:none;min-width:0">
-        <input type="date" id="pnStorAl" onchange="renderPnStorico()" style="flex:1;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface2);-webkit-appearance:none;min-width:0">
-      </div>
-      <div id="pnScioperiEsito" style="font-size:10px;color:var(--ink3);margin-top:8px"></div>
-    </div>
-    <div id="pnStoricoEl"></div>
-  </div>
-</div>
+<!-- SEZIONE PRIMA NOTA (23/08): il tab dedicato è stato eliminato, tutto il
+     suo contenuto è confluito qui dentro Cassa. Conteggio giornaliero e
+     Movimenti del giorno sono ora dentro #inc-giorno (Oggi). Riconciliazione,
+     Prossimi scioperi e Da riconciliare sono confluiti dentro #inc-lista
+     (Storico), subito sotto. Questo intero blocco #view-primanota non esiste
+     più: era duplicato rispetto a quanto già spostato sopra. -->
 
 <!-- EDIT MODAL -->
 <div class="edit-mo" id="editMo">
@@ -1859,10 +1841,6 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
   <button class="tab-item" onclick="goTab('riepilogo',this)">
     <span class="tab-ico">&#128202;</span>
     <span class="tab-lbl">Riepilogo</span>
-  </button>
-  <button class="tab-item" onclick="goTab('primanota',this)">
-    <span class="tab-ico">&#128213;</span>
-    <span class="tab-lbl">Prima Nota</span>
   </button>
 </nav>
 
@@ -3264,7 +3242,6 @@ function goTab(tab,btn){
   if(tab==='incassi') aprisemIncassi();
   // Aggiorna saldo cassa ogni volta che si apre il tab (dati fatture potrebbero essere cambiati)
   if(tab==='incassi') setTimeout(aggiornaSaldoCassa, 100);
-  if(tab==='primanota') aprisemPrimaNota();
 }
 
 // ── UPLOAD ──
@@ -9976,7 +9953,15 @@ function setIncTab(t, btn){
   if(btn) btn.classList.add('active');
   document.querySelectorAll('#view-incassi .inc-sec').forEach(s=>s.style.display='none');
   document.getElementById('inc-'+t).style.display='';
-  if(t==='lista') renderIncLista();
+  if(t==='lista'){
+    renderIncLista();
+    // Riconciliazione/scioperi/da-riconciliare, spostati qui da Prima Nota
+    // (23/08) — vanno caricati ogni volta che si apre questo sotto-tab.
+    if(typeof pnSyncCloud==='function') pnSyncCloud().then(()=>{
+      if(typeof pnRenderDaRiconciliare==='function') pnRenderDaRiconciliare();
+      if(typeof pnRenderProssimiScioperi==='function') pnRenderProssimiScioperi();
+    });
+  }
   if(t==='mese') renderIncMese();
   if(t==='versamenti') renderVersamenti();
   if(t==='chiusuramese'){
@@ -10053,6 +10038,105 @@ async function salvaVersamento(){
   aggiornaSaldoCassa();
   renderVersamenti();
   toast('✓ Versamento salvato');
+}
+
+// ── Tastierino versamento (23/08) — stesso schema del tastierino spesa
+// veloce di Prima Nota, id separati per non collidere. Un solo Salva scrive
+// su ENTRAMBE le tabelle: "versamenti" (alimenta Saldo Cassa Stimato, YTD)
+// e prima_nota_movimenti categoria:'versamento' (alimenta Fondo Cassa,
+// cumulativo) — prima erano due inserimenti separati e scollegati, con due
+// tab diversi (Cassa→Versamenti e Prima Nota→Giorno).
+let _versKeypadCents = 0;
+let _versFonte = '';
+function versKeypadReset(){
+  _versKeypadCents = 0;
+  const el = document.getElementById('versKeypadDisplay');
+  if(el) el.textContent = '0,00';
+  const anteprima = document.getElementById('versImportoAnteprima');
+  if(anteprima) anteprima.textContent = '0,00';
+}
+function _versKeypadRender(){
+  const val = _fNum(_versKeypadCents/100);
+  const el = document.getElementById('versKeypadDisplay');
+  if(el) el.textContent = val;
+  const anteprima = document.getElementById('versImportoAnteprima');
+  if(anteprima) anteprima.textContent = val;
+}
+function versKeypadDigit(d){
+  const cifre = String(d);
+  for(const c of cifre){
+    if(_versKeypadCents > 99999999) break;
+    _versKeypadCents = _versKeypadCents*10 + Number(c);
+  }
+  _versKeypadRender();
+}
+function versKeypadBackspace(){
+  _versKeypadCents = Math.floor(_versKeypadCents/10);
+  _versKeypadRender();
+}
+function versKeypadValore(){ return _versKeypadCents/100; }
+function versApriKeypad(){
+  const ov = document.getElementById('versKeypadOverlay');
+  if(ov) ov.style.display = 'flex';
+}
+function versChiudiKeypad(){
+  const ov = document.getElementById('versKeypadOverlay');
+  if(ov) ov.style.display = 'none';
+}
+function versSetFonte(f){
+  _versFonte = f;
+  ['cassetto','fondo'].forEach(k=>{
+    const cls = 'pag-btn'+(k===f?' sc':'');
+    const b1 = document.getElementById('versfb-'+k);
+    if(b1) b1.className = cls;
+    const b2 = document.getElementById('versfb-'+k+'-kp');
+    if(b2) b2.className = cls;
+  });
+}
+async function versSalvaVersamento(){
+  const data = gv('verData') || new Date().toISOString().slice(0,10);
+  const importo = versKeypadValore();
+  const note = (gv('verNote')||'').trim();
+  if(importo <= 0){ toast('⚠️ Inserisci un importo'); return; }
+  if(!_versFonte){ toast('⚠️ Scegli se il contante viene dal cassetto o dal fondo'); return; }
+  const btn = document.getElementById('versSalvaBtn');
+  const testoOrig = btn ? btn.innerHTML : null;
+  if(btn){ btn.disabled = true; btn.innerHTML = '⏳ Salvo…'; }
+  try{
+    // 1) Tabella "versamenti" — alimenta Saldo Cassa Stimato (YTD)
+    const record = { id: Date.now(), data, importo, note: note||null, createdAt: new Date().toISOString() };
+    versamenti.push(record);
+    salvaVersamentiLocale();
+    try{
+      await sbFetch('versamenti', {method:'POST', body: JSON.stringify({ id: record.id, data, importo, note: note||null, created_at: new Date().toISOString() })});
+    }catch(e){
+      console.warn('Sync versamento fallito:', e.message||e);
+    }
+    // 2) prima_nota_movimenti — alimenta Fondo Cassa (cumulativo)
+    try{
+      await sbFetch('prima_nota_movimenti', {method:'POST', body:JSON.stringify({
+        data, categoria:'versamento', importo, fonte:_versFonte, descrizione: note || 'Versamento in banca'
+      })});
+    }catch(e){
+      console.warn('Sync versamento Prima Nota fallito:', e.message||e);
+    }
+    document.getElementById('verNote').value = '';
+    document.getElementById('verData').value = new Date().toISOString().slice(0,10);
+    versKeypadReset();
+    _versFonte = '';
+    ['cassetto','fondo'].forEach(k=>{
+      const b1=document.getElementById('versfb-'+k), b2=document.getElementById('versfb-'+k+'-kp');
+      if(b1) b1.className='pag-btn'; if(b2) b2.className='pag-btn';
+    });
+    versChiudiKeypad();
+    aggiornaSaldoCassa();
+    renderVersamenti();
+    if(typeof pnSyncCloud==='function') await pnSyncCloud();
+    if(typeof pnAggiornaFondoHeader==='function') pnAggiornaFondoHeader();
+    toast('✓ Versamento salvato', {forza:true});
+  } finally {
+    if(btn){ btn.disabled = false; if(testoOrig!=null) btn.innerHTML = testoOrig; }
+  }
 }
 
 function renderVersamenti(){
@@ -10252,6 +10336,14 @@ async function caricaChiusuraGiorno(){
   _chgRecalc();
   _renderPosDetails(data);
   _chgAggiornaInfoCompatta(data);
+  // Il Conteggio giornaliero (Prima Nota) ora vive nella stessa pagina,
+  // segue la stessa data scelta qui sopra (23/08) — nessun selettore data
+  // proprio, sincronizzato tramite il campo nascosto pnDataInp.
+  const pnDataHidden = document.getElementById('pnDataInp');
+  if(pnDataHidden) pnDataHidden.value = data;
+  if(typeof pnSyncCloud==='function') await pnSyncCloud();
+  if(typeof pnCaricaGiorno==='function') await pnCaricaGiorno();
+  if(typeof pnAggiornaFondoHeader==='function') pnAggiornaFondoHeader();
 }
 
 // Riga compatta sotto la data: meteo + sciopero (se c'è) + totale Prima Nota
@@ -10272,16 +10364,16 @@ async function _chgAggiornaInfoCompatta(data){
     ]);
     const m = meteo && meteo[data];
     const sc = scioperi && scioperi[data];
-    const { perGiorno } = (typeof pnCalcolaFondo==='function') ? pnCalcolaFondo(data) : {perGiorno:{}};
-    const g = perGiorno && perGiorno[data];
+    // Non ripeto più qui incasso/spese di Prima Nota (23/08): da quando il
+    // pannello "Conteggio giornaliero" è visibile per intero subito sotto in
+    // questa stessa pagina, ripeterli anche qui sarebbe solo un doppione
+    // degli stessi numeri. Questa riga resta solo per meteo/scioperi.
     const parti = [];
-    if(g) parti.push('📒 Incasso: '+fmt(g.contanteReale)+' · Spese: '+fmt(g.speseCassetto+g.speseFondo));
-    if(m) parti.push('🌡️ '+Math.round(m.tmin)+'–'+Math.round(m.tmax)+'°C');
+    if(m) parti.push('🌡️ '+Math.round(m.tmin)+'–'+Math.round(m.tmax)+'°C · 🌧️ '+(m.pioggia||0)+'mm');
     if(sc && sc.length) parti.push('🚨 sciopero');
     elC.innerHTML = parti.length ? parti.join(' · ')+' <span style="color:var(--blue)">›</span>' : '';
     // Dettaglio esteso, mostrato solo al tocco
     const righeEstese = [];
-    if(g) righeEstese.push('📒 Prima Nota — incasso lordo: '+fmt(g.contanteReale)+' · spese cassetto: '+fmt(g.speseCassetto)+' · spese fondo: '+fmt(g.speseFondo)+' · netto: '+fmt(g.contanteReale-g.speseCassetto-g.speseFondo));
     if(m) righeEstese.push('🌡️ Meteo: '+Math.round(m.tmin)+'–'+Math.round(m.tmax)+'°C · 🌧️ '+(m.pioggia||0)+'mm');
     if(sc && sc.length) sc.forEach(s=>righeEstese.push('🚨 '+esc(s.linea)+(s.dettaglio?' — '+esc(s.dettaglio):'')));
     elE.innerHTML = righeEstese.length ? righeEstese.map(r=>'<div style="margin-bottom:3px">'+r+'</div>').join('') : '<div>Nessun dato aggiuntivo per questo giorno</div>';
@@ -10831,6 +10923,11 @@ async function renderIncLista(){
     const imponibile = totCorr / 1.10;
     const iva = totCorr - imponibile;
     const detailId = `chiusura-detail-${i}`;
+    // Movimenti Prima Nota del giorno (spese cassetto/fondo) — spostati qui
+    // dal vecchio tab Prima Nota (23/08): lista modificabile, stesso pattern
+    // già usato lì (toggle separato, Modifica/Elimina per riga).
+    const nMoviGiorno = (typeof pnMovimenti!=='undefined' ? pnMovimenti : []).filter(mv=>mv.data===c.data).length;
+    const moviDetailId = detailId+'_movi';
     // Riga compatta meteo/scioperi/Prima Nota per questo giorno — una riga
     // sola, dentro il dettaglio già espandibile (niente di nuovo da aprire).
     const mG = meteo && meteo[c.data];
@@ -10975,6 +11072,8 @@ async function renderIncLista(){
               🗑 Elimina
             </button>
           </div>
+          ${nMoviGiorno>0 ? `<div onclick="event.stopPropagation();_pnToggleStoricoGiorno('${c.data}','${moviDetailId}')" style="font-size:11px;color:var(--blue);font-weight:600;cursor:pointer;margin-top:10px;padding-top:10px;border-top:1px solid var(--sep)">✏️ ${nMoviGiorno} moviment${nMoviGiorno!==1?'i':'o'} Prima Nota — tocca per modificare <span id="${moviDetailId}_arr">▾</span></div>
+          <div id="${moviDetailId}" style="display:none;margin-top:6px"></div>` : ''}
         </div>
       </div>
     </div>`;
@@ -17761,9 +17860,11 @@ function pnRenderMovimentiGiorno(data){
 // Espande/richiude, dentro lo Storico, l'elenco dei movimenti di un giorno
 // specifico — con gli stessi bottoni Modifica/Elimina della tab Giorno, per
 // poter correggere anche un movimento di un giorno passato senza doverci
-// tornare con il selettore data.
-function _pnToggleStoricoGiorno(data){
-  const dId = 'pnStorGiorno_'+data.replace(/-/g,'');
+// tornare con il selettore data. targetId opzionale (23/08): lo Storico di
+// Cassa usa un proprio schema di id (chiusura-detail-N_movi) diverso da
+// quello usato quando questa funzione viveva nel vecchio tab Prima Nota.
+function _pnToggleStoricoGiorno(data, targetId){
+  const dId = targetId || ('pnStorGiorno_'+data.replace(/-/g,''));
   const cont = document.getElementById(dId);
   const arr = document.getElementById(dId+'_arr');
   if(!cont) return;
