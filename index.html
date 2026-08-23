@@ -407,7 +407,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.54</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.55</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:14px">
     <button onclick="sincronizzaOra()" title="Sincronizza con Cloud" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;line-height:1">&#8635;</button>
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
@@ -10790,7 +10790,7 @@ function _normDataISO(s){
 
 
 // ── STORICO INCASSI ──
-function renderIncLista(){
+async function renderIncLista(){
   const el = document.getElementById('incListaEl');
   if(!el) return;
   const sorted = [...chiusure].sort((a,b)=>b.data.localeCompare(a.data));
@@ -10798,6 +10798,23 @@ function renderIncLista(){
     el.innerHTML = '<div class="empty"><div class="ei">💰</div><p>Nessuna chiusura salvata</p></div>';
     return;
   }
+  // FIX (23/08): l'integrazione meteo/scioperi/Prima Nota era finita nel
+  // pannello sbagliato (la "Chiusura giornaliera" a singolo giorno) invece
+  // che qui, nello Storico — dove Valerio guarda davvero. Precarico tutto
+  // PRIMA di disegnare la lista (stesso schema già usato in Prima Nota →
+  // Storico), poi lo inserisco come riga singola e compatta nel dettaglio
+  // di ciascun giorno (già chiuso finché non tocchi — non appesantisce la
+  // lettura di default, richiesta esplicita di Valerio).
+  const date = sorted.map(c=>c.data).sort();
+  const dal = date[0], al = date[date.length-1];
+  const [meteo, scioperi] = await Promise.all([
+    (typeof pnFetchMeteo==='function' ? pnFetchMeteo(dal, al) : {}),
+    (typeof pnFetchScioperi==='function' ? pnFetchScioperi(dal, al) : {})
+  ]);
+  if((typeof pnMovimenti==='undefined' || !pnMovimenti.length) && typeof pnSyncCloud==='function'){
+    await pnSyncCloud();
+  }
+  const { perGiorno } = (typeof pnCalcolaFondo==='function') ? pnCalcolaFondo(al) : {perGiorno:{}};
   el.innerHTML = sorted.map((c,i)=>{
     const cassa = +(c.cassa||0);
     const pos = +(c.pos||0);
@@ -10825,6 +10842,18 @@ function renderIncLista(){
     const imponibile = totCorr / 1.10;
     const iva = totCorr - imponibile;
     const detailId = `chiusura-detail-${i}`;
+    // Riga compatta meteo/scioperi/Prima Nota per questo giorno — una riga
+    // sola, dentro il dettaglio già espandibile (niente di nuovo da aprire).
+    const mG = meteo && meteo[c.data];
+    const scG = scioperi && scioperi[c.data];
+    const gPN = perGiorno && perGiorno[c.data];
+    const _infoParti = [];
+    if(gPN) _infoParti.push('📒 Prima Nota: '+fmt(gPN.contanteReale + gPN.pos));
+    if(mG) _infoParti.push('🌡️ '+Math.round(mG.tmin)+'–'+Math.round(mG.tmax)+'°C · 🌧️ '+(mG.pioggia||0)+'mm');
+    if(scG && scG.length) scG.forEach(s=>_infoParti.push('🚨 '+esc(s.linea)+(s.dettaglio?' — '+esc(s.dettaglio):'')));
+    const rigaInfoGiorno = _infoParti.length
+      ? `<tr><td colspan="2" style="padding:2px 0 8px;font-size:11px;color:var(--ink3);border-bottom:1px solid var(--sep)">${_infoParti.join('<br>')}</td></tr>`
+      : '';
     // Riepilogo cassa/POS nella riga: se manca uno dei due, lo segnalo invece di scrivere €0
     const posBanca = +(c.pos_banca||0);
     // Confronto banca vs estratto carta POS (transazione per transazione,
@@ -10846,7 +10875,15 @@ function renderIncLista(){
     // semplicemente un pezzo di dato. Ora, quando manca una delle due
     // fonti, lo dice esplicitamente invece di lasciare intuire.
     const soloUnaFonte = (totNumiaSolo>0) !== (totSumupSolo>0); // XOR: esattamente una delle due, non zero né entrambe
-    const fonteMancante = totNumiaSolo>0 ? 'Numia' : (totSumupSolo>0 ? 'SumUp' : null);
+    // BUG TROVATO da Valerio (23/08): questa riga era scritta al contrario —
+    // assegnava 'Numia' come "mancante" proprio quando era Numia ad AVERE il
+    // dato (totNumiaSolo>0), risultato: badge e messaggio dicevano entrambi
+    // "SumUp" anche quando il dato presente era di SumUp e il vero mancante
+    // era Numia. Ora due nomi separati e inequivocabili: fontePresente (per
+    // il badge "solo X") e fonteMancante (per il messaggio "manca X") — non
+    // più la stessa variabile riusata con due significati opposti.
+    const fontePresente = totNumiaSolo>0 ? 'Numia' : (totSumupSolo>0 ? 'SumUp' : null);
+    const fonteMancante = totNumiaSolo>0 ? 'SumUp' : (totSumupSolo>0 ? 'Numia' : null);
     // Riga in linea con "Pagamenti elettronici": qui confrontiamo col CSV Numia
     // (non con la banca) — stessa logica del riepilogo mensile/annuale. L'estratto
     // conto banca riconcilia SEPARATAMENTE contro Numia nel blocco sottostante.
@@ -10857,7 +10894,7 @@ function renderIncLista(){
          <tr><td style="padding:2px 0;color:var(--ink3);padding-left:12px;font-size:12px">· SumUp</td><td style="padding:2px 0;text-align:right;font-size:12px;color:var(--ink3)">${fmt(totSumupSolo)}</td></tr>`
       : '';
     const rigaPosBanca = totNumiaCard > 0 ? `
-      <tr><td style="padding:5px 0;color:#0066cc">💳 Estratto carta POS${soloUnaFonte?` <span style="background:#fff3cd;color:#856404;padding:1px 7px;border-radius:99px;font-weight:700;font-size:10px">⚠️ solo ${fonteMancante}</span>`:''}</td><td style="padding:5px 0;text-align:right;color:#0066cc">${fmt(totNumiaCard)} ${(coincide && !soloUnaFonte)?'✅':''}</td></tr>
+      <tr><td style="padding:5px 0;color:#0066cc">💳 Estratto carta POS${soloUnaFonte?` <span style="background:#fff3cd;color:#856404;padding:1px 7px;border-radius:99px;font-weight:700;font-size:10px">⚠️ solo ${fontePresente}</span>`:''}</td><td style="padding:5px 0;text-align:right;color:#0066cc">${fmt(totNumiaCard)} ${(coincide && !soloUnaFonte)?'✅':''}</td></tr>
       ${_righeFontiPOS}
       ${soloUnaFonte ? `<tr><td colspan="2" style="padding:2px 0 5px;font-size:11px;color:#856404">Manca ancora ${fonteMancante==='Numia'?'import CSV Numia':'sincronizzazione SumUp'} per questo giorno — il confronto sotto non è affidabile finché non arriva anche quel dato.</td></tr>` : ''}
       ${(coincide || soloUnaFonte) ? '' : `<tr><td style="padding:5px 0;color:${scostPOS<0?'var(--red)':'#b36a00'};padding-left:12px">· Differenza vs Pagamenti elettronici</td><td style="padding:5px 0;text-align:right;font-weight:600;color:${scostPOS<0?'var(--red)':'#b36a00'}">${scostPOS>=0?'+':''}${fmt(scostPOS)}</td></tr>`}`
@@ -10909,7 +10946,7 @@ function renderIncLista(){
       <!-- Riga riassuntiva (tap per espandere) -->
       <div onclick="toggleChiusuraDetail('${detailId}')" style="padding:12px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
         <div style="flex:1;min-width:0">
-          <div style="font-size:13px;font-weight:600">${dataLabel} ${c.pos_riconciliata?(soloUnaFonte?`<span style="font-size:10px;background:#fff3cd;color:#856404;padding:2px 6px;border-radius:99px;font-weight:700;margin-left:4px">🏦 solo ${fonteMancante}</span>`:nonQuadraBancaNumia?'<span style="font-size:10px;background:var(--red-light);color:var(--red);padding:2px 6px;border-radius:99px;font-weight:700;margin-left:4px">🏦 Riconciliata ⚠️</span>':'<span style="font-size:10px;background:var(--blue-light);color:var(--blue);padding:2px 6px;border-radius:99px;font-weight:700;margin-left:4px">🏦 Riconciliata</span>'):''}</div>
+          <div style="font-size:13px;font-weight:600">${dataLabel} ${c.pos_riconciliata?(soloUnaFonte?`<span style="font-size:10px;background:#fff3cd;color:#856404;padding:2px 6px;border-radius:99px;font-weight:700;margin-left:4px">🏦 solo ${fontePresente}</span>`:nonQuadraBancaNumia?'<span style="font-size:10px;background:var(--red-light);color:var(--red);padding:2px 6px;border-radius:99px;font-weight:700;margin-left:4px">🏦 Riconciliata ⚠️</span>':'<span style="font-size:10px;background:var(--blue-light);color:var(--blue);padding:2px 6px;border-radius:99px;font-weight:700;margin-left:4px">🏦 Riconciliata</span>'):''}</div>
           <div style="font-size:11px;color:var(--ink3);margin-top:2px">${sintesi}</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
@@ -10924,6 +10961,7 @@ function renderIncLista(){
       <div id="${detailId}" style="display:none;border-top:1px solid var(--sep)">
         <div style="padding:12px 14px">
           <table style="width:100%;border-collapse:collapse;font-size:13px">
+            ${rigaInfoGiorno}
             <tr><td style="padding:5px 0;color:var(--ink3)">Totale corrispettivi</td><td style="padding:5px 0;text-align:right;font-weight:700">${fmt(totCorr)}</td></tr>
             <tr><td style="padding:5px 0;color:var(--ink3);padding-left:12px">· Imponibile</td><td style="padding:5px 0;text-align:right">${fmt(imponibile)}</td></tr>
             <tr><td style="padding:5px 0;color:var(--ink3);padding-left:12px">· IVA 10%</td><td style="padding:5px 0;text-align:right">${fmt(iva)}</td></tr>
