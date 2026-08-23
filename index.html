@@ -407,7 +407,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.55</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.56</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:14px">
     <button onclick="sincronizzaOra()" title="Sincronizza con Cloud" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;line-height:1">&#8635;</button>
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
@@ -1546,35 +1546,24 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
         <input type="date" id="pnDataInp" onchange="pnCaricaGiorno()" style="padding:8px 10px;border:1.5px solid var(--sep);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface);-webkit-appearance:none">
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
-        <div>
-          <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">💵 Contanti contati (cassetto)</div>
-          <input type="text" id="pnContantiInp" inputmode="decimal" placeholder="0,00" oninput="pnRecalcGiorno()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right;font-weight:600">
-        </div>
-        <div>
-          <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">💳 Pos totale (SumUp + Numia)</div>
-          <input type="text" id="pnPosInp" inputmode="decimal" placeholder="0,00" readonly oninput="pnRecalcGiorno()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right;font-weight:600">
-        </div>
+      <!-- Solo contante qui — i pagamenti elettronici si inseriscono già in
+           Cassa → Chiusura giornaliera, inserirli anche qui era un doppione
+           (stesso identico dato in due posti) ed era la causa del calcolo
+           sbagliato "incasso reale" più sotto, che sommava per errore
+           contante ed elettronico come se fossero la stessa voce (23/08,
+           segnalato da Valerio con screenshot). -->
+      <div style="margin-bottom:10px">
+        <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">💵 Contanti contati (cassetto)</div>
+        <input type="text" id="pnContantiInp" inputmode="decimal" placeholder="0,00" oninput="pnRecalcGiorno()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right;font-weight:600">
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
-        <div>
-          <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">🔵 SumUp <button onclick="pnScaricaSumUp()" style="border:none;background:none;color:var(--blue);font-size:10px;font-weight:700;cursor:pointer;padding:0">📥 Scarica</button></div>
-          <input type="text" id="pnPosSumUpInp" inputmode="decimal" placeholder="0,00" oninput="pnRecalcGiorno()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right">
-        </div>
-        <div>
-          <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">⚪ Numia (manuale)</div>
-          <input type="text" id="pnPosNumiaInp" inputmode="decimal" placeholder="0,00" oninput="pnRecalcGiorno()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right">
-        </div>
-      </div>
-      <div id="pnSumUpEsito" style="font-size:11px;color:var(--ink3);margin-bottom:10px;min-height:14px"></div>
       <input type="text" id="pnNoteInp" placeholder="Note (opzionale)" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;margin-bottom:10px">
       <button class="btn btn-p" onclick="pnSalvaConteggio()" style="width:100%">💾 Salva conteggio del giorno</button>
 
       <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--sep)">
         <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px"><span style="color:var(--ink3)">Spese pagate da cassetto oggi</span><b id="pnSpeseCassettoOggi">€ 0,00</b></div>
         <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px"><span style="color:var(--ink3)">Spese pagate dal fondo oggi</span><b id="pnSpeseFondoOggi">€ 0,00</b></div>
-        <div style="display:flex;justify-content:space-between;font-size:14px;margin-top:8px;padding-top:8px;border-top:1px solid var(--sep)"><span style="font-weight:700">💰 Incasso reale del giorno</span><b id="pnIncassoReale" style="font-weight:800">€ 0,00</b></div>
-        <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px"><span style="color:var(--ink3)">Fondo a fine giornata</span><b id="pnFondoFineGiorno">€ 0,00</b></div>
+        <div style="display:flex;justify-content:space-between;font-size:14px;margin-top:8px;padding-top:8px;border-top:1px solid var(--sep)"><span style="font-weight:700">💰 Incasso lordo in contanti</span><b id="pnIncassoReale" style="font-weight:800">€ 0,00</b></div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px"><span style="color:var(--ink3)">Netto (tolte le spese di oggi)</span><b id="pnIncassoNetto">€ 0,00</b></div>
       </div>
     </div>
 
@@ -10286,13 +10275,13 @@ async function _chgAggiornaInfoCompatta(data){
     const { perGiorno } = (typeof pnCalcolaFondo==='function') ? pnCalcolaFondo(data) : {perGiorno:{}};
     const g = perGiorno && perGiorno[data];
     const parti = [];
-    if(g) parti.push('📒 Prima Nota: '+fmt(g.contanteReale + g.pos));
+    if(g) parti.push('📒 Incasso: '+fmt(g.contanteReale)+' · Spese: '+fmt(g.speseCassetto+g.speseFondo));
     if(m) parti.push('🌡️ '+Math.round(m.tmin)+'–'+Math.round(m.tmax)+'°C');
     if(sc && sc.length) parti.push('🚨 sciopero');
     elC.innerHTML = parti.length ? parti.join(' · ')+' <span style="color:var(--blue)">›</span>' : '';
     // Dettaglio esteso, mostrato solo al tocco
     const righeEstese = [];
-    if(g) righeEstese.push('📒 Prima Nota — cassetto: '+fmt(g.speseCassetto)+' · fondo: '+fmt(g.speseFondo)+' · fondo fine giorno: '+fmt(g.fondoFineGiorno));
+    if(g) righeEstese.push('📒 Prima Nota — incasso lordo: '+fmt(g.contanteReale)+' · spese cassetto: '+fmt(g.speseCassetto)+' · spese fondo: '+fmt(g.speseFondo)+' · netto: '+fmt(g.contanteReale-g.speseCassetto-g.speseFondo));
     if(m) righeEstese.push('🌡️ Meteo: '+Math.round(m.tmin)+'–'+Math.round(m.tmax)+'°C · 🌧️ '+(m.pioggia||0)+'mm');
     if(sc && sc.length) sc.forEach(s=>righeEstese.push('🚨 '+esc(s.linea)+(s.dettaglio?' — '+esc(s.dettaglio):'')));
     elE.innerHTML = righeEstese.length ? righeEstese.map(r=>'<div style="margin-bottom:3px">'+r+'</div>').join('') : '<div>Nessun dato aggiuntivo per questo giorno</div>';
@@ -10848,7 +10837,7 @@ async function renderIncLista(){
     const scG = scioperi && scioperi[c.data];
     const gPN = perGiorno && perGiorno[c.data];
     const _infoParti = [];
-    if(gPN) _infoParti.push('📒 Prima Nota: '+fmt(gPN.contanteReale + gPN.pos));
+    if(gPN) _infoParti.push('📒 Prima Nota — incasso lordo: '+fmt(gPN.contanteReale)+' · spese: '+fmt(gPN.speseCassetto+gPN.speseFondo)+' · netto: '+fmt(gPN.contanteReale-gPN.speseCassetto-gPN.speseFondo));
     if(mG) _infoParti.push('🌡️ '+Math.round(mG.tmin)+'–'+Math.round(mG.tmax)+'°C · 🌧️ '+(mG.pioggia||0)+'mm');
     if(scG && scG.length) scG.forEach(s=>_infoParti.push('🚨 '+esc(s.linea)+(s.dettaglio?' — '+esc(s.dettaglio):'')));
     const rigaInfoGiorno = _infoParti.length
@@ -17258,11 +17247,14 @@ function pnSetFonte(f){
 async function pnSalvaConteggio(){
   const data = gv('pnDataInp') || _pnOggi();
   const contantiContati = _pNum(gv('pnContantiInp'));
-  const posSumUp = _pNum(gv('pnPosSumUpInp'));
-  const posNumia = _pNum(gv('pnPosNumiaInp'));
-  const pos = posSumUp + posNumia;
   const note = (gv('pnNoteInp')||'').trim();
-  const record = { data, contanti_contati: contantiContati, pos, pos_sumup: posSumUp, pos_numia: posNumia, note: note||null, updated_at: new Date().toISOString() };
+  // I pagamenti elettronici (pos/pos_sumup/pos_numia) non si inseriscono più
+  // da qui (23/08, richiesta esplicita): erano un doppione di Cassa →
+  // Chiusura giornaliera, che è già il posto corretto per quel dato, e
+  // sommarli col contante qui produceva un "incasso reale" sbagliato. Non li
+  // includo più nel record salvato — un vecchio valore eventualmente
+  // presente in un conteggio già esistente resta intoccato dal PATCH.
+  const record = { data, contanti_contati: contantiContati, note: note||null, updated_at: new Date().toISOString() };
   try{
     // upsert manuale: cerca se esiste già un conteggio per questa data
     const esistente = pnConteggi.find(c=>c.data===data);
@@ -17665,7 +17657,7 @@ function pnCalcolaFondo(finoAData){
     const speseFondo = movimentiGiorno.filter(m=>m.fonte==='fondo').reduce((s,m)=>s+m.importo,0);
     const contanteReale = contantiContati + speseCassetto; // solo per il report "incasso reale"
     fondo = fondo + contantiContati - speseFondo;           // il fondo si muove sul contato, non sul ricostruito
-    perGiorno[d] = { contantiContati, speseCassetto, speseFondo, contanteReale, fondoFineGiorno: fondo, pos: conteggio ? conteggio.pos : 0 };
+    perGiorno[d] = { contantiContati, speseCassetto, speseFondo, contanteReale, fondoFineGiorno: fondo };
   });
   return { fondo, perGiorno };
 }
@@ -17682,69 +17674,15 @@ async function pnCaricaGiorno(){
   const data = gv('pnDataInp') || _pnOggi();
   const conteggio = pnConteggi.find(c=>c.data===data);
   document.getElementById('pnContantiInp').value = conteggio ? _fNum(conteggio.contantiContati) : '';
-  document.getElementById('pnPosSumUpInp').value = conteggio ? _fNum(conteggio.posSumUp) : '';
-  document.getElementById('pnPosNumiaInp').value = conteggio ? _fNum(conteggio.posNumia) : '';
   document.getElementById('pnNoteInp').value = conteggio ? (conteggio.note||'') : '';
   pnRenderMovimentiGiorno(data);
   pnRecalcGiorno();
 }
 
-// Scarica dal proxy SumUp le transazioni del giorno selezionato in Prima Nota
-// e le somma nel campo "SumUp" — riusa la stessa Edge Function e la stessa
-// tabella condivisa "incassi" già usate dalla Chiusura giornaliera esistente.
-// Nota fuso orario: la data di una transazione va giudicata in ora italiana,
-// non spezzando la giornata a mezzanotte UTC (altrimenti le vendite serali
-// rischiano di finire nel giorno sbagliato) — per questo la finestra richiesta
-// all'API è più larga di un giorno pieno e il filtro vero avviene dopo,
-// convertendo ogni timestamp in data locale Europe/Rome.
-function _pnDataRoma(isoTimestamp){
-  try{ return new Date(isoTimestamp).toLocaleDateString('sv-SE', {timeZone:'Europe/Rome'}); }
-  catch(e){ return String(isoTimestamp||'').slice(0,10); }
-}
-
-async function pnScaricaSumUp(){
-  const data = gv('pnDataInp') || _pnOggi();
-  const esitoEl = document.getElementById('pnSumUpEsito');
-  if(esitoEl){ esitoEl.textContent = '⏳ Scarico da SumUp...'; esitoEl.style.color = 'var(--ink3)'; }
-  try{
-    const base = new Date(data+'T00:00:00Z');
-    const oldestD = new Date(base); oldestD.setUTCDate(oldestD.getUTCDate()-1);
-    const newestD = new Date(base); newestD.setUTCDate(newestD.getUTCDate()+2);
-    const fnUrl = SB_URL+'/functions/v1/sumup-proxy?action=transactions&limit=200'
-      + '&oldest_time='+encodeURIComponent(oldestD.toISOString())
-      + '&newest_time='+encodeURIComponent(newestD.toISOString());
-    const resp = await fetch(fnUrl, {headers:{Authorization:'Bearer '+SB_KEY}});
-    const json = await resp.json();
-    if(!resp.ok) throw new Error((json && json.error) ? json.error : ('HTTP '+resp.status));
-    const items = Array.isArray(json.items) ? json.items : [];
-    const successi = items.filter(t=>t.status==='SUCCESSFUL');
-    const nuoviRecord = successi.map(t=>({
-      id: sumupIdBigint(t.transaction_code || t.id),
-      data: _pnDataRoma(t.timestamp),
-      importo: t.amount || 0, esito:'ok', tipo:t.payment_type||'',
-      idTrans: t.transaction_code || t.id || '', source:'sumup', payoutDate: t.payout_date || null
-    })).filter(r=>r.data && r.importo>0);
-    const esistentiIds = {}; (incassi||[]).forEach(x=>esistentiIds[x.id]=true);
-    const davveroNuovi = nuoviRecord.filter(r=>!esistentiIds[r.id]);
-    if(davveroNuovi.length){
-      incassi = (incassi||[]).concat(davveroNuovi);
-      if(typeof salvaIncassiLocale==='function') salvaIncassiLocale();
-      await upsertIncassi(davveroNuovi);
-    }
-    const totale = (incassi||[]).filter(x=>x.source==='sumup' && x.data===data).reduce((s,x)=>s+(x.importo||0),0);
-    document.getElementById('pnPosSumUpInp').value = _fNum(totale);
-    pnRecalcGiorno();
-    const msg = totale>0
-      ? '✓ '+fmt(totale)+' trovati per il '+new Date(data+'T12:00:00').toLocaleDateString('it-IT')
-      : '✓ Nessuna transazione SumUp trovata per questo giorno ('+items.length+' lette nel periodo esteso)';
-    if(esitoEl){ esitoEl.textContent = msg; esitoEl.style.color = 'var(--ink3)'; }
-    toast(totale>0 ? '✓ SumUp: '+fmt(totale) : '✓ SumUp: nessuna transazione');
-  }catch(e){
-    const msg = '❌ '+String(e.message||e).slice(0,80);
-    if(esitoEl){ esitoEl.textContent = msg; esitoEl.style.color = 'var(--red)'; }
-    toast('⚠️ SumUp: '+String(e.message||e).slice(0,60));
-  }
-}
+// pnScaricaSumUp() e _pnDataRoma() rimosse (23/08): scaricavano le
+// transazioni SumUp dentro Prima Nota per popolare il campo POS, ora
+// eliminato — quel dato si scarica/inserisce da Cassa → Chiusura
+// giornaliera, unico posto dove serve davvero.
 
 function pnRecalcGiorno(){
   const data = gv('pnDataInp') || _pnOggi();
@@ -17758,19 +17696,26 @@ function pnRecalcGiorno(){
   const movimentiOggi = pnMovimenti.filter(m=>m.data===data);
   const speseCassetto = movimentiOggi.filter(m=>m.fonte==='cassetto').reduce((s,m)=>s+m.importo,0);
   const speseFondo = movimentiOggi.filter(m=>m.fonte==='fondo').reduce((s,m)=>s+m.importo,0);
+  const speseTotali = speseCassetto + speseFondo;
 
   const contantiLive = _pNum(gv('pnContantiInp'));
-  const posSumUpLive = _pNum(gv('pnPosSumUpInp'));
-  const posNumiaLive = _pNum(gv('pnPosNumiaInp'));
-  const posLive = posSumUpLive + posNumiaLive;
-  document.getElementById('pnPosInp').value = _fNum(posLive);
-  const contanteRealeLive = contantiLive + speseCassetto; // solo per "incasso reale" del report
+  // FIX (23/08, segnalato da Valerio con screenshot): "incasso reale"
+  // sommava per errore il contante e il POS come fossero la stessa voce —
+  // sono due incassi distinti, mai da sommare in un totale unico. Ora è
+  // solo contante: incasso LORDO (ricostruito riaggiungendo le spese pagate
+  // dal cassetto, che altrimenti farebbero apparire l'incasso più basso di
+  // quanto realmente venduto) e NETTO (lordo meno tutte le spese del
+  // giorno, cassetto e fondo insieme).
+  const contanteRealeLive = contantiLive + speseCassetto; // solo per "incasso lordo" del report
+  const nettoLive = contanteRealeLive - speseTotali;
   const fondoFineGiornoLive = fondoIeri + contantiLive - speseFondo; // il fondo si muove sul contato, non sul ricostruito
 
   document.getElementById('pnSpeseCassettoOggi').textContent = fmt(speseCassetto);
   document.getElementById('pnSpeseFondoOggi').textContent = fmt(speseFondo);
-  document.getElementById('pnIncassoReale').textContent = fmt(contanteRealeLive + posLive);
-  document.getElementById('pnFondoFineGiorno').textContent = fmt(fondoFineGiornoLive);
+  document.getElementById('pnIncassoReale').textContent = fmt(contanteRealeLive);
+  document.getElementById('pnIncassoNetto').textContent = fmt(nettoLive);
+  // Il fondo cumulativo si vede solo nella finestra nera in alto — qui non
+  // serve più ripeterlo (richiesta esplicita 23/08).
 }
 
 // Markup di una riga movimento, riusato sia dalla lista del giorno corrente
@@ -18021,6 +17966,18 @@ async function renderPnStorico(){
   ]);
   el.innerHTML = giorni.map(d=>{
     const g = perGiorno[d];
+    // FIX (23/08, segnalato da Valerio con screenshot): qui si sommava
+    // "contanteReale + pos" come se fossero un unico incasso — sbagliato,
+    // sono due voci distinte (contante vs elettronico), e il campo "pos"
+    // del conteggio Prima Nota è stato comunque rimosso (era un doppione di
+    // Cassa → Chiusura giornaliera). Ora la card mostra due numeri separati
+    // — Incasso lordo in contanti e Spese totali del giorno — invece di un
+    // unico totale sbagliato. "Fondo fine giorno" non si ripete più qui:
+    // è un saldo CUMULATIVO (si vede già nella finestra nera in alto),
+    // mostrarlo anche per singolo giorno confondeva con "quanto ho
+    // incassato quel giorno" quando in realtà è tutt'altra cosa.
+    const speseTotaliGiorno = g.speseCassetto + g.speseFondo;
+    const nettoGiorno = g.contanteReale - speseTotaliGiorno;
     const label = new Date(d+'T12:00:00').toLocaleDateString('it-IT',{weekday:'short',day:'2-digit',month:'short'});
     const m = meteo[d];
     const meteoTxt = m ? `🌡️ ${Math.round(m.tmin)}–${Math.round(m.tmax)}°C · 🌧️ ${m.pioggia||0}mm` : '';
@@ -18032,20 +17989,38 @@ async function renderPnStorico(){
     const scioperoTxt = sc && sc.length ? sc.map(s=>`🚨 ${esc(s.linea)}${s.dettaglio?' — '+esc(s.dettaglio):''}`).join(' · ') : '';
     const nMovi = pnMovimenti.filter(mv=>mv.data===d).length;
     const dId = 'pnStorGiorno_'+d.replace(/-/g,'');
+    const dettId = dId+'_dett';
     return `<div style="background:var(--surface);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:8px;box-shadow:var(--shadow)">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <span style="font-size:13px;font-weight:700">${label}</span>
-        <span style="font-size:14px;font-weight:800;color:var(--green,#1a7a3a)">${fmt(g.contanteReale + g.pos)}</span>
+      <div onclick="_pnToggleDettGiorno('${dettId}')" style="cursor:pointer">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:13px;font-weight:700">${label}</span>
+          <span id="${dettId}_arr" style="color:var(--ink3);font-size:14px;transition:transform .2s">›</span>
+        </div>
+        <div style="font-size:11px;color:var(--ink3);display:flex;justify-content:space-between">
+          <span>💰 Incasso: <b style="color:var(--green,#1a7a3a)">${fmt(g.contanteReale)}</b></span>
+          <span>📤 Spese: <b style="color:${speseTotaliGiorno>0?'var(--red)':'var(--ink3)'}">${fmt(speseTotaliGiorno)}</b></span>
+        </div>
       </div>
-      <div style="font-size:11px;color:var(--ink3);display:flex;justify-content:space-between">
-        <span>Cassetto: ${fmt(g.speseCassetto)} · Fondo: ${fmt(g.speseFondo)}</span>
-        <span>Fondo fine giorno: ${fmt(g.fondoFineGiorno)}</span>
+      <div id="${dettId}" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--sep);font-size:12px;color:var(--ink3)">
+        <div style="display:flex;justify-content:space-between;margin-bottom:3px"><span>Incasso lordo in contanti</span><b style="color:var(--ink)">${fmt(g.contanteReale)}</b></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:3px;padding-left:10px"><span>· Spese da cassetto</span><span>−${fmt(g.speseCassetto)}</span></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:3px;padding-left:10px"><span>· Spese da fondo</span><span>−${fmt(g.speseFondo)}</span></div>
+        <div style="display:flex;justify-content:space-between;margin-top:6px;padding-top:6px;border-top:1px solid var(--sep)"><span style="font-weight:700;color:var(--ink)">Netto (tolte le spese)</span><b style="color:var(--ink)">${fmt(nettoGiorno)}</b></div>
       </div>
       ${meteoTxt || scioperoTxt ? `<div style="font-size:11px;color:var(--ink3);margin-top:6px;padding-top:6px;border-top:1px solid var(--sep);display:flex;flex-wrap:wrap;gap:8px">${meteoTxt?`<span>${meteoTxt}</span>`:''}${scioperoTxt?`<span style="color:#c0392b;font-weight:600">${scioperoTxt}</span>`:''}</div>` : ''}
       ${nMovi>0 ? `<div onclick="_pnToggleStoricoGiorno('${d}')" style="font-size:11px;color:var(--blue);font-weight:600;cursor:pointer;margin-top:8px;padding-top:8px;border-top:1px solid var(--sep)">✏️ ${nMovi} moviment${nMovi!==1?'i':'o'} — tocca per modificare <span id="${dId}_arr">▾</span></div>
       <div id="${dId}" style="display:none;margin-top:6px"></div>` : ''}
     </div>`;
   }).join('');
+}
+
+function _pnToggleDettGiorno(id){
+  const el = document.getElementById(id);
+  const arr = document.getElementById(id+'_arr');
+  if(!el) return;
+  const aperto = el.style.display !== 'none';
+  el.style.display = aperto ? 'none' : '';
+  if(arr) arr.style.transform = aperto ? '' : 'rotate(90deg)';
 }
 
 // Avvio dell'app: qui, in fondo a tutto, dopo che ogni variabile e funzione
