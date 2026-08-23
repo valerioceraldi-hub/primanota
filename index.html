@@ -407,7 +407,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.59</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.60</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:14px">
     <button onclick="sincronizzaOra()" title="Sincronizza con Cloud" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;line-height:1">&#8635;</button>
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
@@ -1245,8 +1245,11 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
       <div id="pnProssimiScioperiEl"></div>
     </div>
     <div id="pnDaRiconciliareBox" style="display:none;background:#fff7ed;border:1.5px solid #fdba74;border-radius:var(--radius);padding:14px;margin-bottom:12px">
-      <div style="font-size:13px;font-weight:700;color:#9a3412;margin-bottom:8px">⏳ Da riconciliare (oltre 7 giorni)</div>
-      <div id="pnDaRiconciliareEl"></div>
+      <!-- Header cliccabile: parte sempre chiuso, mostra solo il conteggio
+           (23/08, richiesta esplicita di Valerio) — non deve più spingere
+           giù le chiusure storiche vere e proprie appena la lista cresce. -->
+      <div class="pnDaRiconHeader" onclick="_pnToggleDaRiconciliare()" style="font-size:13px;font-weight:700;color:#9a3412;cursor:pointer">⏳ Da riconciliare (oltre 7 giorni)</div>
+      <div id="pnDaRiconciliareEl" style="display:none;margin-top:8px"></div>
     </div>
     <div id="incListaEl"></div>
   </div>
@@ -17308,7 +17311,7 @@ async function pnSyncCloud(){
       sbFetchAll('prima_nota_movimenti?select=*&deleted_at=is.null&order=data.asc')
     ]);
     pnConteggi = (c||[]).map(r=>({id:r.id, data:r.data, contantiContati:r.contanti_contati||0, pos:r.pos||0, posSumUp:r.pos_sumup||0, posNumia:r.pos_numia||0, note:r.note||''}));
-    pnMovimenti = (m||[]).map(r=>({id:r.id, data:r.data, categoria:r.categoria, importo:r.importo||0, fonte:r.fonte, descrizione:r.descrizione||'', fatturaId:r.fattura_id, origineEsterna:r.origine_esterna, ddt:!!r.ddt}));
+    pnMovimenti = (m||[]).map(r=>({id:r.id, data:r.data, categoria:r.categoria, importo:r.importo||0, fonte:r.fonte, descrizione:r.descrizione||'', fatturaId:r.fattura_id, origineEsterna:r.origine_esterna, ddt:!!r.ddt, ignoraRiconciliazione:!!r.ignora_riconciliazione}));
   }catch(e){ console.warn('Prima Nota sync fallito:', e.message||e); }
 }
 
@@ -17585,24 +17588,70 @@ function pnRenderDaRiconciliare(){
   const el = document.getElementById('pnDaRiconciliareEl');
   if(!box || !el) return;
   const oggi = new Date();
+  // FIX (23/08, segnalato da Valerio con screenshot): questa lista cresceva
+  // all'infinito, senza limite né modo di "chiuderla" — più cresce, più
+  // spinge giù le chiusure storiche vere e proprie ogni volta che apri
+  // Storico. Due correzioni insieme:
+  // 1) esclude i movimenti marcati "ignora_riconciliazione" — un pulsante
+  //    apposito (sotto) permette di dire "questo non troverà mai una
+  //    fattura, smetti di mostrarmelo" invece di doverlo vedere per sempre;
+  // 2) il riquadro parte SEMPRE chiuso, mostra solo il conteggio — si apre
+  //    al tocco, così anche con molte righe non sposta più nulla finché non
+  //    lo chiedi tu esplicitamente.
   const vecchi = (pnMovimenti||[]).filter(m=>{
-    if(m.categoria!=='spesa' || m.fatturaId) return false;
+    if(m.categoria!=='spesa' || m.fatturaId || m.ignoraRiconciliazione) return false;
     const dataM = new Date(m.data+'T12:00:00');
     return (oggi - dataM) > 7*86400000;
   }).sort((a,b)=>(a.data||'').localeCompare(b.data));
   if(!vecchi.length){ box.style.display='none'; return; }
   box.style.display='block';
-  el.innerHTML = vecchi.map(m=>{
+  const LIMITE = 15;
+  const daMostrare = vecchi.slice(0, LIMITE);
+  const altri = vecchi.length - daMostrare.length;
+  const righeHtml = daMostrare.map(m=>{
     const giorni = Math.floor((oggi - new Date(m.data+'T12:00:00'))/86400000);
-    return `<div style="background:#fff;border-radius:8px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:center;gap:10px">
+    return `<div style="background:#fff;border-radius:8px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:center;gap:8px">
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;font-weight:600">${esc(m.descrizione||'Spesa')}</div>
         <div style="font-size:11px;color:#9a3412">${new Date(m.data+'T12:00:00').toLocaleDateString('it-IT')} · ${giorni}gg fa${m.ddt?' · 📦 DDT':''}</div>
       </div>
       <div style="font-size:14px;font-weight:700;color:var(--red)">${fmt(m.importo)}</div>
-      <button onclick="pnApriAbbinaManuale(${m.id})" style="font-size:11px;color:var(--blue);background:none;border:1.5px solid var(--blue);border-radius:8px;padding:6px 10px;cursor:pointer;white-space:nowrap;flex-shrink:0">🔗 Abbina</button>
+      <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
+        <button onclick="pnApriAbbinaManuale(${m.id})" style="font-size:11px;color:var(--blue);background:none;border:1.5px solid var(--blue);border-radius:8px;padding:5px 10px;cursor:pointer;white-space:nowrap">🔗 Abbina</button>
+        <button onclick="pnIgnoraRiconciliazione(${m.id})" style="font-size:11px;color:var(--ink3);background:none;border:1.5px solid var(--sep);border-radius:8px;padding:5px 10px;cursor:pointer;white-space:nowrap">🚫 Ignora</button>
+      </div>
     </div>`;
   }).join('');
+  el.innerHTML = (altri>0 ? `<div style="font-size:11px;color:#9a3412;margin-bottom:8px">Mostrati i ${LIMITE} più vecchi — altri ${altri} non mostrati, abbinali o ignorali per farli scomparire da qui.</div>` : '') + righeHtml;
+  // Riquadro collassato: header cliccabile con solo il conteggio, il
+  // contenuto vero (righeHtml già pronto in el) si mostra solo al tocco.
+  const headerEl = box.querySelector('.pnDaRiconHeader');
+  if(headerEl) headerEl.textContent = `⏳ Da riconciliare (oltre 7 giorni) — ${vecchi.length} ›`;
+}
+
+// Segna un movimento come "mai da riconciliare" — smette di comparire nella
+// lista "Da riconciliare" per sempre, senza doverlo abbinare a una fattura
+// che magari non esiste (es. rimborso, prelievo personale, spesa varia).
+async function pnIgnoraRiconciliazione(movId){
+  const idx = (pnMovimenti||[]).findIndex(x=>x.id===movId);
+  if(idx<0) return;
+  pnMovimenti[idx].ignoraRiconciliazione = true;
+  try{
+    await sbFetch('prima_nota_movimenti?id=eq.'+movId, {method:'PATCH', headers:{...SB_H,'Prefer':'return=minimal'}, body:JSON.stringify({ignora_riconciliazione:true})});
+  }catch(e){
+    console.warn('pnIgnoraRiconciliazione:', e.message||e);
+  }
+  pnRenderDaRiconciliare();
+  toast('✓ Non comparirà più in questa lista', {forza:true});
+}
+
+function _pnToggleDaRiconciliare(){
+  const el = document.getElementById('pnDaRiconciliareEl');
+  const arr = document.getElementById('pnDaRiconArrow');
+  if(!el) return;
+  const aperto = el.style.display !== 'none';
+  el.style.display = aperto ? 'none' : '';
+  if(arr) arr.style.transform = aperto ? '' : 'rotate(90deg)';
 }
 
 function pnApriAbbinaManuale(movId){
