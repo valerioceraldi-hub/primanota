@@ -407,7 +407,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.60</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.63</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:14px">
     <button onclick="sincronizzaOra()" title="Sincronizza con Cloud" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;line-height:1">&#8635;</button>
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
@@ -9632,7 +9632,7 @@ async function init(){
       const ok = await loadAll();
       if(!ok) toast('⚠️ Cloud non raggiungibile — mostrati dati locali.');
       aggiornaDL(); renderLista(); aggiornaAlertBanner();
-      await caricaIncassi(); aggiornaSaldoCassa();
+      await caricaIncassi(true); aggiornaSaldoCassa();
       await caricaMovimentiBanca();
       await caricaMovimentiCarta();
     })().catch(()=>{});
@@ -9650,7 +9650,7 @@ async function init(){
     if(loadErr){ toast('⚠️ Errore Cloud: '+loadErr.slice(0,80)); }
     aggiornaDL(); renderLista(); aggiornaAlertBanner();
     avviaSyncAutomatico();
-    caricaIncassi().then(()=>{ aggiornaSaldoCassa(); }).catch(()=>{});
+    caricaIncassi(true).then(()=>{ aggiornaSaldoCassa(); }).catch(()=>{});
     caricaMovimentiBanca().catch(()=>{});
     caricaMovimentiCarta().catch(()=>{});
   }
@@ -9761,7 +9761,11 @@ async function sincronizzaOra(){
   renderDizForn(); renderPagDefault(); renderFornRateList(); aggiornaMenuAI();
   // Mancavano del tutto: senza queste, "Sincronizza ora" non aggiornava mai
   // chiusure/versamenti/POS/movimenti banca — solo le fatture.
-  await caricaIncassi();
+  // forceFull=true (23/08): "Sincronizza ora" deve garantire un vero
+  // riallineamento completo col server, non solo l'incrementale leggero
+  // usato in background — altrimenti dati storici mai arrivati sul telefono
+  // (per qualunque motivo) non si scaricherebbero MAI, nemmeno forzando.
+  await caricaIncassi(true);
   await caricaMovimentiBanca();
   await caricaMovimentiCarta();
   aggiornaSaldoCassa();
@@ -9955,7 +9959,7 @@ function _fNum(n){
 }
 
 // Carica incassi dalla cache locale + Supabase
-async function caricaIncassi(){
+async function caricaIncassi(forceFull){
   // ── CACHE-FIRST: mostra subito i dati locali, poi aggiorna in background ──
   try{ const c = JSON.parse(localStorage.getItem(KCHIUSURE)||'[]'); if(Array.isArray(c) && c.length) chiusure = c; }catch(e){}
   try{ const c = JSON.parse(localStorage.getItem(KINCASSI)||'[]'); if(Array.isArray(c) && c.length) incassi = c; }catch(e){}
@@ -10038,6 +10042,40 @@ async function caricaIncassi(){
       }
       salvaIncassiLocale();
     }
+    // Controllo leggero di completezza (23/08, richiesta esplicita di
+    // Valerio: mai più un riscaricamento completo se non serve davvero) —
+    // chiede al server SOLO gli id (poche decine di KB anche con 28.000
+    // righe, non gli 8 MB dell'intera tabella), li confronta con quelli già
+    // in locale:
+    // - un id che il server ha ma il telefono no → è un vero buco (es. il
+    //   primissimo caricamento storico si era interrotto a metà) — richiesto
+    //   APPOSTA, solo quelle righe mancanti, non tutta la tabella;
+    // - un id che il telefono ha ma il server non ha più → dato cancellato
+    //   altrove (reimport, pulizia doppioni) — tolto dalla cache.
+    // Gira solo su forceFull=true (avvio app o "Sincronizza ora" manuale),
+    // MAI sul ping automatico ogni 60 secondi — altrimenti anche questa
+    // versione "leggera" finirebbe per pesare inutilmente nell'arco di una
+    // giornata intera con l'app aperta.
+    if(forceFull){
+      const idsServer = await sbFetchAll('incassi?select=id');
+      if(Array.isArray(idsServer)){
+        const idsServerSet = new Set(idsServer.map(r=>r.id));
+        const idsLocaliSet = new Set(incassi.map(r=>r.id));
+        const mancanti = idsServer.map(r=>r.id).filter(id=>!idsLocaliSet.has(id));
+        const senzaFantasmi = incassi.filter(r=>idsServerSet.has(r.id));
+        let cambiato = senzaFantasmi.length !== incassi.length;
+        incassi = senzaFantasmi;
+        if(mancanti.length){
+          const CHUNK = 200; // evita URL troppo lunghe con migliaia di id mancanti
+          for(let i=0;i<mancanti.length;i+=CHUNK){
+            const chunk = mancanti.slice(i,i+CHUNK);
+            const righeMancanti = await sbFetchAll('incassi?select=*&id=in.('+chunk.join(',')+')');
+            if(Array.isArray(righeMancanti) && righeMancanti.length){ incassi = incassi.concat(righeMancanti); cambiato = true; }
+          }
+        }
+        if(cambiato) salvaIncassiLocale();
+      }
+    }
   }catch(e){ console.warn('incassi Supabase:', e.message||e); }
 }
 
@@ -10063,7 +10101,7 @@ function aprisemIncassi(){
   // Carica versamenti da locale
   try{ const c = JSON.parse(localStorage.getItem(KVERSAMENTI)||'[]'); if(Array.isArray(c)) versamenti = c; }catch(e){}
   if(!incassi.length && !chiusure.length){
-    caricaIncassi().then(()=>{ caricaChiusuraGiorno(); aggiornaSaldoCassa(); });
+    caricaIncassi(true).then(()=>{ caricaChiusuraGiorno(); aggiornaSaldoCassa(); });
   } else {
     caricaChiusuraGiorno();
     aggiornaSaldoCassa();
