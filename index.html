@@ -407,7 +407,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.52</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.53</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:14px">
     <button onclick="sincronizzaOra()" title="Sincronizza con Cloud" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;line-height:1">&#8635;</button>
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
@@ -1607,6 +1607,16 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
          il controllo anche su dati già esistenti prima che il motore fosse
          costruito, o mai riprovati per qualunque motivo. -->
     <button onclick="pnRiscansionaTutto()" style="width:100%;padding:11px;border:1.5px dashed var(--blue);border-radius:var(--radius-sm);background:var(--blue-light);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:var(--blue);margin-bottom:12px">🔄 Riprova riconciliazione su tutto lo storico</button>
+
+    <!-- Prossimi scioperi ANM/EAV: sempre visibile qui, indipendentemente
+         dall'intervallo di date impostato nello Storico più sotto — prima
+         bisognava allargare "al" fino a raggiungere la data giusta e
+         scorrere per trovarli, scomodo per qualcosa che interessa sapere
+         subito appena si apre Prima Nota. -->
+    <div id="pnProssimiScioperiBox" style="display:none;background:#fef2f2;border:1.5px solid #fca5a5;border-radius:var(--radius);padding:14px;margin-bottom:12px">
+      <div style="font-size:13px;font-weight:700;color:#991b1b;margin-bottom:8px">🚨 Prossimi scioperi ANM/EAV</div>
+      <div id="pnProssimiScioperiEl"></div>
+    </div>
 
     <!-- Movimenti in contanti non ancora riconciliati con nessuna fattura da
          più di 7 giorni — o li abbini a mano, o vuol dire che quella fattura
@@ -16954,6 +16964,7 @@ async function aprisemPrimaNota(){
   await pnSyncCloud();
   await pnCaricaGiorno();
   pnAggiornaFondoHeader();
+  pnRenderProssimiScioperi();
   // In background, non blocca l'apertura della tab: aggiorna la cache degli
   // scioperi ANM/EAV noti (solo quelli futuri pubblicati dalla fonte pubblica).
   // Mostra l'esito appena disponibile (utile per capire se sta funzionando,
@@ -16961,7 +16972,29 @@ async function aprisemPrimaNota(){
   pnAggiornaScioperiNapoli().then(()=>{
     const el = document.getElementById('pnScioperiEsito');
     if(el && window._pnScioperiEsito) el.textContent = window._pnScioperiEsito;
+    pnRenderProssimiScioperi();
   });
+}
+
+// Mostra sempre, in cima a Prima Nota, gli scioperi ANM/EAV futuri già noti
+// (indipendentemente da quale intervallo è impostato nello Storico più
+// sotto) — così si vedono subito appena si apre la scheda, senza dover
+// allargare le date e scorrere fino al giorno giusto.
+async function pnRenderProssimiScioperi(){
+  const box = document.getElementById('pnProssimiScioperiBox');
+  const el = document.getElementById('pnProssimiScioperiEl');
+  if(!box || !el) return;
+  const oggi = _pnOggi();
+  const fraSeiMesi = new Date(); fraSeiMesi.setMonth(fraSeiMesi.getMonth()+6);
+  const scioperi = await pnFetchScioperi(oggi, fraSeiMesi.toISOString().slice(0,10));
+  const date = Object.keys(scioperi).sort();
+  if(!date.length){ box.style.display = 'none'; return; }
+  box.style.display = '';
+  el.innerHTML = date.map(d=>{
+    const label = new Date(d+'T12:00:00').toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long'});
+    const righe = scioperi[d].map(s=>`${esc(s.linea)}${s.dettaglio?' — '+esc(s.dettaglio):''}`).join('<br>');
+    return `<div style="font-size:12px;color:#7f1d1d;margin-bottom:6px"><b>${label}</b><br>${righe}</div>`;
+  }).join('');
 }
 
 async function pnSyncCloud(){
