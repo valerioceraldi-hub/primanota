@@ -407,7 +407,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.57</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.59</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:14px">
     <button onclick="sincronizzaOra()" title="Sincronizza con Cloud" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;line-height:1">&#8635;</button>
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
@@ -6006,6 +6006,41 @@ STEP 4 — Rispondi SOLO con JSON valido, nessun testo prima o dopo:
 //   { "22": {imponibile, imposta}, "10": {...}, "4": {...} }
 // Restituisce anche il totale imponibile e totale IVA.
 // ══════════════════════════════════════════════════════════════════════════════
+// Mappa COMPLETA e ufficiale dei 22 codici ModalitaPagamento (tabella
+// ModalitaPagamentoType, specifica tecnica FatturaPA — verificata contro lo
+// schema XSD ufficiale dell'Agenzia delle Entrate il 23/08). Prima esistevano
+// tre mappe diverse e incomplete nel file (righe ~6229, ~6333, ~9089), e due
+// di loro etichettavano MP19 (SEPA Direct Debit) come "bonifico" — causa
+// diretta del bug reale segnalato da Valerio (fattura Amazon IT62VGCWABEI,
+// pagata con SDD ma registrata come bonifico). Un'unica fonte di verità,
+// usata ovunque nel file da qui in poi.
+const MP_LABEL = {
+  'MP01':'Contanti','MP02':'Assegno','MP03':'Assegno circolare','MP04':'Contanti presso Tesoreria',
+  'MP05':'Bonifico','MP06':'Vaglia cambiario','MP07':'Bollettino bancario','MP08':'Carta di pagamento',
+  'MP09':'RID','MP10':'RID utenze','MP11':'RID veloce','MP12':'RIBA','MP13':'MAV','MP14':'Quietanza erario',
+  'MP15':'Giroconto su conti di contabilità speciale','MP16':'Domiciliazione bancaria','MP17':'Domiciliazione postale',
+  'MP18':'Bollettino di c/c postale','MP19':'SEPA Direct Debit','MP20':'SEPA Direct Debit CORE',
+  'MP21':'SEPA Direct Debit B2B','MP22':'Trattenuta su somme già riscosse'
+};
+// L'app oggi distingue solo 4 metodi (contanti/bonifico/assegno/carta) — non
+// esiste ancora un bucket proprio per l'addebito diretto (RID/SEPA DD/RIBA/
+// MAV), quindi questi finiscono nel bucket "bonifico" come approssimazione
+// meno sbagliata (viaggiano comunque sul conto corrente, non in contanti/
+// assegno/carta) — MA la label completa e corretta resta sempre visibile
+// aprendo il documento (renderFatturaXML), dove si vede scritto "SEPA Direct
+// Debit" e non più "bonifico". Se in futuro serve un bucket dedicato per la
+// riconciliazione, è una modifica separata da valutare a parte.
+const MP_BUCKET = {
+  'MP01':'contanti','MP04':'contanti',
+  'MP02':'assegno','MP03':'assegno',
+  'MP08':'carta',
+  'MP05':'bonifico','MP06':'bonifico','MP07':'bonifico','MP09':'bonifico','MP10':'bonifico','MP11':'bonifico',
+  'MP12':'bonifico','MP13':'bonifico','MP14':'bonifico','MP15':'bonifico','MP16':'bonifico','MP17':'bonifico',
+  'MP18':'bonifico','MP19':'bonifico','MP20':'bonifico','MP21':'bonifico','MP22':'bonifico'
+};
+function mpCodeToBucket(code){ return MP_BUCKET[code] || 'bonifico'; }
+function mpCodeToLabel(code){ return MP_LABEL[code] || code || '—'; }
+
 function extractIvaBreakdownFromXml(xmlText){
   try{
     const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
@@ -6226,7 +6261,6 @@ async function analizzaXML(file){
         ? _sommaImportiPagamento : importoTotaleDoc;
       const iban=get('IBAN');
       const modalita=get('ModalitaPagamento'); // MP01=contanti, MP05=bonifico, ecc.
-      const pagMap={'MP01':'contanti','MP05':'bonifico','MP02':'assegno','MP12':'assegno','MP19':'bonifico'};
       // Cerca anche riferimento DDT nei tag FatturaPA
       const numDdtXml=get('NumeroDDT')||get('NumeroFatturePrecedenti')||'';
       // Leggi TipoDocumento per nota credito
@@ -6240,7 +6274,7 @@ async function analizzaXML(file){
         numero_ddt:numDdtXml,
         data:dataRaw,
         importo:importoNettoDaUsare,
-        pagamento:pagMap[modalita]||'',
+        pagamento:mpCodeToBucket(modalita),
         numero_assegno:'', intestatario_assegno:'', banca_assegno:'',
         tipo_documento: NC_S.indexOf(tipoDocXmlS)>=0 ? tipoDocXmlS : (tipoDocXmlS||'fattura'),
         _ivaBreakdown: ivaInfo ? ivaInfo.breakdown : null,
@@ -6330,7 +6364,6 @@ async function importaMassivoXml(input){
   progBox.style.display = 'block';
 
   const risultati = { salvate:0, duplicate:0, aggiornate:0, errori:0, nomi:[] };
-  const pagMap = {'MP01':'contanti','MP05':'bonifico','MP02':'assegno','MP12':'assegno','MP19':'bonifico','MP06':'bonifico'};
   const normS = s => String(s||'').trim().toLowerCase().replace(/[\s.]/g,'');
 
   for(let i = 0; i < files.length; i++){
@@ -6411,7 +6444,7 @@ async function importaMassivoXml(input){
       const importo   = (_sommaImportiPagamento2!==null && _sommaImportiPagamento2>0 && _sommaImportiPagamento2<=importoTotaleDoc2+0.02)
         ? _sommaImportiPagamento2 : importoTotaleDoc2;
       const modalita  = get('ModalitaPagamento');
-      const pagamento = pagMap[modalita] || '';
+      const pagamento = mpCodeToBucket(modalita);
       const iban      = get('IBAN');
       const scadRaw   = get('DataScadenzaPagamento');
       const numDdt    = get('NumeroDDT') || get('NumeroFatturePrecedenti') || '';
@@ -9086,11 +9119,17 @@ function renderFatturaXML(xmlText, ddt){
   const imponibile= g('ImponibileImporto') || '';
   const iva       = g('Imposta') || '';
   const modalPag  = g('ModalitaPagamento');
-  const pagMap    = {'MP01':'Contanti','MP05':'Bonifico Bancario','MP02':'Assegno','MP06':'Pagamento Posticipato','MP12':'RIBA','MP19':'SEPA'};
-  const pagLabel  = pagMap[modalPag]||modalPag||'—';
+  const pagMap    = MP_LABEL;
+  const pagLabel  = mpCodeToLabel(modalPag);
   const iban      = g('IBAN') || '';
   const scadPag   = g('DataScadenzaPagamento') || '';
   const scadFmtd  = scadPag ? new Date(scadPag+'T12:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'long',year:'numeric'}) : '';
+  // CondizioniPagamento (mai letto prima) — dice se è un pagamento a rate, in
+  // un'unica soluzione, o un anticipo. Il PDF Aruba lo mostra sempre come
+  // "Pagamento in unica soluzione" ecc., qui non compariva da nessuna parte.
+  const condPagMap = {'TP01':'Pagamento a rate','TP02':'Pagamento in unica soluzione','TP03':'Anticipo'};
+  const condPag    = g('CondizioniPagamento') || '';
+  const condPagLbl = condPagMap[condPag] || condPag;
 
   // Righe dettaglio
   const righe = ga('DettaglioLinee');
@@ -9103,9 +9142,26 @@ function renderFatturaXML(xmlText, ddt){
       const pUnit  = g('PrezzoUnitario', r);
       const pTot   = g('PrezzoTotale', r);
       const iva_r  = g('AliquotaIVA', r);
+      // Sconto/maggiorazione per riga — prima non veniva mai letta qui, per
+      // questo una riga scontata a 0,00 sembrava un buco senza spiegazione
+      // (bug reale segnalato da Valerio: "Costi di spedizione" 1,09€ scontato
+      // a 0,00€, invisibile in app pur essendo nell'XML — verificato che
+      // Aruba lo mostra sempre, colonna "SC/MG"). Un documento può avere PIÙ
+      // righe ScontoMaggiorazione (raro ma valido XML), le sommo tutte.
+      const scontoNodi = ga('ScontoMaggiorazione', r);
+      let scontoTot = 0, scontoTipo = null;
+      scontoNodi.forEach(sn=>{
+        const tipo = g('Tipo', sn);
+        const imp = parseFloat(g('Importo', sn).replace(',','.'))||0;
+        if(tipo) scontoTipo = tipo; // 'SC' sconto, 'MG' maggiorazione
+        scontoTot += (tipo==='MG' ? imp : -imp);
+      });
       const fmtE   = n => n ? '€ '+parseFloat(n).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '';
+      const scontoTxt = scontoNodi.length
+        ? `<div style="font-size:10px;color:${scontoTipo==='MG'?'#ffb74d':'#81c784'};margin-top:2px">${scontoTipo==='MG'?'+':'−'}${fmtE(Math.abs(scontoTot).toFixed(2))} ${scontoTipo==='MG'?'magg.':'sconto'}</div>`
+        : '';
       return `<tr style="border-bottom:1px solid rgba(255,255,255,.07)">
-        <td style="padding:10px 12px;font-size:13px;color:#e8e8f0;max-width:200px;word-break:break-word;line-height:1.35">${desc}</td>
+        <td style="padding:10px 12px;font-size:13px;color:#e8e8f0;max-width:200px;word-break:break-word;line-height:1.35">${desc}${scontoTxt}</td>
         <td style="padding:10px 8px;font-size:13px;color:#b8b8d0;text-align:right;white-space:nowrap">${qta||''}${um?' '+um:''}</td>
         <td style="padding:10px 8px;font-size:13px;color:#b8b8d0;text-align:right;white-space:nowrap">${fmtE(pUnit)}</td>
         <td style="padding:10px 12px;font-size:13px;color:#e8e8f0;font-weight:600;text-align:right;white-space:nowrap">${fmtE(pTot)}</td>
@@ -9135,21 +9191,80 @@ function renderFatturaXML(xmlText, ddt){
   // Card riepilogo IVA
   const riepilogaIVA = ga('DatiRiepilogo');
   let ivaHtml = '';
+  // Mappa dei codici Natura più comuni — servono a spiegare PERCHÉ un'aliquota
+  // è 0% (esente, non imponibile, reverse charge, ecc.), altrimenti "IVA 0%"
+  // resta senza spiegazione, stesso identico problema dello sconto invisibile
+  // (bug reale trovato lo stesso giorno, stessa causa: campo mai letto).
+  const naturaMap = {
+    'N1':'Escluse ex art.15','N2':'Non soggette','N2.1':'Non soggette art.7-15',
+    'N2.2':'Non soggette (altri casi)','N3':'Non imponibili','N3.1':'Non imponibili — esportazioni',
+    'N3.2':'Non imponibili — cessioni intracomunitarie','N3.3':'Non imponibili — cessioni a San Marino',
+    'N3.4':'Non imponibili — operazioni assimilate','N3.5':'Non imponibili — a seguito dichiarazione intento',
+    'N3.6':'Non imponibili — altre operazioni','N4':'Esenti','N5':'Regime del margine',
+    'N6':'Inversione contabile (reverse charge)','N6.1':'Reverse charge — rottami','N6.2':'Reverse charge — oro/argento',
+    'N6.3':'Reverse charge — subappalto edilizia','N6.4':'Reverse charge — fabbricati',
+    'N6.5':'Reverse charge — cellulari','N6.6':'Reverse charge — elettronica','N6.7':'Reverse charge — edilizia/settori',
+    'N6.8':'Reverse charge — energia','N6.9':'Reverse charge — altri casi','N7':'IVA assolta in altro stato UE'
+  };
   if(riepilogaIVA.length){
     const ivaRows = riepilogaIVA.map(r=>{
       const al = g('AliquotaIVA',r);
       const imp = g('ImponibileImporto',r);
       const imp2 = g('Imposta',r);
+      const natura = g('Natura', r);
+      const rifNorm = g('RiferimentoNormativo', r);
       const fmtE = n => n ? '€ '+parseFloat(n).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '';
-      return `<div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.07)">
-        <span style="color:rgba(255,255,255,.5)">IVA ${al}%</span>
-        <span style="color:#e8e8f0">${fmtE(imp)} + ${fmtE(imp2)}</span>
+      const naturaTxt = natura
+        ? `<div style="font-size:11px;color:#ffb74d;margin-top:3px">${natura} — ${naturaMap[natura]||'natura non imponibile/esente'}${rifNorm?' · '+esc(rifNorm):''}</div>`
+        : '';
+      return `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.07)">
+        <div style="display:flex;justify-content:space-between;font-size:13px">
+          <span style="color:rgba(255,255,255,.5)">IVA ${al}%</span>
+          <span style="color:#e8e8f0">${fmtE(imp)} + ${fmtE(imp2)}</span>
+        </div>
+        ${naturaTxt}
       </div>`;
     }).join('');
     ivaHtml = `<div style="background:rgba(255,255,255,.04);border-radius:12px;padding:14px 16px;margin:0 16px 16px">${ivaRows}</div>`;
   }
 
   const fmtE = n => n ? '€ '+parseFloat(n).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
+
+  // Sconto a livello di documento (distinto da quello per riga sopra) — Aruba
+  // lo mostra come riga "Sconto" a parte nel riepilogo importi, qui non era
+  // mai stato letto. DatiGeneraliDocumento è l'unico posto dove cercarlo per
+  // non confonderlo con gli sconti di riga già gestiti sopra.
+  const datiGenDocEl = gNS('DatiGeneraliDocumento', doc)[0];
+  const scontoDocNodi = datiGenDocEl ? ga('ScontoMaggiorazione', datiGenDocEl) : [];
+  let scontoDocTot = 0, scontoDocTipo = null;
+  scontoDocNodi.forEach(sn=>{
+    const tipo = g('Tipo', sn);
+    const imp = parseFloat(g('Importo', sn).replace(',','.'))||0;
+    if(tipo) scontoDocTipo = tipo;
+    scontoDocTot += imp;
+  });
+
+  // Causale (note libere del documento) — mai lette prima, possono contenere
+  // informazioni rilevanti (es. riferimenti, spiegazioni) scritte dal fornitore.
+  const causaleNodi = datiGenDocEl ? ga('Causale', datiGenDocEl) : [];
+  const causaleTxt = causaleNodi.map(c=>c.textContent.trim()).filter(Boolean).join(' · ');
+
+  // Bollo virtuale — tipico su fatture esenti IVA/regime forfettario sopra
+  // soglia (es. professionisti): un costo aggiuntivo (di solito 2€) mai letto
+  // prima, quindi mai mostrato — invisibile esattamente come lo sconto.
+  const datiBolloEl = datiGenDocEl ? gNS('DatiBollo', datiGenDocEl)[0] : null;
+  const importoBollo = datiBolloEl ? g('ImportoBollo', datiBolloEl) : '';
+
+  // Cassa previdenziale (es. INPS, cassa forense/commercialisti/ingegneri) —
+  // una percentuale aggiuntiva sull'imponibile, comune su fatture di
+  // professionisti, mai letta prima.
+  const cassaPrevNodi = datiGenDocEl ? ga('DatiCassaPrevidenziale', datiGenDocEl) : [];
+  const cassaPrevHtml = cassaPrevNodi.map(cp=>{
+    const alCassa = g('AlCassa', cp);
+    const impCassa = g('ImportoContributoCassa', cp);
+    const fmtE2 = n => n ? '€ '+parseFloat(n).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '';
+    return `<div style="display:flex;justify-content:space-between;font-size:13px;color:rgba(255,255,255,.7);margin-bottom:6px"><span>Cassa previdenziale (${alCassa}%)</span><span>${fmtE2(impCassa)}</span></div>`;
+  }).join('');
 
   return `
   <div style="padding:16px;padding-bottom:40px;min-height:100%">
@@ -9172,6 +9287,7 @@ function renderFatturaXML(xmlText, ddt){
         ${ddt&&ddt.numDdt?`<div><div style="font-size:10px;color:rgba(255,255,255,.4);margin-bottom:3px">DDT di riferimento</div><div style="font-size:15px;font-weight:600;color:#FF9500">${ddt.numDdt}</div></div>`:''}
         ${fattCollegataNum?`<div><div style="font-size:10px;color:rgba(255,255,255,.4);margin-bottom:3px">Fattura collegata</div><div style="font-size:15px;font-weight:600;color:#FF9500">${fattCollegataNum}${fattCollegataData?' del '+new Date(fattCollegataData+'T12:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'numeric'}):''}</div></div>`:''}
       </div>
+      ${causaleTxt?`<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1)"><div style="font-size:10px;color:rgba(255,255,255,.4);margin-bottom:3px">Causale</div><div style="font-size:13px;color:rgba(255,255,255,.8);line-height:1.4">${esc(causaleTxt)}</div></div>`:''}
     </div>
 
     <!-- RIGHE DETTAGLIO -->
@@ -9184,7 +9300,10 @@ function renderFatturaXML(xmlText, ddt){
     <div style="background:linear-gradient(135deg,rgba(0,122,255,.25),rgba(0,122,255,.12));border:1px solid rgba(0,122,255,.3);border-radius:16px;padding:18px;margin:0 0 16px">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:rgba(255,255,255,.4);margin-bottom:12px">Riepilogo importi</div>
       ${imponibile?`<div style="display:flex;justify-content:space-between;font-size:14px;color:rgba(255,255,255,.7);margin-bottom:8px"><span>Imponibile</span><span>${fmtE(imponibile)}</span></div>`:''}
+      ${cassaPrevHtml}
       ${iva?`<div style="display:flex;justify-content:space-between;font-size:14px;color:rgba(255,255,255,.7);margin-bottom:12px"><span>IVA</span><span>${fmtE(iva)}</span></div>`:''}
+      ${scontoDocNodi.length?`<div style="display:flex;justify-content:space-between;font-size:14px;color:${scontoDocTipo==='MG'?'#ffb74d':'#81c784'};margin-bottom:12px"><span>${scontoDocTipo==='MG'?'Maggiorazione':'Sconto'}</span><span>${scontoDocTipo==='MG'?'+':'−'}${fmtE(Math.abs(scontoDocTot).toFixed(2))}</span></div>`:''}
+      ${importoBollo?`<div style="display:flex;justify-content:space-between;font-size:14px;color:rgba(255,255,255,.7);margin-bottom:12px"><span>Bollo virtuale</span><span>${fmtE(importoBollo)}</span></div>`:''}
       <div style="display:flex;justify-content:space-between;font-size:20px;font-weight:700;color:#fff;padding-top:10px;border-top:1px solid rgba(255,255,255,.15)">
         <span>Totale documento</span><span style="color:#4fc3f7">${fmtE(totale)}</span>
       </div>
@@ -9197,6 +9316,7 @@ function renderFatturaXML(xmlText, ddt){
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:rgba(255,255,255,.35);margin-bottom:12px">Pagamento</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div><div style="font-size:10px;color:rgba(255,255,255,.4);margin-bottom:3px">Modalità</div><div style="font-size:14px;font-weight:600;color:#fff">${pagLabel}</div></div>
+        ${condPagLbl?`<div><div style="font-size:10px;color:rgba(255,255,255,.4);margin-bottom:3px">Condizioni</div><div style="font-size:14px;font-weight:600;color:#fff">${condPagLbl}</div></div>`:''}
         ${scadFmtd?`<div><div style="font-size:10px;color:rgba(255,255,255,.4);margin-bottom:3px">Scadenza</div><div style="font-size:14px;font-weight:600;color:#FF9500">${scadFmtd}</div></div>`:''}
         ${iban?`<div style="grid-column:span 2"><div style="font-size:10px;color:rgba(255,255,255,.4);margin-bottom:3px">IBAN</div><div style="font-size:13px;font-weight:600;color:#fff;word-break:break-all">${iban}</div></div>`:''}
       </div>
