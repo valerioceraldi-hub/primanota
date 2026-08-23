@@ -407,7 +407,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.48</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.49</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:14px">
     <button onclick="sincronizzaOra()" title="Sincronizza con Cloud" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;line-height:1">&#8635;</button>
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
@@ -610,8 +610,18 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
   <!-- Overlay tastierino: fisso su tutto lo schermo, sempre visibile senza scroll -->
   <div id="pnKeypadOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:900;align-items:flex-end;justify-content:center">
     <div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;padding:20px 20px calc(20px + env(safe-area-inset-bottom))">
-      <div style="text-align:center;font-size:38px;font-weight:800;margin-bottom:16px;color:var(--ink)">
+      <div style="text-align:center;font-size:38px;font-weight:800;margin-bottom:12px;color:var(--ink)">
         € <span id="pnKeypadDisplay">0,00</span>
+      </div>
+      <!-- Cassetto/Fondo raggiungibili anche da dentro il tastierino (23/08):
+           prima stavano solo fuori, coperti da questo overlay a schermo intero
+           — se ci si dimenticava di sceglierli PRIMA di aprire il tastierino,
+           l'unico modo per farlo era Annulla, tornare indietro, scegliere,
+           riaprire il tastierino e ridigitare l'importo da capo. Ora si sceglie
+           direttamente qui, senza perdere l'importo già digitato. -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">
+        <button class="pag-btn" id="pnfb-cassetto-kp" onclick="pnSetFonte('cassetto')" style="padding:9px 4px;font-size:13px">💵 Cassetto</button>
+        <button class="pag-btn" id="pnfb-fondo-kp" onclick="pnSetFonte('fondo')" style="padding:9px 4px;font-size:13px">💰 Fondo</button>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
         <button class="pag-btn" onclick="pnKeypadDigit('7')" style="font-size:22px;padding:18px 4px">7</button>
@@ -5286,11 +5296,17 @@ function _movMatchTestoImporto(m, s){
 function sv(id,v){const el=document.getElementById(id);if(el)el.value=v;}
 function gv(id){const el=document.getElementById(id);return el?el.value:'';}
 let tT;
-function toast(msg){
+function toast(msg, opts){
   // Mostra solo avvisi di errore/attenzione — le conferme di successo rallentavano
   // la navigazione quando si lavora veloce su tante fatture di fila (richiesta 28/07).
+  // ECCEZIONE (23/08, richiesta esplicita): per i salvataggi di Prima Nota (conteggio
+  // giornaliero, movimento veloce, chiusura giornaliera) l'assenza di conferma
+  // creava dubbio se il salvataggio fosse davvero avvenuto — lì la conferma serve
+  // davvero e non rallenta nulla (sono azioni singole, non una scansione a raffica
+  // di tante fatture). Passa {forza:true} solo in quei punti, non ovunque.
+  opts = opts || {};
   const sembraErrore = /⚠️|❌|🚫|errore|non trovat|manca|impossibile|attenzione/i.test(msg);
-  if(!sembraErrore) return;
+  if(!sembraErrore && !opts.forza) return;
   const t=document.getElementById('toast');
   t.textContent=msg; t.classList.add('on');
   clearTimeout(tT); tT=setTimeout(()=>t.classList.remove('on'),2800);
@@ -9933,7 +9949,9 @@ function salvaVersamentiLocale(){ try{ localStorage.setItem(KVERSAMENTI, JSON.st
 function aprisemIncassi(){
   const inp = document.getElementById('chgDataInp');
   const mInp = document.getElementById('incMese');
-  if(inp && !inp.value){ inp.value = new Date().toISOString().slice(0,10); }
+  // Stesso fix di aprisemPrimaNota (23/08): la data deve tornare su oggi ogni
+  // volta che si riapre la scheda, non restare ferma sull'ultima guardata.
+  if(inp){ inp.value = new Date().toISOString().slice(0,10); }
   if(mInp && !mInp.value){ mInp.value = new Date().toISOString().slice(0,7); }
   // Inizializza data versamento a oggi
   const verData = document.getElementById('verData');
@@ -10361,7 +10379,7 @@ async function salvaChiusuraGiornaliera(){
       });
     }
     // NON svuotare i campi: caricaChiusuraGiorno() li ricarica dal DB con i valori salvati
-    toast('✓ Chiusura salvata');
+    toast('✓ Chiusura salvata', {forza:true});
   }catch(e){
     console.warn('Sync chiusura fallito:', e.message||e);
     toast('⚠️ Errore sync: '+String(e.message||e).slice(0,80));
@@ -16924,8 +16942,15 @@ function _pnOggi(){ return new Date().toISOString().slice(0,10); }
 async function aprisemPrimaNota(){
   const dIn = document.getElementById('pnDataInp');
   const vdIn = document.getElementById('pnVersDataInp');
-  if(dIn && !dIn.value) dIn.value = _pnOggi();
-  if(vdIn && !vdIn.value) vdIn.value = _pnOggi();
+  // FIX (23/08): prima si impostava "oggi" solo se il campo era vuoto —
+  // ma una volta aperta la scheda una prima volta il campo non è più vuoto,
+  // quindi riaprendo Prima Nota in un altro momento (anche il giorno dopo)
+  // restava fermo sull'ultima data guardata, con sopra i numeri di QUEL
+  // giorno — sembrava che i campi del conteggio "non si fossero puliti",
+  // in realtà stavano mostrando correttamente un giorno diverso da oggi.
+  // Ora la data torna sempre su oggi ogni volta che si apre la scheda.
+  if(dIn) dIn.value = _pnOggi();
+  if(vdIn) vdIn.value = _pnOggi();
   await pnSyncCloud();
   await pnCaricaGiorno();
   pnAggiornaFondoHeader();
@@ -17089,9 +17114,15 @@ async function pnRegistraSpesaFattura(f, fonte){
 
 function pnSetFonte(f){
   _pnFonte = f;
+  // Sincronizza sia i pulsanti fuori dal tastierino sia quelli dentro
+  // (23/08) — sono due copie della stessa scelta, devono restare allineate
+  // qualunque delle due venga toccata.
   ['cassetto','fondo'].forEach(k=>{
-    const b = document.getElementById('pnfb-'+k);
-    if(b) b.className = 'pag-btn'+(k===f?' sc':'');
+    const cls = 'pag-btn'+(k===f?' sc':'');
+    const b1 = document.getElementById('pnfb-'+k);
+    if(b1) b1.className = cls;
+    const b2 = document.getElementById('pnfb-'+k+'-kp');
+    if(b2) b2.className = cls;
   });
 }
 
@@ -17111,7 +17142,7 @@ async function pnSalvaConteggio(){
     } else {
       await sbFetch('prima_nota_conteggi', {method:'POST', body:JSON.stringify(record)});
     }
-    toast('✓ Conteggio salvato');
+    toast('✓ Conteggio salvato', {forza:true});
   }catch(e){
     toast('⚠️ Salvataggio fallito: '+String(e.message||e).slice(0,50));
   }
@@ -17336,7 +17367,19 @@ async function pnSalvaVeloce(){
   const data = gv('pnSpesaDataInp') || _pnOggi();
   const ddt = !!(document.getElementById('pnSpesaDdt') && document.getElementById('pnSpesaDdt').checked);
   if(importo <= 0){ toast('⚠️ Inserisci un importo'); return; }
-  if(!_pnFonte){ toast('⚠️ Scegli cassetto o fondo'); return; }
+  if(!_pnFonte){
+    toast('⚠️ Scegli cassetto o fondo');
+    // Fa lampeggiare i due pulsanti dentro il tastierino (ora sempre
+    // raggiungibili da qui, vedi sopra) invece di lasciare solo il toast:
+    // più immediato di un testo che sparisce in 3 secondi.
+    ['pnfb-cassetto-kp','pnfb-fondo-kp'].forEach(id=>{
+      const b = document.getElementById(id);
+      if(!b) return;
+      b.style.outline = '2px solid var(--red)';
+      setTimeout(()=>{ b.style.outline = ''; }, 900);
+    });
+    return;
+  }
   _pnSalvaVeloceInCorso = true;
   const btnPn = document.getElementById('pnSalvaVeloceBtn');
   const testoBtnPnOrig = btnPn ? btnPn.innerHTML : null;
@@ -17362,7 +17405,7 @@ async function _pnSalvaVeloceCorpo({importo, fornitore, data, ddt}){
   try{
     const r = await sbFetch('prima_nota_movimenti', {method:'POST', headers:{...SB_H,'Prefer':'return=representation'}, body:JSON.stringify(record)});
     salvato = r && r[0];
-    toast('✓ Salvato: '+fmt(importo)+(fornitore?' — '+fornitore:''));
+    toast('✓ Salvato: '+fmt(importo)+(fornitore?' — '+fornitore:''), {forza:true});
   }catch(e){
     toast('⚠️ Salvataggio fallito: '+String(e.message||e).slice(0,50));
     return;
@@ -17458,7 +17501,7 @@ async function pnEliminaMovimento(id){
     await pnCaricaGiorno();
     pnAggiornaFondoHeader();
     renderPnStorico();
-    toast('🗑 Movimento eliminato');
+    toast('🗑 Movimento eliminato', {forza:true});
   }, 'user');
 }
 
