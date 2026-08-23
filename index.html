@@ -407,7 +407,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.50</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.51</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:14px">
     <button onclick="sincronizzaOra()" title="Sincronizza con Cloud" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;line-height:1">&#8635;</button>
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
@@ -17838,7 +17838,16 @@ async function pnAggiornaScioperiNapoli(){
       }
     });
     if(righe.length){
-      await sbFetch('scioperi_napoli_trasporti', {method:'POST', headers:{...SB_H,'Prefer':'resolution=ignore-duplicates,return=minimal'}, body:JSON.stringify(righe)});
+      // FIX 23/08: "resolution=ignore-duplicates" da solo non basta — dice a
+      // Postgres di ignorare i doppioni solo sulla chiave primaria (id, che
+      // essendo generata ad ogni inserimento non va MAI in conflitto), non
+      // sul vincolo univoco vero (data + fonte_id) che impedisce di salvare
+      // due volte lo stesso sciopero. Serve dire esplicitamente a Postgres
+      // QUALE vincolo usare per riconoscere un doppione, con on_conflict.
+      // Prima di questo fix, "Riprova riconciliazione" falliva sempre (409)
+      // ogni volta che uno sciopero già salvato era ancora nel risultato
+      // della fonte esterna — cioè quasi sempre.
+      await sbFetch('scioperi_napoli_trasporti?on_conflict=data,fonte_id', {method:'POST', headers:{...SB_H,'Prefer':'resolution=ignore-duplicates,return=minimal'}, body:JSON.stringify(righe)});
     }
     // Esito visibile (non solo in console) — utile per capire se la
     // sincronizzazione funziona davvero senza dover aprire gli strumenti sviluppatore.
