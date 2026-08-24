@@ -407,7 +407,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.68</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.76</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:14px">
     <button onclick="sincronizzaOra()" title="Sincronizza con Cloud" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;line-height:1">&#8635;</button>
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
@@ -1055,7 +1055,26 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
   <div style="background:var(--ink);border-radius:var(--radius);padding:14px 16px;margin-bottom:12px;box-shadow:var(--shadow)">
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:rgba(255,255,255,.5);margin-bottom:6px">💰 Fondo cassa (contante accumulato)</div>
     <div id="pnFondoValore" style="font-size:30px;font-weight:800;color:#fff;margin-bottom:4px">€ 0,00</div>
-    <div id="pnFondoData" style="font-size:11px;color:rgba(255,255,255,.4)">—</div>
+    <div id="pnFondoData" style="font-size:11px;color:rgba(255,255,255,.4);margin-bottom:12px">—</div>
+    <!-- Numeri reali dell'azienda (23/08, richiesta esplicita di Valerio):
+         qui sotto al fondo (che resta il contante accumulato in primo piano)
+         — incasso totale (contanti reali+POS, tutto lo storico) e costi
+         totali (tutte le fatture pagate qualsiasi metodo + spese senza
+         fattura + stipendi) — il quadro completo del giro d'affari, non
+         solo la parte cash. Coprono solo quello che passa da Registro/Prima
+         Nota, non ogni costo possibile (utenze, F24, ecc.) — Valerio ne è
+         al corrente ed è ok così: gli basta questo, niente Margine (tolto
+         il 23/08, era un numero incompleto spacciato per completo). -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding-top:10px;border-top:1px solid rgba(255,255,255,.12)">
+      <div>
+        <div style="font-size:10px;color:rgba(255,255,255,.4);margin-bottom:2px">📈 Incasso totale (contanti+POS)</div>
+        <div id="pnFatturatoTotale" style="font-size:15px;font-weight:700;color:#4ade80">€ 0,00</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:rgba(255,255,255,.4);margin-bottom:2px">📉 Costi totali</div>
+        <div id="pnUsciteTotali" style="font-size:15px;font-weight:700;color:#ff6b6b">€ 0,00</div>
+      </div>
+    </div>
   </div>
 
   <!-- Tab interni -->
@@ -3167,6 +3186,24 @@ async function _applicaMetodoMassa(metodo){
 // classica (un movimento, più fatture) coprono questo caso many-to-many:
 // qui la scelta di entrambi i lati resta manuale, l'app verifica solo che
 // i due totali si equivalgano esattamente prima di lasciar confermare.
+
+// Elenco movimenti liberi DAVVERO da classificare — stesso identico criterio
+// già usato nella tab "Da classificare" di Cassa → Banca (23/08, segnalato
+// da Valerio: i due picker di riconciliazione di gruppo mostravano TUTTI i
+// movimenti liberi di sempre, incluse commissioni/bolli/stipendi/altre voci
+// tecniche mai riconciliabili con una fattura — con mesi di estratto conto
+// diventava una lista lunghissima e inutile da scorrere). Non è vincolato
+// al mese attualmente aperto in Banca (da qui si può arrivare anche dal
+// Registro, senza un "mese corrente" di riferimento) — usa solo lo stesso
+// filtro di esclusione voci tecniche, su tutto lo storico libero.
+function _movimentiDaClassificare(){
+  var _escludiClassifica = /commissioni?\s*(numia|pagobancomat|internazionale|carta)|^commissioni$|comm\.sdd|comm\.bon|telematico\s+sct|ns\s+rif\.|rif\.[a-z0-9]+\s+comm|rif\.[a-z0-9]+\s+perc|spese\s+e\s+comm|imp\.bollo|rilascio\s+carnet|interessi\s+e\s+comp|interessi|^competenze$|worldpay|boll\.cbill|pag\.to\s+telematico|fattura\s+numia|numia-|sdd\s+core:\s+49rj2252|paypal\s+europe|ceraldi\s+valerio|ceraldi\s+vincenzo|ceraldi\s+michele|pocci\s+salvatore|murolo\s+mario|parisi\s+antonio|capezzuto\s+alessandro|taiano\s+luigi|moscato\s+emanuele|guarino\s+giuliano|lesina\s+angela|russo\s+carmine|vespa\s+vincenzo|carotenuto\s+antonella|sankapala|mutuo\s+n\.|i24\s+agenzia|agenzia\s+entrate|spesa\s+con\s+carta|add\.spe/i;
+  return (_bancaMovimenti||[]).filter(function(m){
+    if(m.abbinata || m.ignorata) return false;
+    return m._classificaManuale || !_escludiClassifica.test((m.descrizione||'').toLowerCase());
+  });
+}
+
 function _apriRiconciliaGruppo(idsFatture){
   const sel = idsFatture.map(id=>fatture.find(f=>f.id===id)).filter(Boolean);
   if(sel.length<2){ toast('⚠️ Seleziona almeno 2 fatture per la riconciliazione di gruppo'); return; }
@@ -3174,7 +3211,7 @@ function _apriRiconciliaGruppo(idsFatture){
     const residuo = f.stato==='parziale' ? Math.max(0,(f.importo||0)-(f.parzPagato||0)) : (f.importo||0);
     return s+residuo;
   }, 0);
-  const liberi = (_bancaMovimenti||[]).filter(m=>!m.abbinata).sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+  const liberi = _movimentiDaClassificare().sort((a,b)=>(b.data||'').localeCompare(a.data||''));
   if(!liberi.length){ toast('⚠️ Nessun movimento bancario libero da abbinare'); return; }
   const existing = document.getElementById('_gruppoOv');
   if(existing) existing.remove();
@@ -18437,11 +18474,54 @@ function pnCalcolaFondo(finoAData){
 }
 
 function pnAggiornaFondoHeader(){
-  const { fondo } = pnCalcolaFondo(null);
+  const { fondo, perGiorno } = pnCalcolaFondo(null);
   const valEl = document.getElementById('pnFondoValore');
   const dataEl = document.getElementById('pnFondoData');
   if(valEl){ valEl.textContent = fmt(fondo); valEl.style.color = fondo>=0 ? '#fff' : '#ff6b6b'; }
   if(dataEl) dataEl.textContent = 'aggiornato ora';
+
+  // Incasso totale (23/08): contante REALE di Prima Nota (contanteReale,
+  // già ricostruito giorno per giorno) + POS — non i corrispettivi di
+  // Chiusura giornaliera, che per spiegazione di Valerio sono sempre ≤ al
+  // vero incasso in contanti.
+  const fattEl = document.getElementById('pnFatturatoTotale');
+  if(fattEl){
+    let incassoTotale = 0;
+    // Solo i giorni in cui esiste DAVVERO un conteggio contanti — non tutte
+    // le date presenti in perGiorno, che include anche giorni con solo un
+    // movimento (spesa/stipendio/versamento) e nessun conteggio quel
+    // giorno: per quei giorni contanteReale verrebbe fuori un numero
+    // fittizio (solo dalla parte spesa, senza nessun vero contante contato
+    // sotto), gonfiando l'incasso in modo sbagliato.
+    pnConteggi.forEach(cnt=>{
+      const g = perGiorno[cnt.data];
+      if(g) incassoTotale += g.contanteReale || 0;
+      const ch = (chiusure||[]).find(c=>c.data===cnt.data);
+      if(ch) incassoTotale += (ch.pos_banca || ch.pos || 0);
+    });
+    fattEl.textContent = fmt(incassoTotale);
+  }
+
+  // Costi totali (23/08): fatture (qualsiasi metodo) + spese Prima Nota
+  // senza fattura + stipendi. I VERSAMENTI restano esclusi — non sono un
+  // costo, sono un trasferimento di denaro dalla cassa/fondo alla banca:
+  // partecipano SOLO al calcolo del contante fisico rimasto (il grande
+  // numero "Fondo Cassa" sopra, che li gestisce già correttamente da solo).
+  const usciteEl = document.getElementById('pnUsciteTotali');
+  if(usciteEl){
+    const usciteFatturate = (fatture||[]).reduce((s,f)=>{
+      if(f.tipo==='ddt') return s;
+      if(f.stato==='pagata') return s + (f.importo||0);
+      if(f.stato==='parziale') return s + (f.parzPagato||0);
+      return s;
+    }, 0);
+    const usciteAltre = (pnMovimenti||[]).reduce((s,m)=>{
+      if(m.categoria==='spesa' && !m.fatturaId) return s + (m.importo||0);
+      if(m.categoria==='stipendio') return s + (m.importo||0);
+      return s;
+    }, 0);
+    usciteEl.textContent = fmt(usciteFatturate + usciteAltre);
+  }
 }
 
 async function pnCaricaGiorno(){
