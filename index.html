@@ -407,7 +407,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.64</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.68</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:14px">
     <button onclick="sincronizzaOra()" title="Sincronizza con Cloud" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;line-height:1">&#8635;</button>
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
@@ -3000,6 +3000,7 @@ function _renderSelToolbar(){
     </div>
     <button onclick="_bulkAzione('paga')" title="Segna pagate" style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:8px 10px;font-size:16px;cursor:pointer;line-height:1">✓</button>
     <button onclick="_bulkAzione('cambiaMetodo')" title="Cambia metodo" style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:8px 10px;font-size:16px;cursor:pointer;line-height:1">💳</button>
+    <button onclick="_bulkAzione('riconciliaGruppo')" title="Riconcilia con banca" style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:8px 10px;font-size:16px;cursor:pointer;line-height:1">🔗</button>
     <button onclick="_bulkAzione('esporta')" title="Esporta" style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:8px 10px;font-size:16px;cursor:pointer;line-height:1">📤</button>
     <button onclick="_bulkAzione('elimina')" title="Elimina" style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:8px 10px;font-size:16px;cursor:pointer;line-height:1">🗑</button>
   `;
@@ -3069,6 +3070,20 @@ async function _bulkAzione(action){
 
   if(action === 'cambiaMetodo'){
     _apriDialogMetodoMassa(ids);
+    return;
+  }
+
+  if(action === 'riconciliaGruppo'){
+    // Caso reale (23/08, segnalato da Valerio): DUE fatture insieme pagate
+    // con DUE assegni, ma nessun singolo assegno corrisponde a nessuna
+    // singola fattura né a una combinazione ovvia — solo la SOMMA totale
+    // combacia (es. 1516,34+438,42=1954,76 pagati con due assegni da
+    // 977,38 ciascuno, un importo che non appare da nessuna parte preso
+    // singolarmente). Né "🧮 Rate" (una fattura, più movimenti) né la
+    // ricerca combinazioni classica (un movimento, più fatture) coprono
+    // questo caso many-to-many — qui serve scegliere a mano ENTRAMBI i
+    // gruppi e verificare solo che i due totali si equivalgano.
+    _apriRiconciliaGruppo(ids);
     return;
   }
 
@@ -3142,6 +3157,222 @@ async function _applicaMetodoMassa(metodo){
   toast(failCount>0
     ? `⚠️ Metodo aggiornato su ${okCount}, ${failCount} non salvate (riprova)`
     : `✓ Metodo aggiornato su ${okCount} fatture`);
+}
+
+// ── RICONCILIAZIONE DI GRUPPO (23/08, caso reale segnalato da Valerio) ──
+// Due fatture insieme pagate con due assegni di importo uguale tra loro ma
+// diverso da entrambe le fatture prese singolarmente e da qualunque loro
+// combinazione parziale — solo la SOMMA TOTALE dei due gruppi coincide.
+// Né "🧮 Rate" (una fattura, più movimenti) né la ricerca combinazioni
+// classica (un movimento, più fatture) coprono questo caso many-to-many:
+// qui la scelta di entrambi i lati resta manuale, l'app verifica solo che
+// i due totali si equivalgano esattamente prima di lasciar confermare.
+function _apriRiconciliaGruppo(idsFatture){
+  const sel = idsFatture.map(id=>fatture.find(f=>f.id===id)).filter(Boolean);
+  if(sel.length<2){ toast('⚠️ Seleziona almeno 2 fatture per la riconciliazione di gruppo'); return; }
+  const totaleFatture = sel.reduce((s,f)=>{
+    const residuo = f.stato==='parziale' ? Math.max(0,(f.importo||0)-(f.parzPagato||0)) : (f.importo||0);
+    return s+residuo;
+  }, 0);
+  const liberi = (_bancaMovimenti||[]).filter(m=>!m.abbinata).sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+  if(!liberi.length){ toast('⚠️ Nessun movimento bancario libero da abbinare'); return; }
+  const existing = document.getElementById('_gruppoOv');
+  if(existing) existing.remove();
+  const ov = document.createElement('div');
+  ov.id = '_gruppoOv';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:900;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)';
+  let hh = '<div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:85vh;overflow-y:auto;padding:20px">';
+  hh += '<div style="font-size:17px;font-weight:700;margin-bottom:4px">Riconcilia con la banca</div>';
+  hh += '<div style="font-size:13px;color:var(--ink3);margin-bottom:4px">'+sel.length+' fatture selezionate — totale <b>'+fmt(totaleFatture)+'</b></div>';
+  hh += '<div style="font-size:12px;color:var(--ink3);margin-bottom:14px">Seleziona uno o più movimenti bancari liberi la cui somma corrisponda a questo totale.</div>';
+  hh += '<div id="_gruppoTotaleBox" style="background:var(--surface2);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:14px;font-weight:700;text-align:center">Selezionati: '+fmt(0)+' / '+fmt(totaleFatture)+'</div>';
+  hh += '<div id="_gruppoLista">';
+  liberi.forEach(m=>{
+    const eAssegno = /assegno/i.test(m.sottotipo||'')||/assegno/i.test(m.tipo||'');
+    hh += '<label style="display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--sep)">';
+    hh += '<input type="checkbox" data-imp="'+Math.abs(m.importo)+'" data-id="'+m.id+'" onchange="_gruppoRicalcola('+totaleFatture+')" style="width:20px;height:20px;flex-shrink:0">';
+    hh += '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">'+fmt(Math.abs(m.importo))+' — '+(eAssegno?'Assegno':'Bonifico')+'</div><div style="font-size:11px;color:var(--ink3)">'+esc(m.data||'')+' · '+esc((m.descrizione||'').slice(0,50))+'</div></div>';
+    hh += '</label>';
+  });
+  hh += '</div>';
+  hh += '<button id="_gruppoConfermaBtn" disabled onclick="_confermaRiconciliaGruppo()" style="width:100%;margin-top:16px;padding:12px;border:none;border-radius:10px;background:var(--sep);color:#fff;font-family:inherit;font-size:14px;font-weight:700;cursor:not-allowed">Seleziona movimenti che sommano al totale</button>';
+  hh += '<button onclick="document.getElementById(\'_gruppoOv\').remove()" style="width:100%;margin-top:8px;padding:10px;border:1px solid var(--sep);border-radius:8px;background:var(--surface);color:var(--ink3);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">Annulla</button>';
+  hh += '</div>';
+  ov.innerHTML = hh;
+  ov.onclick = e=>{ if(e.target===ov) ov.remove(); };
+  document.body.appendChild(ov);
+  window._gruppoIdsFatture = idsFatture;
+  window._gruppoTotaleFatture = totaleFatture;
+}
+
+function _gruppoRicalcola(totaleFatture){
+  const checked = document.querySelectorAll('#_gruppoLista input[type=checkbox]:checked');
+  let somma = 0;
+  checked.forEach(c=>{ somma += parseFloat(c.dataset.imp)||0; });
+  const box = document.getElementById('_gruppoTotaleBox');
+  const btn = document.getElementById('_gruppoConfermaBtn');
+  const combacia = Math.abs(somma-totaleFatture) < 0.01;
+  if(box){
+    box.textContent = 'Selezionati: '+fmt(somma)+' / '+fmt(totaleFatture);
+    box.style.color = combacia ? '#1a7a3a' : (somma>totaleFatture ? 'var(--red)' : 'inherit');
+  }
+  if(btn){
+    btn.disabled = !combacia;
+    btn.style.background = combacia ? 'var(--green)' : 'var(--sep)';
+    btn.style.cursor = combacia ? 'pointer' : 'not-allowed';
+    btn.textContent = combacia ? '✓ Conferma riconciliazione di gruppo' : 'I totali devono coincidere esattamente';
+  }
+}
+
+async function _confermaRiconciliaGruppo(){
+  const idsFatture = window._gruppoIdsFatture||[];
+  const checked = document.querySelectorAll('#_gruppoLista input[type=checkbox]:checked');
+  const idsMovimenti = [...checked].map(c=>c.dataset.id);
+  const movimenti = idsMovimenti.map(id=>(_bancaMovimenti||[]).find(m=>String(m.id)===String(id))).filter(Boolean);
+  const sel = idsFatture.map(id=>fatture.find(f=>f.id===id)).filter(Boolean);
+  const ov = document.getElementById('_gruppoOv');
+  if(ov) ov.remove();
+  await _applicaGruppoRiconciliazione(sel, movimenti, {ridisegnaLista:true});
+}
+
+// Applica davvero la riconciliazione di gruppo — condivisa dai due punti di
+// ingresso (23/08, richiesta esplicita di Valerio: si può iniziare sia da
+// una selezione di fatture nel Registro sia da una selezione di movimenti in
+// Cassa → Banca, a seconda di dove ti trovi quando te ne accorgi — stessa
+// identica logica applicata, cambia solo da dove si parte per arrivarci).
+async function _applicaGruppoRiconciliazione(sel, movimenti, opts){
+  opts = opts || {};
+  if(!movimenti.length || !sel.length) return;
+  const totale = sel.reduce((s,f)=>{
+    const residuo = f.stato==='parziale' ? Math.max(0,(f.importo||0)-(f.parzPagato||0)) : (f.importo||0);
+    return s+residuo;
+  }, 0);
+  // Nota di gruppo, identica su tutte le fatture coinvolte — aprendo anche
+  // una sola delle fatture del gruppo si vede subito il quadro intero, non
+  // solo "la sua quota".
+  const elencoFatture = sel.map(f=>'N°'+(f.numero||'')+' ('+fmt(f.importo||0)+')').join(', ');
+  const elencoMovimenti = movimenti.map(m=>(m.data||'')+' '+fmt(Math.abs(m.importo))).join(' + ');
+  const notaGruppo = 'Pagamento di gruppo: '+sel.length+' fatture ('+elencoFatture+') pagate insieme con '+movimenti.length+' movimenti ('+elencoMovimenti+') — totale '+fmt(totale);
+  // Distribuzione: ogni movimento si aggancia (fatturaId) a UNA fattura del
+  // gruppo, a rotazione — serve solo come riferimento/tracciabilità nel dato
+  // strutturato del movimento bancario; la nota di gruppo sopra, salvata su
+  // OGNI fattura coinvolta, resta la fonte di verità leggibile del quadro
+  // intero, non solo "il suo pezzo".
+  movimenti.forEach((m,i)=>{
+    const fRif = sel[i % sel.length];
+    m.abbinata = true;
+    m.fatturaId = fRif.id;
+    m.fatturaLabel = (fRif.fornitore||'')+' N°'+(fRif.numero||'') + ' (gruppo di '+sel.length+')';
+    if(typeof salvaMovimentoBanca==='function') salvaMovimentoBanca(m);
+  });
+  const dataUltima = movimenti.reduce((max,m)=>(m.data||'')>max?m.data:max, '');
+  for(const f of sel){
+    f.stato = 'pagata';
+    f.dataPagamento = dataUltima || f.dataPagamento;
+    f.riconciliata = true;
+    f.pagamentoOrigine = 'manuale';
+    f.pagamentoImpostatoIl = new Date().toISOString();
+    f.riconciliazione = {
+      movId: movimenti[0].id,
+      data: dataUltima,
+      importo: f.importo||0,
+      descrizione: notaGruppo.slice(0,300),
+      parziale: false,
+      banca: movimenti[0].banca || 'BPM'
+    };
+    if(typeof dbUpdate==='function') await dbUpdate(f);
+  }
+  if(opts.ridisegnaLista && typeof renderLista==='function') renderLista();
+  if(opts.ridisegnaLista && typeof _uscitaSelezione==='function') _uscitaSelezione();
+  if(opts.ridisegnaBanca && typeof renderRiconciliazione==='function') renderRiconciliazione();
+  toast('✓ '+sel.length+' fatture riconciliate insieme con '+movimenti.length+' movimenti', {forza:true});
+}
+
+// ── Selezione multipla movimenti in Cassa → Banca (23/08, richiesta
+// esplicita di Valerio: stesso strumento di riconciliazione di gruppo del
+// Registro, ma iniziando dal lato movimenti invece che dal lato fatture). ──
+let _bancaSelIds = new Set();
+function _toggleSelBanca(id){
+  if(_bancaSelIds.has(id)) _bancaSelIds.delete(id); else _bancaSelIds.add(id);
+  _aggiornaBarraSelBanca();
+}
+function _svuotaSelBanca(){
+  _bancaSelIds.clear();
+  if(typeof renderRiconciliazione==='function') renderRiconciliazione();
+}
+function _aggiornaBarraSelBanca(){
+  const bar = document.getElementById('_bancaSelBar');
+  const txt = document.getElementById('_bancaSelTxt');
+  if(!bar) return;
+  if(_bancaSelIds.size < 2){ bar.style.display = 'none'; return; }
+  const movs = (_bancaMovimenti||[]).filter(m=>_bancaSelIds.has(m.id));
+  const tot = movs.reduce((s,m)=>s+Math.abs(m.importo),0);
+  if(txt) txt.textContent = _bancaSelIds.size+' movimenti selezionati — totale '+fmt(tot);
+  bar.style.display = 'flex';
+}
+
+function _apriRiconciliaGruppoDaBanca(){
+  const movimenti = (_bancaMovimenti||[]).filter(m=>_bancaSelIds.has(m.id));
+  if(movimenti.length<2){ toast('⚠️ Seleziona almeno 2 movimenti'); return; }
+  const totaleMovimenti = movimenti.reduce((s,m)=>s+Math.abs(m.importo),0);
+  const aperte = (fatture||[]).filter(f=>f.stato==='da_pagare'||f.stato==='parziale').sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+  if(!aperte.length){ toast('⚠️ Nessuna fattura aperta da riconciliare'); return; }
+  const existing = document.getElementById('_gruppoOv');
+  if(existing) existing.remove();
+  const ov = document.createElement('div');
+  ov.id = '_gruppoOv';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:900;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)';
+  let hh = '<div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:85vh;overflow-y:auto;padding:20px">';
+  hh += '<div style="font-size:17px;font-weight:700;margin-bottom:4px">Riconcilia con le fatture</div>';
+  hh += '<div style="font-size:13px;color:var(--ink3);margin-bottom:4px">'+movimenti.length+' movimenti selezionati — totale <b>'+fmt(totaleMovimenti)+'</b></div>';
+  hh += '<div style="font-size:12px;color:var(--ink3);margin-bottom:14px">Seleziona una o più fatture aperte la cui somma corrisponda a questo totale.</div>';
+  hh += '<div id="_gruppoTotaleBoxB" style="background:var(--surface2);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:14px;font-weight:700;text-align:center">Selezionate: '+fmt(0)+' / '+fmt(totaleMovimenti)+'</div>';
+  hh += '<div id="_gruppoListaB">';
+  aperte.forEach(f=>{
+    const residuo = f.stato==='parziale' ? Math.max(0,(f.importo||0)-(f.parzPagato||0)) : (f.importo||0);
+    hh += '<label style="display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--sep)">';
+    hh += '<input type="checkbox" data-imp="'+residuo+'" data-id="'+f.id+'" onchange="_gruppoRicalcolaB('+totaleMovimenti+')" style="width:20px;height:20px;flex-shrink:0">';
+    hh += '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">'+esc(f.fornitore||'')+' N°'+esc(f.numero||'')+'</div><div style="font-size:11px;color:var(--ink3)">'+esc(f.data||'')+' · '+fmt(residuo)+'</div></div>';
+    hh += '</label>';
+  });
+  hh += '</div>';
+  hh += '<button id="_gruppoConfermaBtnB" disabled onclick="_confermaRiconciliaGruppoDaBanca()" style="width:100%;margin-top:16px;padding:12px;border:none;border-radius:10px;background:var(--sep);color:#fff;font-family:inherit;font-size:14px;font-weight:700;cursor:not-allowed">Seleziona fatture che sommano al totale</button>';
+  hh += '<button onclick="document.getElementById(\'_gruppoOv\').remove()" style="width:100%;margin-top:8px;padding:10px;border:1px solid var(--sep);border-radius:8px;background:var(--surface);color:var(--ink3);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">Annulla</button>';
+  hh += '</div>';
+  ov.innerHTML = hh;
+  ov.onclick = e=>{ if(e.target===ov) ov.remove(); };
+  document.body.appendChild(ov);
+  window._gruppoMovimentiB = movimenti;
+}
+
+function _gruppoRicalcolaB(totaleMovimenti){
+  const checked = document.querySelectorAll('#_gruppoListaB input[type=checkbox]:checked');
+  let somma = 0;
+  checked.forEach(c=>{ somma += parseFloat(c.dataset.imp)||0; });
+  const box = document.getElementById('_gruppoTotaleBoxB');
+  const btn = document.getElementById('_gruppoConfermaBtnB');
+  const combacia = Math.abs(somma-totaleMovimenti) < 0.01;
+  if(box){
+    box.textContent = 'Selezionate: '+fmt(somma)+' / '+fmt(totaleMovimenti);
+    box.style.color = combacia ? '#1a7a3a' : (somma>totaleMovimenti ? 'var(--red)' : 'inherit');
+  }
+  if(btn){
+    btn.disabled = !combacia;
+    btn.style.background = combacia ? 'var(--green)' : 'var(--sep)';
+    btn.style.cursor = combacia ? 'pointer' : 'not-allowed';
+    btn.textContent = combacia ? '✓ Conferma riconciliazione di gruppo' : 'I totali devono coincidere esattamente';
+  }
+}
+
+async function _confermaRiconciliaGruppoDaBanca(){
+  const movimenti = window._gruppoMovimentiB||[];
+  const checked = document.querySelectorAll('#_gruppoListaB input[type=checkbox]:checked');
+  const idsFatture = [...checked].map(c=>c.dataset.id);
+  const sel = idsFatture.map(id=>fatture.find(f=>String(f.id)===String(id))).filter(Boolean);
+  const ov = document.getElementById('_gruppoOv');
+  if(ov) ov.remove();
+  await _applicaGruppoRiconciliazione(sel, movimenti, {ridisegnaBanca:true});
+  _bancaSelIds.clear();
 }
 
 function setPresetRegistro(preset, btn){
@@ -15225,15 +15456,23 @@ function renderRiconciliazione(){
     }
 
     var _daMostrareClass = _filtroCatClass ? nonAbbinatiVis.filter(function(m){return m._catKeyClass===_filtroCatClass;}) : nonAbbinatiVis;
+    // Barra di selezione multipla (23/08, richiesta esplicita di Valerio):
+    // se stai scorrendo l'estratto conto e vedi più movimenti liberi che
+    // insieme pagano più fatture insieme (stesso caso "gruppo" già
+    // disponibile partendo dal Registro), qui puoi selezionarli direttamente
+    // e scegliere le fatture dopo — stessa logica, punto di partenza opposto.
+    htmlClassificare += '<div id="_bancaSelBar" style="display:none;background:var(--blue);color:#fff;border-radius:10px;padding:10px 14px;margin-bottom:10px;align-items:center;gap:10px"><span id="_bancaSelTxt" style="flex:1;font-size:12px;font-weight:600"></span><button onclick="_apriRiconciliaGruppoDaBanca()" style="background:rgba(255,255,255,.25);border:none;color:#fff;border-radius:8px;padding:7px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer">🔗 Riconcilia con fatture</button><button onclick="_svuotaSelBanca()" style="background:none;border:none;color:#fff;font-size:16px;cursor:pointer;padding:0 4px">×</button></div>';
     _daMostrareClass.forEach(function(m, i){
       var origIdx = nonAbbinati.indexOf(m);
-      htmlClassificare += '<div style="padding:10px 0;border-top:1px solid var(--sep)">';
+      htmlClassificare += '<div style="padding:10px 0;border-top:1px solid var(--sep);display:flex;gap:8px">';
+      htmlClassificare += '<input type="checkbox" data-mid="'+esc(m.id)+'" '+(_bancaSelIds.has(m.id)?'checked':'')+' onchange="_toggleSelBanca(\''+esc(m.id)+'\')" style="width:20px;height:20px;flex-shrink:0;margin-top:2px">';
+      htmlClassificare += '<div style="flex:1;min-width:0">';
       htmlClassificare += '<div style="font-size:11px;color:var(--ink3);margin-bottom:2px">'+m.data+' · <b>'+fmt(Math.abs(m.importo))+'</b>'+(m.sottotipo?' · '+m.sottotipo:'')+' · '+esc(m._catLabelClass||'')+'</div>';
       htmlClassificare += '<div style="font-size:11px;font-weight:500;line-height:1.4;word-break:break-word;white-space:pre-wrap;color:var(--ink);margin-bottom:8px">'+esc(m.descrizione||'')+'</div>';
       htmlClassificare += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
       htmlClassificare += '<button onclick="_cercaFatturaPerMovimento('+origIdx+')" style="flex:1;min-width:100px;padding:7px 10px;border:1px solid var(--blue);border-radius:6px;background:var(--blue-light);color:var(--blue);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">🔍 Cerca fattura</button>';
       htmlClassificare += '<button onclick="_segnaIgnora('+origIdx+')" style="padding:7px 10px;border:1px solid var(--sep);border-radius:6px;background:var(--surface);color:var(--ink3);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">Ignora</button>';
-      htmlClassificare += '</div></div>';
+      htmlClassificare += '</div></div></div>';
     });
     htmlClassificare += '</div>';
   } else {
@@ -15677,7 +15916,16 @@ function _cfCercaCombinazioni(){
       return;
     }
     if(!esito.combinazioni.length){
-      alert('Nessuna combinazione esatta trovata su '+esito.candidatiUsati+' fatture aperte controllate (provato prima i fornitori con pagamento assegno predefinito, poi tutti gli altri).\n\nProva "+2" per selezionare a mano.');
+      // FASE 3: né un singolo fornitore né tutti i fornitori, contro QUESTO
+      // SOLO movimento, hanno prodotto un risultato — prima di arrendersi,
+      // prova a combinare anche PIÙ MOVIMENTI insieme (non solo più fatture)
+      // per il caso "più fatture pagate con più assegni/bonifici insieme".
+      var fase3 = _trovaCombinazioneDueVersanti(m, fornitoriPrioritari.length ? fornitoriPrioritari : null);
+      if(fase3.combinazioni && fase3.combinazioni.length){
+        _cfMostraCombinazioniDueVersanti(fase3.combinazioni);
+        return;
+      }
+      alert('Nessuna combinazione esatta trovata su '+esito.candidatiUsati+' fatture aperte controllate (provato prima i fornitori con pagamento assegno predefinito, poi tutti gli altri, poi anche combinando più movimenti insieme).\n\nProva "+2" per selezionare a mano, oppure lo strumento "🔗 Riconcilia con banca"/"🔗 Riconcilia con fatture" per una selezione manuale di gruppo.');
       return;
     }
     if(usatoFallback){
@@ -15691,6 +15939,120 @@ function _cfCercaCombinazioni(){
     // tutte e aspettiamo che sia l'utente a decidere quale è quella vera.
     _cfMostraCombinazioni(esito.combinazioni, imp, m);
   }, 50);
+}
+
+// FASE 3 (23/08, richiesta esplicita di Valerio dopo il caso reale
+// ARTECARTA: 2 fatture — 1516,34€+438,42€ — pagate con 2 assegni da
+// 977,38€ ciascuno. Nessun singolo assegno corrisponde a nessuna fattura né
+// a nessuna combinazione: solo unendo ENTRAMBI i movimenti E ENTRAMBE le
+// fatture i due totali coincidono. Le fasi 1-2 sopra cercano combinazioni
+// SOLO di fatture contro UN movimento fisso — qui si generalizza cercando
+// su ENTRAMBI i lati insieme, automaticamente, invece di dover selezionare
+// tutto a mano con lo strumento "🔗 gruppo".
+function _trovaCombinazioneDueVersanti(movimentoOrigine, fornitoriCandidati){
+  var eAssegno = /assegno/i.test(movimentoOrigine.sottotipo||'') || /assegno/i.test(movimentoOrigine.tipo||'');
+  var dataOrig = movimentoOrigine.data ? new Date(movimentoOrigine.data+'T12:00:00') : null;
+  var movimentiCandidati = (_bancaMovimenti||[]).filter(function(m){
+    if(m.abbinata && m.id!==movimentoOrigine.id) return false;
+    var eAssegnoM = /assegno/i.test(m.sottotipo||'') || /assegno/i.test(m.tipo||'');
+    if(eAssegnoM !== eAssegno) return false;
+    if(dataOrig && m.data){
+      var diffGg = Math.abs(new Date(m.data+'T12:00:00') - dataOrig) / 86400000;
+      if(diffGg > 30) return false;
+    }
+    return true;
+  });
+  if(movimentiCandidati.length < 2) return {combinazioni:[]}; // serve almeno 2 movimenti, altrimenti è già coperto dalle fasi 1-2
+  if(movimentiCandidati.length > 15) return {combinazioni:[], troppiCandidati:true};
+
+  var fattureCandidate = (fatture||[]).filter(function(f){
+    if(f.stato!=='da_pagare' && f.stato!=='parziale') return false;
+    if(fornitoriCandidati && fornitoriCandidati.length && fornitoriCandidati.indexOf((f.fornitore||'').trim())<0) return false;
+    return true;
+  });
+  if(fattureCandidate.length < 1 || fattureCandidate.length > 20) return {combinazioni:[], troppiCandidati: fattureCandidate.length>20};
+
+  // Somme raggiungibili (DP), con la PRIMA combinazione trovata per ciascuna
+  // somma — non serve enumerare tutte le combinazioni possibili, solo sapere
+  // quali somme sono raggiungibili e con quali elementi.
+  function sommeRaggiungibili(items, getCents){
+    var map = new Map();
+    map.set(0, []);
+    for(var idx=0; idx<items.length; idx++){
+      var cents = getCents(items[idx]);
+      var esistenti = Array.from(map.entries());
+      for(var j=0;j<esistenti.length;j++){
+        var s = esistenti[j][0], combo = esistenti[j][1];
+        var ns = s+cents;
+        if(!map.has(ns)) map.set(ns, combo.concat([idx]));
+      }
+      if(map.size > 300000) return null; // troppo grande, abbandona per sicurezza
+    }
+    return map;
+  }
+
+  var sommeMovimenti = sommeRaggiungibili(movimentiCandidati, function(m){ return Math.round(Math.abs(m.importo)*100); });
+  if(!sommeMovimenti) return {combinazioni:[], troppiCandidati:true};
+  var sommeFatture = sommeRaggiungibili(fattureCandidate, function(f){
+    var residuo = f.stato==='parziale' ? Math.max(0,(f.importo||0)-(f.parzPagato||0)) : (f.importo||0);
+    return Math.round(residuo*100);
+  });
+  if(!sommeFatture) return {combinazioni:[], troppiCandidati:true};
+
+  var combinazioni = [];
+  sommeMovimenti.forEach(function(comboMovIdx, sommaCents){
+    if(sommaCents===0 || comboMovIdx.length===0) return; // niente movimenti, non ha senso
+    if(comboMovIdx.indexOf(movimentiCandidati.indexOf(movimentoOrigine))<0) return; // deve includere il movimento di partenza
+    if(!sommeFatture.has(sommaCents)) return;
+    var comboFattIdx = sommeFatture.get(sommaCents);
+    if(comboFattIdx.length===0) return;
+    if(combinazioni.length>=5) return;
+    combinazioni.push({
+      movimenti: comboMovIdx.map(function(i){ return movimentiCandidati[i]; }),
+      fatture: comboFattIdx.map(function(i){ return fattureCandidate[i]; }),
+      somma: sommaCents/100
+    });
+  });
+  return {combinazioni: combinazioni};
+}
+
+// Mostra le combinazioni "a due versanti" trovate dalla Fase 3 (più movimenti
+// insieme che pagano più fatture insieme) — stesso principio prudenziale
+// delle altre: se ce n'è più di una possibile, non si sceglie mai da soli,
+// si mostrano tutte e decide l'utente.
+function _cfMostraCombinazioniDueVersanti(combinazioni){
+  window._dueVersantiCombo = combinazioni;
+  var existing = document.getElementById('_cfOv');
+  if(existing) existing.remove();
+  var ov = document.createElement('div');
+  ov.id = '_cfOv';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:900;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)';
+  var hh = '<div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:85vh;overflow-y:auto;padding:20px">';
+  hh += '<div style="font-size:17px;font-weight:700;margin-bottom:4px">Trovata combinazione su entrambi i lati</div>';
+  hh += '<div style="font-size:12px;color:var(--ink3);margin-bottom:14px">Più movimenti insieme corrispondono esattamente a più fatture insieme.</div>';
+  combinazioni.forEach(function(c, idx){
+    hh += '<div style="background:var(--surface2);border-radius:12px;padding:12px;margin-bottom:10px">';
+    hh += '<div style="font-size:12px;font-weight:700;color:var(--ink3);margin-bottom:6px">Combinazione '+(idx+1)+' — totale '+fmt(c.somma)+'</div>';
+    hh += '<div style="font-size:11px;color:var(--ink3);margin-bottom:4px">MOVIMENTI ('+c.movimenti.length+')</div>';
+    c.movimenti.forEach(function(m){ hh += '<div style="font-size:12px;padding:3px 0">'+esc(m.data||'')+' — '+fmt(Math.abs(m.importo))+'</div>'; });
+    hh += '<div style="font-size:11px;color:var(--ink3);margin:6px 0 4px">FATTURE ('+c.fatture.length+')</div>';
+    c.fatture.forEach(function(f){ hh += '<div style="font-size:12px;padding:3px 0">'+esc(f.fornitore||'')+' N°'+esc(f.numero||'')+' — '+fmt(f.importo||0)+'</div>'; });
+    hh += '<button onclick="_cfApplicaDueVersanti('+idx+')" style="width:100%;margin-top:10px;padding:10px;border:none;border-radius:8px;background:var(--green);color:#fff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">✓ Conferma questa combinazione</button>';
+    hh += '</div>';
+  });
+  hh += '<button onclick="document.getElementById(\'_cfOv\').remove()" style="width:100%;padding:10px;border:1px solid var(--sep);border-radius:8px;background:var(--surface);color:var(--ink3);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">Annulla</button>';
+  hh += '</div>';
+  ov.innerHTML = hh;
+  ov.onclick = function(e){ if(e.target===ov) ov.remove(); };
+  document.body.appendChild(ov);
+}
+
+async function _cfApplicaDueVersanti(idx){
+  var c = (window._dueVersantiCombo||[])[idx];
+  if(!c) return;
+  var ov = document.getElementById('_cfOv');
+  if(ov) ov.remove();
+  await _applicaGruppoRiconciliazione(c.fatture, c.movimenti, {ridisegnaBanca:true});
 }
 
 function _cfMostraCombinazioni(combinazioni, imp, m){
@@ -15790,16 +16152,38 @@ function _cfMultiplo(){
   function _updateDynamic(){
     var totSel = selezionate.reduce(function(s,x){return s+(x.importoPagato||0);},0);
     var rimanente = imp - totSel;
-    var pareggio = Math.abs(totSel - imp) < 0.01;
-    var saldoColor = pareggio ? '#1a7a3a' : (rimanente<0 ? 'var(--red)' : '#b36a00');
-    var saldoLabel = pareggio ? '\u2713 Pareggio!' : (rimanente<0 ? 'Eccesso '+fmt(Math.abs(rimanente)) : 'Rimanente '+fmt(rimanente));
+    var movimentoCoperto = Math.abs(totSel - imp) < 0.01;
+    // FIX (23/08, segnalato da Valerio con screenshot): "Pareggio!" verificava
+    // solo che la somma assegnata coprisse il MOVIMENTO — non controllava se
+    // ogni singola fattura coinvolta fosse davvero coperta per intero. Un
+    // movimento da 977,38€ assegnato tutto a UNA fattura da 1516,34€
+    // mostrava "✓ Pareggio! €0,00" (rassicurante, verde) quando in realtà
+    // quella fattura restava scoperta di 538,96€ — un pareggio del
+    // movimento non è un pareggio della fattura, sono due cose diverse.
+    var fattureParziali = selezionate.filter(function(x){
+      return (x.importoPagato||0) < (x.fatt.importo||0)-0.50;
+    });
+    var pareggio = movimentoCoperto && fattureParziali.length===0;
+    var saldoColor = pareggio ? '#1a7a3a' : (rimanente<0 ? 'var(--red)' : (fattureParziali.length ? '#b36a00' : '#b36a00'));
+    var saldoLabel;
+    if(pareggio){
+      saldoLabel = '\u2713 Pareggio!';
+    } else if(rimanente<0){
+      saldoLabel = 'Eccesso '+fmt(Math.abs(rimanente));
+    } else if(!movimentoCoperto){
+      saldoLabel = 'Rimanente '+fmt(rimanente);
+    } else {
+      // Movimento interamente assegnato, ma una o più fatture restano scoperte
+      var residuoTot = fattureParziali.reduce(function(s,x){ return s+((x.fatt.importo||0)-(x.importoPagato||0)); },0);
+      saldoLabel = '\u26a0\ufe0f Movimento assegnato, ma '+fattureParziali.length+' fattur'+(fattureParziali.length>1?'e restano':'a resta')+' PARZIALE — manca '+fmt(residuoTot);
+    }
 
     var saldoBox = document.getElementById('_cfMultiSaldo');
     if(saldoBox){
       saldoBox.style.background = pareggio ? 'var(--green)' : 'var(--surface)';
       saldoBox.style.borderColor = pareggio ? 'var(--green)' : saldoColor;
       saldoBox.innerHTML = '<div style="font-size:11px;font-weight:700;color:'+(pareggio?'#fff':saldoColor)+';text-transform:uppercase;letter-spacing:.5px">'+saldoLabel+'</div>'
-        +'<div style="font-size:20px;font-weight:800;color:'+(pareggio?'#fff':saldoColor)+'">'+fmt(Math.abs(rimanente))+'</div>';
+        +'<div style="font-size:20px;font-weight:800;color:'+(pareggio?'#fff':saldoColor)+'">'+fmt(Math.abs(pareggio?0:(movimentoCoperto?0:rimanente)))+'</div>';
     }
 
     var selDiv = document.getElementById('_cfMultiSel');
@@ -15826,7 +16210,7 @@ function _cfMultiplo(){
       if(selezionate.length){
         btnConf.style.display='block';
         btnConf.style.background = pareggio ? 'var(--green)' : 'var(--orange)';
-        btnConf.textContent = pareggio ? '\u2713 Conferma abbinamento' : '\u26a0\ufe0f Conferma (importo non coperto)';
+        btnConf.textContent = pareggio ? '\u2713 Conferma abbinamento' : (movimentoCoperto ? '\u26a0\ufe0f Conferma (lascerà fatture parziali)' : '\u26a0\ufe0f Conferma (importo non coperto)');
       } else { btnConf.style.display='none'; }
     }
 
