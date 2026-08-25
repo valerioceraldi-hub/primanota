@@ -407,7 +407,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.76</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.78</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:14px">
     <button onclick="sincronizzaOra()" title="Sincronizza con Cloud" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;line-height:1">&#8635;</button>
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
@@ -1134,10 +1134,20 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
       </div>
 
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">💳 Come sono stati incassati</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
-        <div><div style="font-size:10px;color:var(--ink3);margin-bottom:3px">💵 Cassa contanti</div><input type="text" id="chgCassa" inputmode="decimal" placeholder="0,00" oninput="_chgRecalc()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right"></div>
-        <div><div style="font-size:10px;color:var(--ink3);margin-bottom:3px">💳 Pagamenti elettronici (fiscale)</div><input type="text" id="chgPos" inputmode="decimal" placeholder="0,00" oninput="_chgRecalc()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right"></div>
+      <div style="margin-bottom:6px"><div style="font-size:10px;color:var(--ink3);margin-bottom:3px">💵 Cassa contanti</div><input type="text" id="chgCassa" inputmode="decimal" placeholder="0,00" oninput="_chgRecalc()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right"></div>
+      <!-- Pagamenti elettronici SPLITTATI per terminale (23/08, richiesta
+           esplicita di Valerio: prima era un unico campo "fiscale" — ora
+           due righe distinte, una per Numia e una per SumUp, sommate in
+           automatico. Il campo nascosto chgPos resta per compatibilità con
+           tutto il resto del codice che lo legge (_chgRecalc, salvataggio,
+           riconciliazione) — non tocco quella parte, aggiorno solo da dove
+           arriva il numero. -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px">
+        <div><div style="font-size:10px;color:var(--ink3);margin-bottom:3px">🔵 Numia</div><input type="text" id="chgPosNumia" inputmode="decimal" placeholder="0,00" oninput="_chgPosSplitSum()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right"></div>
+        <div><div style="font-size:10px;color:var(--ink3);margin-bottom:3px">🟠 SumUp</div><input type="text" id="chgPosSumUp" inputmode="decimal" placeholder="0,00" oninput="_chgPosSplitSum()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;text-align:right"></div>
       </div>
+      <input type="hidden" id="chgPos">
+      <div style="font-size:11px;color:var(--ink3);text-align:right;margin-bottom:10px">Totale pagamenti elettronici: <b id="chgPosTotaleLbl">€ 0,00</b></div>
       <div style="margin-bottom:10px">
         <div style="font-size:10px;color:#0066cc;margin-bottom:3px">🏦 Estratto conto banca</div>
         <input type="text" id="chgPosBanca" inputmode="decimal" placeholder="0,00 (se diverso dal POS fiscale)" oninput="_chgRecalc()" style="width:100%;padding:10px;border:1.5px solid #b3d7f5;border-radius:8px;font-size:14px;background:#f0f7ff;box-sizing:border-box;text-align:right">
@@ -1201,52 +1211,33 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
          numerico di prima. Un solo inserimento aggiorna sia il Saldo Cassa
          Stimato (tabella versamenti, YTD) sia il Fondo Cassa (Prima Nota,
          cumulativo) — prima erano due sistemi scollegati. -->
+    <!-- Form aggiungi versamento — ridisegnato di nuovo (23/08, secondo
+         giro, richiesta esplicita di Valerio): il tastierino con UNA sola
+         fonte per volta non bastava — a volte versa 1000€ dal cassetto E
+         1000€ dal fondo nello stesso momento. Ora due campi separati,
+         compilabili insieme: al salvataggio ognuno diventa un movimento
+         Prima Nota indipendente (con la sua fonte), sommati in un'unica
+         riga nella tabella versamenti (che non distingue la fonte, serve
+         solo al Saldo Cassa Stimato). -->
     <div style="background:var(--surface);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);margin-bottom:12px">
       <div style="font-size:15px;font-weight:700;margin-bottom:12px">➕ Nuovo versamento</div>
       <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">Data</div>
       <input type="date" id="verData" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;font-family:inherit;background:var(--surface2);box-sizing:border-box;-webkit-appearance:none;margin-bottom:10px">
       <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">Note (opzionale)</div>
       <input type="text" id="verNote" placeholder="Es. Versamento mattina, versamento settimanale..." style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;margin-bottom:10px">
-      <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">Da dove viene questo contante</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
-        <button class="pag-btn" id="versfb-cassetto" onclick="versSetFonte('cassetto')" style="padding:9px 4px;font-size:13px">💵 Cassetto</button>
-        <button class="pag-btn" id="versfb-fondo" onclick="versSetFonte('fondo')" style="padding:9px 4px;font-size:13px">💰 Fondo</button>
-      </div>
-      <button type="button" onclick="versApriKeypad()" style="width:100%;text-align:center;font-size:24px;font-weight:800;padding:12px 0;color:var(--ink);background:var(--surface2);border:1.5px solid var(--sep);border-radius:10px;cursor:pointer">
-        € <span id="versImportoAnteprima">0,00</span> <span style="font-size:14px;color:var(--ink3)">✏️</span>
-      </button>
-    </div>
-
-    <!-- Overlay tastierino versamento — stessa struttura del tastierino
-         spesa veloce, id separati per non collidere con quello. -->
-    <div id="versKeypadOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:900;align-items:flex-end;justify-content:center">
-      <div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;padding:20px 20px calc(20px + env(safe-area-inset-bottom))">
-        <div style="text-align:center;font-size:38px;font-weight:800;margin-bottom:12px;color:var(--ink)">
-          € <span id="versKeypadDisplay">0,00</span>
+      <div style="font-size:10px;color:var(--ink3);margin-bottom:3px">Da dove viene questo contante (puoi compilare anche entrambi)</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+        <div>
+          <div style="font-size:11px;color:var(--ink3);margin-bottom:3px">💵 Da cassetto</div>
+          <input type="text" id="verCassetto" inputmode="decimal" placeholder="0,00" oninput="_verRicalcolaTotale()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:15px;background:var(--surface2);box-sizing:border-box;text-align:right;font-weight:600">
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">
-          <button class="pag-btn" id="versfb-cassetto-kp" onclick="versSetFonte('cassetto')" style="padding:9px 4px;font-size:13px">💵 Cassetto</button>
-          <button class="pag-btn" id="versfb-fondo-kp" onclick="versSetFonte('fondo')" style="padding:9px 4px;font-size:13px">💰 Fondo</button>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
-          <button class="pag-btn" onclick="versKeypadDigit('7')" style="font-size:22px;padding:18px 4px">7</button>
-          <button class="pag-btn" onclick="versKeypadDigit('8')" style="font-size:22px;padding:18px 4px">8</button>
-          <button class="pag-btn" onclick="versKeypadDigit('9')" style="font-size:22px;padding:18px 4px">9</button>
-          <button class="pag-btn" onclick="versKeypadDigit('4')" style="font-size:22px;padding:18px 4px">4</button>
-          <button class="pag-btn" onclick="versKeypadDigit('5')" style="font-size:22px;padding:18px 4px">5</button>
-          <button class="pag-btn" onclick="versKeypadDigit('6')" style="font-size:22px;padding:18px 4px">6</button>
-          <button class="pag-btn" onclick="versKeypadDigit('1')" style="font-size:22px;padding:18px 4px">1</button>
-          <button class="pag-btn" onclick="versKeypadDigit('2')" style="font-size:22px;padding:18px 4px">2</button>
-          <button class="pag-btn" onclick="versKeypadDigit('3')" style="font-size:22px;padding:18px 4px">3</button>
-          <button class="pag-btn" onclick="versKeypadDigit('00')" style="font-size:19px;padding:18px 4px">00</button>
-          <button class="pag-btn" onclick="versKeypadDigit('0')" style="font-size:22px;padding:18px 4px">0</button>
-          <button class="pag-btn" onclick="versKeypadBackspace()" style="font-size:19px;padding:18px 4px">⌫</button>
-        </div>
-        <div style="display:flex;gap:8px">
-          <button onclick="versChiudiKeypad()" style="flex:1;padding:14px;border:1.5px solid var(--sep);border-radius:10px;background:var(--surface);font-size:15px;font-weight:600;cursor:pointer">Annulla</button>
-          <button class="btn btn-p" id="versSalvaBtn" onclick="versSalvaVersamento()" style="flex:2;font-size:17px;padding:14px">✓ Salva versamento</button>
+        <div>
+          <div style="font-size:11px;color:var(--ink3);margin-bottom:3px">💰 Da fondo</div>
+          <input type="text" id="verFondo" inputmode="decimal" placeholder="0,00" oninput="_verRicalcolaTotale()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:15px;background:var(--surface2);box-sizing:border-box;text-align:right;font-weight:600">
         </div>
       </div>
+      <div style="font-size:12px;color:var(--ink3);text-align:right;margin-bottom:12px">Totale versamento: <b id="verTotaleLbl">€ 0,00</b></div>
+      <button class="btn btn-p" id="versSalvaBtn" onclick="versSalvaVersamento()" style="width:100%">✓ Salva versamento</button>
     </div>
 
     <!-- Lista versamenti -->
@@ -1858,6 +1849,12 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
 
 <!-- ASSISTENTE AI — bottone flottante visibile su tutte le schermate -->
 <button id="aiAssistBtn" onclick="apriAiAssistente()" style="position:fixed;right:16px;bottom:78px;width:52px;height:52px;border-radius:50%;border:none;background:linear-gradient(145deg,#5856d6,#0A0A1E);color:#fff;font-size:22px;box-shadow:0 4px 16px rgba(88,86,214,.4);cursor:pointer;z-index:400;display:flex;align-items:center;justify-content:center">&#129504;</button>
+
+<!-- SCRIPTABLE — bottone flottante (23/08, richiesta esplicita di Valerio:
+     prima era sepolto dentro la schermata Scansiona, ora sempre a portata
+     di tocco da qualunque tab, stesso schema del bottone assistente sopra
+     ma sul lato opposto per non sovrapporsi. -->
+<button id="scriptableBtn" onclick="apriScriptableRT()" title="Importa chiusure da RT (Scriptable)" style="position:fixed;left:16px;bottom:78px;width:52px;height:52px;border-radius:50%;border:none;background:linear-gradient(145deg,#ff9f0a,#c46a00);color:#fff;font-size:22px;box-shadow:0 4px 16px rgba(255,159,10,.4);cursor:pointer;z-index:400;display:flex;align-items:center;justify-content:center">&#128424;&#65039;</button>
 
 <script>
 // ── SUPABASE CONFIG ──
@@ -10542,95 +10539,56 @@ async function salvaVersamento(){
   toast('✓ Versamento salvato');
 }
 
-// ── Tastierino versamento (23/08) — stesso schema del tastierino spesa
-// veloce di Prima Nota, id separati per non collidere. Un solo Salva scrive
-// su ENTRAMBE le tabelle: "versamenti" (alimenta Saldo Cassa Stimato, YTD)
-// e prima_nota_movimenti categoria:'versamento' (alimenta Fondo Cassa,
-// cumulativo) — prima erano due inserimenti separati e scollegati, con due
-// tab diversi (Cassa→Versamenti e Prima Nota→Giorno).
-let _versKeypadCents = 0;
-let _versFonte = '';
-function versKeypadReset(){
-  _versKeypadCents = 0;
-  const el = document.getElementById('versKeypadDisplay');
-  if(el) el.textContent = '0,00';
-  const anteprima = document.getElementById('versImportoAnteprima');
-  if(anteprima) anteprima.textContent = '0,00';
-}
-function _versKeypadRender(){
-  const val = _fNum(_versKeypadCents/100);
-  const el = document.getElementById('versKeypadDisplay');
-  if(el) el.textContent = val;
-  const anteprima = document.getElementById('versImportoAnteprima');
-  if(anteprima) anteprima.textContent = val;
-}
-function versKeypadDigit(d){
-  const cifre = String(d);
-  for(const c of cifre){
-    if(_versKeypadCents > 99999999) break;
-    _versKeypadCents = _versKeypadCents*10 + Number(c);
-  }
-  _versKeypadRender();
-}
-function versKeypadBackspace(){
-  _versKeypadCents = Math.floor(_versKeypadCents/10);
-  _versKeypadRender();
-}
-function versKeypadValore(){ return _versKeypadCents/100; }
-function versApriKeypad(){
-  const ov = document.getElementById('versKeypadOverlay');
-  if(ov) ov.style.display = 'flex';
-}
-function versChiudiKeypad(){
-  const ov = document.getElementById('versKeypadOverlay');
-  if(ov) ov.style.display = 'none';
-}
-function versSetFonte(f){
-  _versFonte = f;
-  ['cassetto','fondo'].forEach(k=>{
-    const cls = 'pag-btn'+(k===f?' sc':'');
-    const b1 = document.getElementById('versfb-'+k);
-    if(b1) b1.className = cls;
-    const b2 = document.getElementById('versfb-'+k+'-kp');
-    if(b2) b2.className = cls;
-  });
+// Versamento con doppia fonte contemporanea (23/08, secondo giro dopo
+// richiesta esplicita di Valerio: a volte versa contemporaneamente una
+// parte dal cassetto e una dal fondo, es. 1000€+1000€). Un solo Salva
+// scrive: una riga in "versamenti" col totale combinato (alimenta Saldo
+// Cassa Stimato, che non distingue la fonte) + fino a DUE righe in
+// prima_nota_movimenti, una per ogni fonte compilata (alimenta Fondo Cassa,
+// che invece la fonte la usa eccome).
+function _verRicalcolaTotale(){
+  const cassetto = _pNum(gv('verCassetto'));
+  const fondo = _pNum(gv('verFondo'));
+  const lbl = document.getElementById('verTotaleLbl');
+  if(lbl) lbl.textContent = fmt(cassetto + fondo);
 }
 async function versSalvaVersamento(){
   const data = gv('verData') || new Date().toISOString().slice(0,10);
-  const importo = versKeypadValore();
+  const cassetto = _pNum(gv('verCassetto'));
+  const fondo = _pNum(gv('verFondo'));
   const note = (gv('verNote')||'').trim();
-  if(importo <= 0){ toast('⚠️ Inserisci un importo'); return; }
-  if(!_versFonte){ toast('⚠️ Scegli se il contante viene dal cassetto o dal fondo'); return; }
+  const totale = cassetto + fondo;
+  if(totale <= 0){ toast('⚠️ Inserisci almeno un importo, da cassetto o da fondo'); return; }
   const btn = document.getElementById('versSalvaBtn');
   const testoOrig = btn ? btn.innerHTML : null;
   if(btn){ btn.disabled = true; btn.innerHTML = '⏳ Salvo…'; }
   try{
-    // 1) Tabella "versamenti" — alimenta Saldo Cassa Stimato (YTD)
-    const record = { id: Date.now(), data, importo, note: note||null, createdAt: new Date().toISOString() };
+    // 1) Tabella "versamenti" — alimenta Saldo Cassa Stimato (YTD), un'unica
+    // riga col totale, non distingue la fonte.
+    const record = { id: Date.now(), data, importo: totale, note: note||null, createdAt: new Date().toISOString() };
     versamenti.push(record);
     salvaVersamentiLocale();
     try{
-      await sbFetch('versamenti', {method:'POST', body: JSON.stringify({ id: record.id, data, importo, note: note||null, created_at: new Date().toISOString() })});
+      await sbFetch('versamenti', {method:'POST', body: JSON.stringify({ id: record.id, data, importo: totale, note: note||null, created_at: new Date().toISOString() })});
     }catch(e){
       console.warn('Sync versamento fallito:', e.message||e);
     }
-    // 2) prima_nota_movimenti — alimenta Fondo Cassa (cumulativo)
-    try{
-      await sbFetch('prima_nota_movimenti', {method:'POST', body:JSON.stringify({
-        data, categoria:'versamento', importo, fonte:_versFonte, descrizione: note || 'Versamento in banca'
-      })});
-    }catch(e){
-      console.warn('Sync versamento Prima Nota fallito:', e.message||e);
-    }
+    // 2) prima_nota_movimenti — alimenta Fondo Cassa (cumulativo), una riga
+    // per ciascuna fonte compilata (può essere una sola o entrambe).
+    const scritture = [];
+    if(cassetto > 0) scritture.push(sbFetch('prima_nota_movimenti', {method:'POST', body:JSON.stringify({
+      data, categoria:'versamento', importo:cassetto, fonte:'cassetto', descrizione: note || 'Versamento in banca'
+    })}).catch(e=>console.warn('Sync versamento Prima Nota (cassetto) fallito:', e.message||e)));
+    if(fondo > 0) scritture.push(sbFetch('prima_nota_movimenti', {method:'POST', body:JSON.stringify({
+      data, categoria:'versamento', importo:fondo, fonte:'fondo', descrizione: note || 'Versamento in banca'
+    })}).catch(e=>console.warn('Sync versamento Prima Nota (fondo) fallito:', e.message||e)));
+    await Promise.all(scritture);
+
     document.getElementById('verNote').value = '';
+    document.getElementById('verCassetto').value = '';
+    document.getElementById('verFondo').value = '';
     document.getElementById('verData').value = new Date().toISOString().slice(0,10);
-    versKeypadReset();
-    _versFonte = '';
-    ['cassetto','fondo'].forEach(k=>{
-      const b1=document.getElementById('versfb-'+k), b2=document.getElementById('versfb-'+k+'-kp');
-      if(b1) b1.className='pag-btn'; if(b2) b2.className='pag-btn';
-    });
-    versChiudiKeypad();
+    _verRicalcolaTotale();
     aggiornaSaldoCassa();
     renderVersamenti();
     if(typeof pnSyncCloud==='function') await pnSyncCloud();
@@ -10809,7 +10767,7 @@ async function caricaChiusuraGiorno(){
   }
 
   // Azzera i campi prima di ripopolare
-  ['chgTotaleCorrInp','chgCassa','chgPos','chgNote'].forEach(id=>{
+  ['chgTotaleCorrInp','chgCassa','chgPos','chgPosNumia','chgPosSumUp','chgNote'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.value='';
   });
 
@@ -10825,17 +10783,32 @@ async function caricaChiusuraGiorno(){
     document.getElementById('chgTotaleCorrInp').value = totale ? _fNum(totale) : '';
     document.getElementById('chgCassa').value = cassa ? _fNum(cassa) : '';
     document.getElementById('chgPos').value   = pos   ? _fNum(pos)   : '';
+    // Ripartizione Numia/SumUp (23/08): se il giorno ha già la ripartizione
+    // salvata la mostra; per un giorno vecchio salvato PRIMA di questa
+    // modifica (solo il totale unico, nessuna ripartizione) mette tutto su
+    // SumUp per non perdere il dato — è solo una scelta di dove appoggiarlo
+    // visivamente, il totale resta comunque corretto.
+    const posNumia = existing.pos_numia || existing.posNumia || 0;
+    const posSumUp = existing.pos_sumup || existing.posSumUp || 0;
+    if(posNumia || posSumUp){
+      document.getElementById('chgPosNumia').value = posNumia ? _fNum(posNumia) : '';
+      document.getElementById('chgPosSumUp').value = posSumUp ? _fNum(posSumUp) : '';
+    } else if(pos){
+      document.getElementById('chgPosSumUp').value = _fNum(pos);
+    }
+    document.getElementById('chgPosTotaleLbl').textContent = fmt(pos);
     document.getElementById('chgNote').value  = existing.note || '';
     const pbEl = document.getElementById('chgPosBanca');
     if(pbEl) pbEl.value = existing.pos_banca ? _fNum(existing.pos_banca) : '';
   } else {
-    // Giorno nuovo: precompila POS con Numia se disponibile
+    // Giorno nuovo: precompila Numia se disponibile (SumUp si scarica col
+    // suo bottone, non deriva mai da un import automatico dei totali)
     const totPos = incassi
       .filter(i=>i.data===data && i.source==='numia' && i.esito==='ok')
       .reduce((s,i)=>s+(i.importo||0), 0);
-    if(totPos > 0) document.getElementById('chgPos').value = _fNum(totPos);
+    if(totPos > 0) document.getElementById('chgPosNumia').value = _fNum(totPos);
   }
-  _chgRecalc();
+  _chgPosSplitSum();
   _renderPosDetails(data);
   _chgAggiornaInfoCompatta(data);
   // Il Conteggio giornaliero (Prima Nota) ora vive nella stessa pagina,
@@ -10902,6 +10875,19 @@ function _renderPosDetails(data){
     ${storni.length ? `<br>${storni.length} stornate/negate (escluse dal totale)` : ''}
     <br><span style="color:var(--ink3);font-size:11px">Il totale POS è stato precompilato con questo valore.</span>`;
   wrap.style.display='';
+}
+
+// Somma automatica Numia+SumUp nel campo nascosto chgPos, che resta l'unico
+// letto da tutto il resto del codice (23/08, richiesta esplicita).
+function _chgPosSplitSum(){
+  const numia = _pNum(gv('chgPosNumia'));
+  const sumup = _pNum(gv('chgPosSumUp'));
+  const tot = numia + sumup;
+  const posHidden = document.getElementById('chgPos');
+  if(posHidden) posHidden.value = tot ? _fNum(tot) : '';
+  const lbl = document.getElementById('chgPosTotaleLbl');
+  if(lbl) lbl.textContent = fmt(tot);
+  _chgRecalc();
 }
 
 function _chgRecalc(){
@@ -10973,6 +10959,8 @@ async function salvaChiusuraGiornaliera(){
     iva22: 0, iva4: 0, iva10: totale,
     cassa: _pNum(gv('chgCassa')),
     pos: _pNum(gv('chgPos')),
+    pos_numia: _pNum(gv('chgPosNumia')) || null,
+    pos_sumup: _pNum(gv('chgPosSumUp')) || null,
     pos_banca: _pNum(gv('chgPosBanca')) || null,
     note: gv('chgNote') || '',
     incassato: 0,
@@ -11138,6 +11126,24 @@ async function _eseguiSyncSumUp(){
     if(esito) esito.innerHTML = '✓ '+items.length+' transazioni lette dal periodo · <b>'+davveroNuovi.length+'</b> nuove salvate ('+fmt(totImp)+')'
       + (items.length-successi.length>0 ? '<br><span style="color:var(--ink3)">'+(items.length-successi.length)+' scartate (non andate a buon fine)</span>' : '');
     toast('✓ SumUp sincronizzato: '+davveroNuovi.length+' nuove transazioni');
+
+    // Confronto col dato manuale (23/08, richiesta esplicita): se per il
+    // giorno attualmente aperto in Chiusura giornaliera avevi già scritto a
+    // mano un totale SumUp, e quello scaricato ora è diverso, avvisa subito
+    // — prima di ricaricare la scheda (che altrimenti sovrascriverebbe il
+    // valore manuale non ancora salvato senza dirlo). Va fatto PRIMA della
+    // caricaChiusuraGiorno() qui sotto, che rilegge dal database.
+    var dataAperta = gv('chgDataInp');
+    var manualeSumUp = _pNum(gv('chgPosSumUp'));
+    if(dataAperta && manualeSumUp > 0){
+      var scaricatoQuelGiorno = incassi
+        .filter(function(i){ return i.data===dataAperta && i.source==='sumup' && i.esito==='ok'; })
+        .reduce(function(s,i){ return s+(i.importo||0); }, 0);
+      if(Math.abs(scaricatoQuelGiorno - manualeSumUp) > 0.01){
+        alert('⚠️ Il totale SumUp scaricato per il '+dataAperta+' ('+fmt(scaricatoQuelGiorno)+') è diverso da quello che avevi scritto a mano ('+fmt(manualeSumUp)+').\n\nRicontrolla prima di salvare la chiusura.');
+      }
+    }
+
     caricaChiusuraGiorno();
   }catch(e){
     console.error('_eseguiSyncSumUp:', e);
@@ -13606,8 +13612,23 @@ function renderRiconciliazioneCarta(){
         + (d.fatt.data ? 'Fattura '+_fmtDataBreveCarta(d.fatt.data) : '')
         + (d.fatt.data ? ' · ' : '')
         + 'Pagata '+_fmtDataBreveCarta(d.mov.data) + '</div>';
+      // Movimento e fattura affiancati (23/08, richiesta esplicita di
+      // Valerio): prima si vedeva solo l'importo del movimento — l'algoritmo
+      // confronta già coi 2 centesimi di tolleranza, ma senza vedere anche
+      // il numero della fattura non c'era modo di controllare ad occhio se
+      // erano DAVVERO identici o solo vicini. Ora entrambi i numeri sono
+      // sempre visibili, con un avviso giallo se c'è anche solo qualche
+      // centesimo di differenza (invece del ✓ verde silenzioso di prima).
+      var scostCarta = Math.abs((d.mov.importo||0) - (d.fatt.importo||0));
+      var identiciCarta = scostCarta < 0.005;
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:4px">'
+        + '<span style="color:var(--ink3)">Movimento banca</span><b>'+fmt(d.mov.importo)+'</b></div>';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:6px">'
+        + '<span style="color:var(--ink3)">Importo fattura</span><b>'+fmt(d.fatt.importo||0)+'</b></div>';
       html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">';
-      html += '<span style="font-size:13px;font-weight:700;color:var(--blue)">'+fmt(d.mov.importo)+' ✓</span>';
+      html += identiciCarta
+        ? '<span style="font-size:12px;font-weight:700;color:var(--blue)">✓ Importi identici</span>'
+        : '<span style="font-size:12px;font-weight:700;color:#b36a00">⚠️ Differenza di '+fmt(scostCarta)+' — ricontrolla</span>';
       html += '<div style="display:flex;gap:6px">';
       html += '<button onclick="_confermaCartaConsigliato('+idx+')" style="padding:6px 10px;border:none;border-radius:6px;background:var(--blue);color:#fff;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✓ Conferma</button>';
       html += '<button onclick="_apriPickerAbbinamentoCarta(_cartaNonAbbinati.indexOf(_cartaConsigliati['+idx+'].mov))" style="padding:6px 10px;border:1px solid var(--ink3);border-radius:6px;background:transparent;color:var(--ink2);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">Altra</button>';
