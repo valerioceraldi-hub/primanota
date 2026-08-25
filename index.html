@@ -407,7 +407,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.79</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.86</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:14px">
     <button onclick="sincronizzaOra()" title="Sincronizza con Cloud" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;line-height:1">&#8635;</button>
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
@@ -1339,11 +1339,41 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
     <div style="background:var(--surface);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);margin-bottom:12px">
       <div style="font-size:16px;font-weight:700;margin-bottom:2px">🏦 Riconciliazione bancaria</div>
       <div style="font-size:12px;color:var(--ink3);margin-bottom:12px">Importa estratto conto e abbina alle fatture pagate</div>
+
+      <!-- Selettore conto — reso PROMINENTE (25/08, richiesta esplicita di
+           Valerio: "fai in modo che sumup non mi faccia andare in confusione
+           con BPM" — prima era un dropdown in fondo a una lista di filtri
+           secondari, facile da non notare, con default "tutti" che mescolava
+           le due banche insieme). Ora due schede ben visibili subito sotto
+           il titolo, PARTE SEMPRE da una scelta esplicita (BPM di default),
+           mai più "tutti insieme" come punto di partenza. -->
+      <div style="display:flex;gap:6px;margin-bottom:12px;background:var(--surface2);padding:5px;border-radius:12px">
+        <button id="bancaContoBtnBPM" onclick="_setBancaConto('BPM')" style="flex:1;padding:10px 6px;border:none;border-radius:9px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;background:var(--red);color:#fff">🏦 Banco BPM</button>
+        <button id="bancaContoBtnSumUp" onclick="_setBancaConto('SumUp')" style="flex:1;padding:10px 6px;border:none;border-radius:9px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;background:transparent;color:var(--ink2)">🟦 SumUp</button>
+        <button id="bancaContoBtnTutti" onclick="_setBancaConto('')" style="padding:10px 10px;border:none;border-radius:9px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;background:transparent;color:var(--ink3)">Tutti</button>
+      </div>
+      <input type="hidden" id="bancaFiltroConto" value="BPM">
+      <!-- Chiarimento commissioni SumUp (25/08, richiesta esplicita di
+           Valerio: l'accredito che arriva sul conto SumUp è già al NETTO
+           delle commissioni — non è il totale lordo delle vendite POS, ma
+           vendite meno commissioni trattenute prima dell'accredito. Senza
+           dirlo esplicitamente, un confronto diretto con l'incasso POS
+           lordo sembrerebbe sempre "in difetto" senza spiegazione. -->
+      <div id="bancaAvvisoSumUp" style="display:none;background:#fff3cd;border:1.5px solid #ffc107;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:#7a5c00;line-height:1.4">⚠️ L'accredito SumUp che vedi qui è già <b>al netto delle commissioni</b> — non è il totale lordo delle vendite POS, ma le vendite meno la commissione trattenuta da SumUp prima di accreditare sul conto. Non confrontarlo direttamente con l'incasso POS lordo di Cassa → Oggi.</div>
+
       <div style="display:flex;gap:8px;flex-direction:column;margin-bottom:12px">
         <button onclick="document.getElementById('inputBancaPDF').click()" class="btn btn-s" style="width:100%;padding:12px;color:var(--red)">📄 Carica PDF Banco BPM</button>
+        <!-- Import CSV BPM (25/08, richiesta esplicita di Valerio): stesso
+             estratto conto del PDF ma come lista movimenti CSV — copre
+             mesi/anni in un colpo solo invece di aspettare l'estratto
+             trimestrale, stessa identica logica di classificazione e stessa
+             tabella di destinazione del PDF (upsertMovimentiBanca, riusata
+             identica — nessuna duplicazione). -->
+        <button onclick="document.getElementById('inputBancaCSV').click()" class="btn btn-s" style="width:100%;padding:12px;color:var(--red)">📋 Carica lista movimenti BPM (CSV)</button>
         <button onclick="document.getElementById('inputSumUpBizCSV').click()" class="btn btn-s" style="width:100%;padding:12px;color:#0066cc">📄 Carica estratto SumUp (CSV)</button>
       </div>
       <input type="file" id="inputBancaPDF" accept=".pdf" style="display:none" onchange="onBancaPDFSelected(this)">
+      <input type="file" id="inputBancaCSV" accept=".csv" style="display:none" onchange="onBancaCSVSelected(this)">
       <input type="file" id="inputSumUpBizCSV" accept=".csv" style="display:none" onchange="onSumUpBizCSVSelected(this)">
       <div id="bancaImportInfo" style="font-size:12px;color:var(--ink3);text-align:center;margin-bottom:8px"></div>
       <input type="month" id="bancaMese" onchange="renderRiconciliazione()" style="width:100%;padding:10px;border:1.5px solid var(--sep);border-radius:10px;font-size:14px;font-family:inherit;background:var(--surface2);margin-bottom:12px;-webkit-appearance:none">
@@ -1370,6 +1400,7 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
             <option value="f24">F24</option>
             <option value="mutuo">Mutuo</option>
             <option value="stipendi">Stipendi</option>
+            <option value="paypal">PayPal</option>
             <option value="spese">Commissioni/spese</option>
             <option value="entrata">Entrata</option>
             <option value="altro">Altro</option>
@@ -1380,13 +1411,6 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
             <option value="non_riconciliati">Solo non riconciliati</option>
           </select>
         </div>
-        <!-- Filtro conto (08/08, richiesto da Valerio insieme a SumUp come secondo
-             conto aziendale) -->
-        <select id="bancaFiltroConto" onchange="renderRiconciliazione()" style="width:100%;padding:8px;border:1.5px solid var(--sep);border-radius:8px;font-size:12px;font-family:inherit;background:var(--surface)">
-          <option value="">Conto: tutti</option>
-          <option value="BPM">🏦 Banco BPM</option>
-          <option value="SumUp">🟦 SumUp</option>
-        </select>
       </div>
       <div id="bancaContenuto"></div>
     </div>
@@ -3194,7 +3218,7 @@ async function _applicaMetodoMassa(metodo){
 // Registro, senza un "mese corrente" di riferimento) — usa solo lo stesso
 // filtro di esclusione voci tecniche, su tutto lo storico libero.
 function _movimentiDaClassificare(){
-  var _escludiClassifica = /commissioni?\s*(numia|pagobancomat|internazionale|carta)|^commissioni$|comm\.sdd|comm\.bon|telematico\s+sct|ns\s+rif\.|rif\.[a-z0-9]+\s+comm|rif\.[a-z0-9]+\s+perc|spese\s+e\s+comm|imp\.bollo|rilascio\s+carnet|interessi\s+e\s+comp|interessi|^competenze$|worldpay|boll\.cbill|pag\.to\s+telematico|fattura\s+numia|numia-|sdd\s+core:\s+49rj2252|paypal\s+europe|ceraldi\s+valerio|ceraldi\s+vincenzo|ceraldi\s+michele|pocci\s+salvatore|murolo\s+mario|parisi\s+antonio|capezzuto\s+alessandro|taiano\s+luigi|moscato\s+emanuele|guarino\s+giuliano|lesina\s+angela|russo\s+carmine|vespa\s+vincenzo|carotenuto\s+antonella|sankapala|mutuo\s+n\.|i24\s+agenzia|agenzia\s+entrate|spesa\s+con\s+carta|add\.spe/i;
+  var _escludiClassifica = /commissioni?\s*(numia|pagobancomat|internazionale|carta)|^commissioni$|comm\.sdd|comm\.bon|telematico\s+sct|ns\s+rif\.|rif\.[a-z0-9]+\s+comm|rif\.[a-z0-9]+\s+perc|spese\s+e\s+comm|imp\.bollo|rilascio\s+carnet|interessi\s+e\s+comp|interessi|^competenze$|worldpay|boll\.cbill|pag\.to\s+telematico|fattura\s+numia|numia-|sdd\s+core:\s+49rj2252|paypal\s+europe|ceraldi\s+valerio|valerio\s+ceraldi|ceraldi\s+vincenzo|vincenzo\s+ceraldi|ceraldi\s+michele|michele\s+ceraldi|pocci\s+salvatore|salvatore\s+pocci|murolo\s+mario|mario\s+murolo|parisi\s+antonio|antonio\s+parisi|capezzuto\s+alessandro|alessandro\s+capezzuto|taiano\s+luigi|luigi\s+taiano|moscato\s+emanuele|emanuele\s+moscato|guarino\s+giuliano|giuliano\s+guarino|lesina\s+angela|angela\s+lesina|russo\s+carmine|carmine\s+russo|vespa\s+vincenzo|vincenzo\s+vespa|carotenuto\s+antonella|antonella\s+carotenuto|sankapala|mutuo\s+n\.|i24\s+agenzia|agenzia\s+entrate|spesa\s+con\s+carta|add\.spe/i;
   return (_bancaMovimenti||[]).filter(function(m){
     if(m.abbinata || m.ignorata) return false;
     return m._classificaManuale || !_escludiClassifica.test((m.descrizione||'').toLowerCase());
@@ -13135,8 +13159,13 @@ async function upsertMovimentiBanca(nuovi){
   // Nota: nessun try/catch qui — l'errore deve propagarsi a chi chiama
   // (onBancaPDFSelected), che lo mostra esplicitamente invece di inghiottirlo.
   {
-    // Carica abbinamenti esistenti da Supabase per non perderli
-    const esistenti = await sbFetch('movimenti_banca?select=id,abbinata,fattura_id,fattura_label,verificata_banca,ignorata,banca');
+    // FIX (25/08, trovato controllando i dati reali prima di aggiungere
+    // l'import CSV — 1356 movimenti già salvati, oltre il limite di 1000
+    // righe che Supabase applica di default): sbFetch semplice troncava
+    // silenziosamente la lettura degli abbinamenti esistenti, rischiando
+    // di sovrascrivere "abbinata:false" su movimenti oltre il 1000° già
+    // riconciliati. sbFetchAll pagina davvero, nessun limite.
+    const esistenti = await sbFetchAll('movimenti_banca?select=id,abbinata,fattura_id,fattura_label,verificata_banca,ignorata,banca');
     var mapEsistenti = {};
     if(Array.isArray(esistenti)) esistenti.forEach(function(r){ mapEsistenti[r.id] = r; });
 
@@ -14032,7 +14061,7 @@ function _hasReconActivity(){
 function _bancaSottotipo(desc){
   var d = (desc||'').toLowerCase();
   if(/numia/.test(d)) return 'POS';
-  if(/vostro assegno/.test(d)) return 'Assegno';
+  if(/vostro assegno|prelievo assegno/.test(d)) return 'Assegno';
   if(/vs\.disp\.|favore/.test(d)) return 'Bonifico';
   if(/bon\.da/.test(d)) return 'Bonifico in entrata';
   if(/versamento contanti/.test(d)) return 'Versamento contanti';
@@ -14342,6 +14371,326 @@ function _pushMovimento(movimenti, tx){
   });
 }
 
+// ══════════════════════════════════════════════════════
+// IMPORT CSV BANCO BPM — "Elenco entrate/uscite" (25/08, richiesta esplicita
+// di Valerio: lo stesso estratto conto del PDF, ma come lista movimenti CSV,
+// per coprire mesi/anni in un colpo solo invece di aspettare l'estratto
+// trimestrale). Colonne reali del file fornito da Valerio come esempio:
+// Ragione Sociale | Data contabile | Data valuta | Banca | Rapporto |
+// Importo | Divisa | Descrizione | Categoria/sottocategoria | Hashtag
+// (quest'ultima, già classificata dalla banca, più affidabile della sola
+// descrizione — salvata a parte, non ancora usata per filtrare, solo per
+// arricchire in futuro senza rischiare di rompere niente ora).
+// Mappatura per NOME di colonna (mai per posizione fissa): resiliente se un
+// vero export BPM avesse un ordine leggermente diverso. Stessa identica
+// generazione di id/tipo/sottotipo del parser PDF (_bancaSottotipo,
+// _normDataBanca, _pNumBanca) — stessa tabella di destinazione
+// (upsertMovimentiBanca, riusata identica), quindi tutto il resto dell'app
+// (filtri, riconciliazione, "da classificare") funziona senza modifiche.
+function _parseBpmCSV(txt){
+  const righe = _parseCSV(txt);
+  if(!righe.length) throw new Error('File CSV vuoto o non leggibile');
+
+  // L'header può non essere sulla prima riga (alcuni export BPM aggiungono
+  // un titolo sopra) — stesso approccio già usato per Numia: cerca la riga
+  // che contiene le colonne chiave, non assumere sia sempre la riga 0.
+  let headerIdx = -1;
+  for(let i=0; i<Math.min(5, righe.length); i++){
+    const cells = (righe[i]||[]).map(c=>String(c||'').trim().toLowerCase());
+    if(cells.some(c=>c==='importo') && cells.some(c=>c.indexOf('data')>=0)){
+      headerIdx = i; break;
+    }
+  }
+  if(headerIdx < 0) throw new Error('Non trovo le colonne attese (Data contabile / Importo / Descrizione) — controlla che sia il file giusto');
+
+  const header = righe[headerIdx].map(h=>String(h||'').trim().toLowerCase());
+  const idxOf = nomi => { for(const n of nomi){ const i = header.indexOf(n); if(i>=0) return i; } return -1; };
+  const colData = idxOf(['data contabile','data']);
+  const colImporto = idxOf(['importo']);
+  const colDesc = idxOf(['descrizione']);
+  const colCategoria = idxOf(['categoria/sottocategoria','categoria']);
+  if(colData<0 || colImporto<0 || colDesc<0){
+    throw new Error('Colonne mancanti nel CSV (servono Data contabile, Importo, Descrizione) — controlla che sia il file giusto');
+  }
+
+  // FIX (25/08, richiesta esplicita di Valerio: "il csv deve essere letto
+  // tutto, che non salti nessun movimento" — un controllo DIVERSO da quello
+  // sui doppioni con il PDF: questo riguarda il file letto in sé, non il
+  // confronto col database). Prima, la riga filtrata come "riepilogo/saldo"
+  // (poche righe sotto) usciva dal ciclo con un semplice "continue" SENZA
+  // essere contata da nessuna parte — se mai fosse scattata su una riga
+  // vera, sarebbe sparita nel nulla senza che il conteggio se ne accorgesse.
+  // Ora OGNI riga del file finisce in una categoria esplicita e tracciata:
+  // movimento vero, vuota, scartata (dato mancante/illeggibile), oppure
+  // riepilogo/saldo — e alla fine si verifica che la somma di tutte le
+  // categorie torni esattamente al numero di righe dati nel file. Se non
+  // torna, è un errore di conteggio da segnalare, non da nascondere.
+  const movimenti = [];
+  const _idUsatiCount = {};
+  let righeVuote = 0, righeScartate = 0, righeRiepilogo = 0;
+  const dettaglioScartate = [];
+  const totaleRigheDati = righe.length - headerIdx - 1;
+
+  for(let i=headerIdx+1; i<righe.length; i++){
+    const r = righe[i];
+    if(!r || r.every(c=>!String(c||'').trim())){ righeVuote++; continue; }
+
+    const dataISO = _normDataBanca(r[colData]);
+    const importoRaw = String(r[colImporto]||'').trim();
+    const descrizione = String(r[colDesc]||'').trim();
+    if(!dataISO || !importoRaw || !descrizione){
+      righeScartate++;
+      dettaglioScartate.push('riga '+(i+1)+': data='+esc(r[colData])+' importo='+esc(r[colImporto])+' descrizione='+esc(r[colDesc]));
+      continue;
+    }
+    const val = _pNumBanca(importoRaw);
+    if(isNaN(val)){
+      righeScartate++;
+      dettaglioScartate.push('riga '+(i+1)+': importo illeggibile "'+importoRaw+'" — '+descrizione.slice(0,40));
+      continue;
+    }
+    // Stesso filtro di sicurezza del PDF — un CSV vero non dovrebbe averle,
+    // ma se capitasse una riga di riepilogo mescolata non va importata come
+    // movimento reale. Ora CONTATA, mai più silenziosa.
+    if(/saldo\s+(iniziale|finale|a vostro)|riassunto\s+scalare/i.test(descrizione)){ righeRiepilogo++; continue; }
+
+    const isUscita = val < 0;
+    const _idBase = dataISO + '_' + val.toFixed(2) + '_' + descrizione.slice(0,30).replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_\-]/g,'');
+    let _idFinale = _idBase;
+    if(_idUsatiCount[_idBase] !== undefined){
+      _idUsatiCount[_idBase]++;
+      _idFinale = _idBase + '_dup' + _idUsatiCount[_idBase];
+    } else {
+      _idUsatiCount[_idBase] = 0;
+    }
+
+    movimenti.push({
+      id: _idFinale,
+      data: dataISO,
+      descrizione: descrizione,
+      importo: val,
+      tipo: isUscita ? 'uscita' : 'entrata',
+      sottotipo: _bancaSottotipo(descrizione),
+      categoriaBanca: colCategoria>=0 ? String(r[colCategoria]||'').trim() : '',
+      abbinata: false, fatturaId: null
+    });
+  }
+
+  // Verifica di completezza interna: ogni riga deve essere finita in
+  // ESATTAMENTE una categoria. Se la somma non torna, è un bug nel parser
+  // stesso (non nel file) — va segnalato con un errore duro, non ignorato.
+  const totaleContato = movimenti.length + righeVuote + righeScartate + righeRiepilogo;
+  if(totaleContato !== totaleRigheDati){
+    throw new Error('Errore interno di conteggio nel parser: '+totaleRigheDati+' righe nel file ma solo '+totaleContato+' categorizzate ('+movimenti.length+' movimenti + '+righeVuote+' vuote + '+righeScartate+' scartate + '+righeRiepilogo+' riepilogo). Import bloccato per sicurezza — segnalalo, non è un problema del tuo file.');
+  }
+
+  movimenti._righeScartate = righeScartate;
+  movimenti._righeVuote = righeVuote;
+  movimenti._righeRiepilogo = righeRiepilogo;
+  movimenti._totaleRigheLette = totaleRigheDati;
+  movimenti._dettaglioScartate = dettaglioScartate;
+  return movimenti;
+}
+
+// Verifica di conformità VERA (25/08): rilegge da Supabase (query fresca,
+// non la cache locale in RAM) ogni movimento che doveva risultare salvato,
+// e controlla uno per uno che esista con l'importo giusto. Indipendente dal
+// calcolo fatto durante il parsing — se qualcosa è andato storto nel
+// salvataggio (rete, batch parziale, ecc.) questo lo scopre comunque.
+async function _verificaConformitaImportCSV(movDaVerificare, dal, al){
+  if(!movDaVerificare.length) return { ok:true, mancanti:[], importoDiverso:[], totaleVerificati:0 };
+  const inDb = await sbFetchAll('movimenti_banca?select=id,importo&banca=eq.BPM&data=gte.'+dal+'&data=lte.'+al);
+  const mappaDb = {};
+  (inDb||[]).forEach(function(r){ mappaDb[r.id] = r; });
+  const mancanti = [];
+  const importoDiverso = [];
+  movDaVerificare.forEach(function(m){
+    const trovato = mappaDb[m.id];
+    if(!trovato){ mancanti.push(m); return; }
+    if(Math.abs((trovato.importo||0) - m.importo) > 0.005){ importoDiverso.push({atteso:m, trovato:trovato}); }
+  });
+  return { ok: mancanti.length===0 && importoDiverso.length===0, mancanti:mancanti, importoDiverso:importoDiverso, totaleVerificati: movDaVerificare.length };
+}
+
+async function onBancaCSVSelected(input){
+  if(!input.files||!input.files[0]) return;
+  var file = input.files[0];
+  input.value = '';
+  var info = document.getElementById('bancaImportInfo');
+  if(info) info.textContent = '⏳ Lettura CSV...';
+
+  try{
+    var txt = await file.text();
+    var mov = _parseBpmCSV(txt);
+    if(!mov.length) throw new Error('Nessun movimento trovato nel CSV');
+
+    // Controllo possibili duplicati (25/08, verificato con dati reali dopo
+    // domanda esplicita di Valerio): un movimento vero letto dal PDF e lo
+    // stesso movimento letto dal CSV possono avere TESTO diverso — es. PDF
+    // "NUMIA-AMEX DEL 29/06/26..." contro CSV "INC.POS CARTE CREDIT -
+    // NUMIA-AMEX DEL..."; oppure per gli assegni PDF "VOSTRO ASSEGNO N.
+    // 0208769339" contro CSV "PRELIEVO ASSEGNO - DM 02008 CRA:...". Siccome
+    // l'id include i primi 30 caratteri della descrizione, un testo diverso
+    // genera un id diverso: il salvataggio lo tratterebbe come un movimento
+    // NUOVO invece di riconoscere che è lo stesso, duplicandolo — e se il
+    // vecchio era già abbinato a una fattura, quell'abbinamento resterebbe
+    // "orfano" sul duplicato mai confermato. Prima di salvare, ogni
+    // movimento del CSV con stessa data+importo esatto di uno già presente
+    // ma id diverso viene messo da parte, MAI salvato in automatico.
+    var mappaEsistentiPerChiave = {};
+    (_bancaMovimenti||[]).forEach(function(m){
+      var k = m.data+'|'+(m.importo||0).toFixed(2);
+      (mappaEsistentiPerChiave[k] = mappaEsistentiPerChiave[k]||[]).push(m);
+    });
+    var movSicuri = [], sospetti = [];
+    mov.forEach(function(m){
+      var k = m.data+'|'+m.importo.toFixed(2);
+      var candidati = mappaEsistentiPerChiave[k]||[];
+      var giaIdentico = candidati.some(function(c){ return c.id===m.id; });
+      if(giaIdentico){ movSicuri.push(m); return; } // stesso id: upsert normale, nessun rischio
+      var possibileDoppio = candidati.find(function(c){ return c.id!==m.id; });
+      if(possibileDoppio){ sospetti.push({nuovo:m, vecchio:possibileDoppio}); }
+      else { movSicuri.push(m); }
+    });
+
+    var dateOrdinate = mov.map(m=>m.data).sort();
+    var dal = dateOrdinate[0], al = dateOrdinate[dateOrdinate.length-1];
+    var entrate = mov.filter(m=>m.importo>0).reduce((s,m)=>s+m.importo,0);
+    var uscite = mov.filter(m=>m.importo<0).reduce((s,m)=>s+m.importo,0);
+
+    _bancaMovimenti = (_bancaMovimenti||[]).filter(m=>!movSicuri.find(nm=>nm.id===m.id)).concat(movSicuri)
+      .sort(function(a,b){ return b.data.localeCompare(a.data); });
+    var bm = document.getElementById('bancaMese');
+    if(bm && !bm.value) bm.value = mov[0].data.slice(0,7);
+
+    if(info) info.textContent = '⏳ Salvataggio ' + movSicuri.length + ' movimenti su Supabase...';
+    try{
+      if(movSicuri.length) await upsertMovimentiBanca(movSicuri);
+
+      // DOPPIO VISTO DI CONFORMITÀ (25/08, richiesto esplicitamente da
+      // Valerio: "fai in modo che leggi bene e non salti nessun movimento,
+      // un doppio visto di conformità per essere certi"). Il controllo sopra
+      // (righe scartate) riguarda solo il PARSING. Questo è indipendente e
+      // più forte: non ci si fida del calcolo fatto in memoria — si rilegge
+      // DAVVERO dal database (query fresca, non la cache locale) ogni
+      // movimento che doveva risultare salvato, e si verifica uno per uno
+      // che esista con l'importo giusto. Anche una sola riga mancante o con
+      // importo diverso da quello atteso blocca il messaggio di successo e
+      // mostra l'elenco preciso — mai un "salvato ✓" silenzioso su un
+      // salvataggio in realtà parziale.
+      if(info) info.textContent = '⏳ Verifica di conformità (rilettura dal database)...';
+      const esitoVerifica = await _verificaConformitaImportCSV(movSicuri, dal, al);
+
+      renderRiconciliazione();
+      if(!esitoVerifica.ok){
+        var msgErr = '⚠️ VERIFICA FALLITA — ' + esitoVerifica.mancanti.length + ' movimenti risultano scritti in memoria ma NON trovati nel database dopo il salvataggio';
+        if(info) info.innerHTML = msgErr;
+        var dettaglioErr = 'Il salvataggio potrebbe essere solo parziale.\n\n';
+        if(esitoVerifica.mancanti.length){
+          dettaglioErr += esitoVerifica.mancanti.length+' movimenti mancanti nel database:\n'
+            + esitoVerifica.mancanti.slice(0,10).map(m=>'- '+m.data+' '+fmt(m.importo)+' '+m.descrizione.slice(0,40)).join('\n')
+            + (esitoVerifica.mancanti.length>10 ? '\n... e altri '+(esitoVerifica.mancanti.length-10) : '') + '\n\n';
+        }
+        if(esitoVerifica.importoDiverso.length){
+          dettaglioErr += esitoVerifica.importoDiverso.length+' movimenti con importo diverso da quello atteso:\n'
+            + esitoVerifica.importoDiverso.slice(0,10).map(d=>'- '+d.atteso.id+': atteso '+fmt(d.atteso.importo)+', trovato '+fmt(d.trovato.importo)).join('\n') + '\n\n';
+        }
+        dettaglioErr += 'Riprova l\'import. Se il problema persiste, segnalalo prima di fidarti dei dati di questo periodo.';
+        alert(dettaglioErr);
+        return;
+      }
+
+      // Riepilogo di conformità completo (25/08): mostra SEMPRE il conto
+      // totale ("N righe nel file = M movimenti + V vuote + S scartate + R
+      // riepilogo"), non solo un numero generico di "scartate" — così si
+      // vede a colpo d'occhio che ogni riga del file è stata contabilizzata
+      // da qualche parte, mai persa senza traccia.
+      var msg = '✓ ' + movSicuri.length + ' movimenti salvati e verificati · periodo ' + dal + ' → ' + al
+        + ' · entrate ' + fmt(entrate) + ' · uscite ' + fmt(Math.abs(uscite))
+        + ' · righe file: ' + mov._totaleRigheLette + ' = ' + mov.length + ' movimenti + ' + mov._righeVuote + ' vuote + ' + mov._righeScartate + ' scartate + ' + mov._righeRiepilogo + ' riepilogo'
+        + (sospetti.length ? ' · ⚠️ ' + sospetti.length + ' possibili doppioni in attesa di conferma' : '');
+      if(info) info.innerHTML = msg;
+      toast('✓ ' + movSicuri.length + ' movimenti CSV salvati e verificati (' + dal + ' → ' + al + ')', {forza:true});
+      if(mov._righeScartate>0){
+        alert('⚠️ ' + mov._righeScartate + ' righe del CSV non sono state importate perché mancava data, importo o descrizione leggibile:\n\n'
+          + mov._dettaglioScartate.slice(0,15).join('\n')
+          + (mov._dettaglioScartate.length>15 ? '\n... e altre '+(mov._dettaglioScartate.length-15) : '')
+          + '\n\nControlla queste righe nel file originale per non perdere movimenti reali.');
+      }
+      if(sospetti.length){
+        _mostraDuplicatiCSV(sospetti);
+      }
+    }catch(saveErr){
+      var saveMsg = 'Letti ' + mov.length + ' movimenti dal CSV ma SALVATAGGIO SU SUPABASE FALLITO: ' + (saveErr.message||saveErr);
+      if(info) info.textContent = '❌ ' + saveMsg;
+      alert('⚠️ ATTENZIONE — import NON salvato\n\n' + saveMsg + '\n\nI movimenti letti dal CSV non sono stati scritti su Supabase. Riprova; se l\'errore persiste segnalalo.');
+      console.error('upsertMovimentiBanca (CSV) fallito:', saveErr);
+    }
+  }catch(err){
+    if(info) info.textContent = '❌ ' + (err.message||err);
+    toast('❌ ' + (err.message||err));
+    console.error('Parser CSV Banco BPM:', err);
+  }
+}
+
+// Mostra i movimenti sospettati duplicati (stessa data+importo di uno già
+// presente, testo diverso) — mai salvati in automatico, decide sempre
+// Valerio quale tenere.
+function _mostraDuplicatiCSV(sospetti){
+  window._csvSospetti = sospetti;
+  var existing = document.getElementById('_csvDupOv');
+  if(existing) existing.remove();
+  var ov = document.createElement('div');
+  ov.id = '_csvDupOv';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:900;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)';
+  var hh = '<div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:85vh;overflow-y:auto;padding:20px">';
+  hh += '<div style="font-size:17px;font-weight:700;margin-bottom:4px">⚠️ Possibili doppioni</div>';
+  hh += '<div style="font-size:12px;color:var(--ink3);margin-bottom:14px">'+sospetti.length+' movimenti del CSV hanno la stessa data e lo stesso importo di uno già presente, ma un testo diverso — probabilmente lo stesso movimento letto da fonti diverse (PDF vs CSV). Scegli per ciascuno cosa fare, non sono stati salvati automaticamente.</div>';
+  sospetti.forEach(function(s, idx){
+    hh += '<div style="background:var(--surface2);border-radius:12px;padding:12px;margin-bottom:10px">';
+    hh += '<div style="font-size:12px;font-weight:700;color:var(--ink3);margin-bottom:6px">'+s.nuovo.data+' · '+fmt(Math.abs(s.nuovo.importo))+(s.vecchio.abbinata?' · 🔗 il vecchio è già abbinato a una fattura':'')+'</div>';
+    hh += '<div style="font-size:11px;color:var(--ink3);margin-bottom:2px">Già presente (da PDF):</div>';
+    hh += '<div style="font-size:12px;margin-bottom:6px">'+esc(s.vecchio.descrizione)+'</div>';
+    hh += '<div style="font-size:11px;color:var(--ink3);margin-bottom:2px">Nel CSV:</div>';
+    hh += '<div style="font-size:12px;margin-bottom:8px">'+esc(s.nuovo.descrizione)+'</div>';
+    hh += '<div style="display:flex;gap:6px">';
+    hh += '<button onclick="_csvDupTieniEntrambi('+idx+')" style="flex:1;padding:8px;border:1px solid var(--sep);border-radius:6px;background:var(--surface);color:var(--ink2);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">Tieni entrambi</button>';
+    hh += '<button onclick="_csvDupIgnoraNuovo('+idx+')" style="flex:1;padding:8px;border:1px solid var(--ink3);border-radius:6px;background:transparent;color:var(--ink2);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">Ignora questo</button>';
+    hh += '</div></div>';
+  });
+  hh += '<button onclick="document.getElementById(\'_csvDupOv\').remove()" style="width:100%;margin-top:6px;padding:10px;border:1px solid var(--sep);border-radius:8px;background:var(--surface);color:var(--ink3);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">Chiudi (decido dopo)</button>';
+  hh += '</div>';
+  ov.innerHTML = hh;
+  ov.onclick = function(e){ if(e.target===ov) ov.remove(); };
+  document.body.appendChild(ov);
+}
+
+// "Tieni entrambi": il movimento del CSV era davvero un movimento diverso
+// (coincidenza di data+importo, capita con più assegni/POS uguali lo stesso
+// giorno) — lo salva come nuovo, a fianco di quello già presente.
+async function _csvDupTieniEntrambi(idx){
+  var s = (window._csvSospetti||[])[idx];
+  if(!s) return;
+  try{
+    await upsertMovimentiBanca([s.nuovo]);
+    _bancaMovimenti.push(s.nuovo);
+    _bancaMovimenti.sort(function(a,b){ return b.data.localeCompare(a.data); });
+    renderRiconciliazione();
+    toast('✓ Aggiunto come movimento separato');
+  }catch(e){ alert('⚠️ Errore nel salvare: '+(e.message||e)); }
+  var btn = document.querySelectorAll('#_csvDupOv > div > div')[idx+1];
+  if(btn) btn.style.opacity = '.4';
+}
+
+// "Ignora questo": era davvero lo stesso movimento già presente, letto con
+// un testo diverso — non lo salva, resta solo quello già presente (con il
+// suo eventuale abbinamento intatto).
+function _csvDupIgnoraNuovo(idx){
+  toast('Ignorato — resta solo quello già presente');
+  var btn = document.querySelectorAll('#_csvDupOv > div > div')[idx+1];
+  if(btn) btn.style.opacity = '.4';
+}
+
 async function onBancaPDFSelected(input){
   if(!input.files||!input.files[0]) return;
   var file = input.files[0];
@@ -14545,6 +14894,25 @@ async function onSumUpBizCSVSelected(input){
   }
 }
 
+// Cambia il conto selezionato per la riconciliazione bancaria (25/08,
+// richiesta esplicita di Valerio: BPM e SumUp non devono mai mescolarsi in
+// modo confuso) — aggiorna lo stato visivo dei tre pulsanti, mostra il
+// chiarimento sulle commissioni solo quando SumUp è selezionato, e ridisegna
+// la lista.
+function _setBancaConto(conto){
+  var campo = document.getElementById('bancaFiltroConto');
+  if(campo) campo.value = conto;
+  var btnBPM = document.getElementById('bancaContoBtnBPM');
+  var btnSumUp = document.getElementById('bancaContoBtnSumUp');
+  var btnTutti = document.getElementById('bancaContoBtnTutti');
+  if(btnBPM) { btnBPM.style.background = conto==='BPM' ? 'var(--red)' : 'transparent'; btnBPM.style.color = conto==='BPM' ? '#fff' : 'var(--ink2)'; }
+  if(btnSumUp) { btnSumUp.style.background = conto==='SumUp' ? '#0066cc' : 'transparent'; btnSumUp.style.color = conto==='SumUp' ? '#fff' : 'var(--ink2)'; }
+  if(btnTutti) { btnTutti.style.background = conto==='' ? 'var(--ink3)' : 'transparent'; btnTutti.style.color = conto==='' ? '#fff' : 'var(--ink3)'; }
+  var avviso = document.getElementById('bancaAvvisoSumUp');
+  if(avviso) avviso.style.display = conto==='SumUp' ? 'block' : 'none';
+  renderRiconciliazione();
+}
+
 function renderRiconciliazione(){
   var wrap = document.getElementById('bancaContenuto');
   if(!wrap) return;
@@ -14626,7 +14994,7 @@ function renderRiconciliazione(){
   // Livello 5: nessun match → da classificare manualmente
 
   // Categorie che non possono MAI essere fatture fornitori
-  var _escludiMatch = /commissioni?\s*(numia|pagobancomat|internazionale|01\/|12\/|carta)|^commissioni$|comm\.sdd|comm\.bon|telematico\s+sct|ns\s+rif\.|rif\.[a-z0-9]+\s+comm|rif\.[a-z0-9]+\s+perc|spese\s+e\s+comm|imp\.bollo|rilascio\s+carnet|interessi\s+e\s+comp|^competenze$|mutuo\s+n\.|i24\s+agenzia|agenzia\s+entrate|pag\.to\s+telematico|boll\.cbill|spesa\s+con\s+carta\s+di\s+credito|numia-|sdd\s+core:\s+49rj2252|paypal\s+europe|worldpay|ceraldi\s+valerio|ceraldi\s+vincenzo|ceraldi\s+michele|pocci\s+salvatore|murolo\s+mario|parisi\s+antonio|capezzuto\s+alessandro|taiano\s+luigi|moscato\s+emanuele|guarino\s+giuliano|lesina\s+angela|russo\s+carmine|vespa\s+vincenzo|carotenuto\s+antonella|sankapala|fattura\s+numia|^saldo\s+(iniziale|finale)|riassunto\s+scalare|add\.spe/i;
+  var _escludiMatch = /commissioni?\s*(numia|pagobancomat|internazionale|01\/|12\/|carta)|^commissioni$|comm\.sdd|comm\.bon|telematico\s+sct|ns\s+rif\.|rif\.[a-z0-9]+\s+comm|rif\.[a-z0-9]+\s+perc|spese\s+e\s+comm|imp\.bollo|rilascio\s+carnet|interessi\s+e\s+comp|^competenze$|mutuo\s+n\.|i24\s+agenzia|agenzia\s+entrate|pag\.to\s+telematico|boll\.cbill|spesa\s+con\s+carta\s+di\s+credito|numia-|sdd\s+core:\s+49rj2252|paypal\s+europe|worldpay|ceraldi\s+valerio|valerio\s+ceraldi|ceraldi\s+vincenzo|vincenzo\s+ceraldi|ceraldi\s+michele|michele\s+ceraldi|pocci\s+salvatore|salvatore\s+pocci|murolo\s+mario|mario\s+murolo|parisi\s+antonio|antonio\s+parisi|capezzuto\s+alessandro|alessandro\s+capezzuto|taiano\s+luigi|luigi\s+taiano|moscato\s+emanuele|emanuele\s+moscato|guarino\s+giuliano|giuliano\s+guarino|lesina\s+angela|angela\s+lesina|russo\s+carmine|carmine\s+russo|vespa\s+vincenzo|vincenzo\s+vespa|carotenuto\s+antonella|antonella\s+carotenuto|sankapala|fattura\s+numia|^saldo\s+(iniziale|finale)|riassunto\s+scalare|add\.spe/i;
 
   // Apprendimento: legge le associazioni confermate in passato da localStorage
   var _appreso = {};
@@ -14737,7 +15105,7 @@ function renderRiconciliazione(){
     var matchScore     = 0;
     var verificato     = false;
 
-    var isAssegno  = /vostro assegno/i.test(m.descrizione);
+    var isAssegno  = /vostro assegno|prelievo assegno/i.test(m.descrizione);
     // BUG CORRETTO (08/08, segnalato da Valerio su SumUp): questo riconoscimento
     // cercava solo le parole tipiche dell'estratto BPM ("VS.DISP.", "FAVORE") —
     // l'estratto SumUp Business Account non le usa mai, quindi ogni bonifico
@@ -15158,7 +15526,7 @@ function renderRiconciliazione(){
       : 'manca ancora 1 rata da '+fmt(rata)+' — forse in un estratto conto non ancora importato';
     scelti.forEach(function(m,i){
       daConfermare.push({mov:m, fatt:f, score:70,
-        isAssegno:/vostro assegno/i.test(m.descrizione||''), isBonifico:false, numAssStr:'',
+        isAssegno:/vostro assegno|prelievo assegno/i.test(m.descrizione||''), isBonifico:false, numAssStr:'',
         avviso:'🧩 Possibile rata '+(i+1)+'/'+nRateAttese+' da '+fmt(rata)+' per la fattura da '+fmt(target)+(notaExtra?' — '+notaExtra:'')});
     });
 
@@ -15446,10 +15814,10 @@ function renderRiconciliazione(){
     // (sottotipo='Bonifico'), non solo il testo tipico BPM — altrimenti finivano
     // sempre nel gruppo "Altro" anche dopo essere stati abbinati correttamente.
     var grpBonifico = daConfermare.filter(function(d){ return /vs\.disp\.|favore/i.test(d.mov.descrizione) || d.mov.sottotipo==='Bonifico'; });
-    var grpAssegno  = daConfermare.filter(function(d){ return /vostro assegno/i.test(d.mov.descrizione); });
+    var grpAssegno  = daConfermare.filter(function(d){ return /vostro assegno|prelievo assegno/i.test(d.mov.descrizione); });
     var grpSDD      = daConfermare.filter(function(d){ return /sdd\s+core|sdd\s+b2b/i.test(d.mov.descrizione); });
     var grpAltro    = daConfermare.filter(function(d){
-      return !(/vs\.disp\.|favore|vostro assegno|sdd\s+core|sdd\s+b2b/i.test(d.mov.descrizione) || d.mov.sottotipo==='Bonifico');
+      return !(/vs\.disp\.|favore|vostro assegno|prelievo assegno|sdd\s+core|sdd\s+b2b/i.test(d.mov.descrizione) || d.mov.sottotipo==='Bonifico');
     });
 
     htmlConferma += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow);border-left:3px solid #FFB800">';
@@ -15491,7 +15859,7 @@ function renderRiconciliazione(){
   }
 
   // ═══ Classificazione movimenti non abbinati: visibili vs filtrati automaticamente ═══
-  var _escludiClassifica = /commissioni?\s*(numia|pagobancomat|internazionale|carta)|^commissioni$|comm\.sdd|comm\.bon|telematico\s+sct|ns\s+rif\.|rif\.[a-z0-9]+\s+comm|rif\.[a-z0-9]+\s+perc|spese\s+e\s+comm|imp\.bollo|rilascio\s+carnet|interessi\s+e\s+comp|interessi|^competenze$|worldpay|boll\.cbill|pag\.to\s+telematico|fattura\s+numia|numia-|sdd\s+core:\s+49rj2252|paypal\s+europe|ceraldi\s+valerio|ceraldi\s+vincenzo|ceraldi\s+michele|pocci\s+salvatore|murolo\s+mario|parisi\s+antonio|capezzuto\s+alessandro|taiano\s+luigi|moscato\s+emanuele|guarino\s+giuliano|lesina\s+angela|russo\s+carmine|vespa\s+vincenzo|carotenuto\s+antonella|sankapala|mutuo\s+n\.|i24\s+agenzia|agenzia\s+entrate|spesa\s+con\s+carta|add\.spe/i;
+  var _escludiClassifica = /commissioni?\s*(numia|pagobancomat|internazionale|carta)|^commissioni$|comm\.sdd|comm\.bon|telematico\s+sct|ns\s+rif\.|rif\.[a-z0-9]+\s+comm|rif\.[a-z0-9]+\s+perc|spese\s+e\s+comm|imp\.bollo|rilascio\s+carnet|interessi\s+e\s+comp|interessi|^competenze$|worldpay|boll\.cbill|pag\.to\s+telematico|fattura\s+numia|numia-|sdd\s+core:\s+49rj2252|paypal\s+europe|ceraldi\s+valerio|valerio\s+ceraldi|ceraldi\s+vincenzo|vincenzo\s+ceraldi|ceraldi\s+michele|michele\s+ceraldi|pocci\s+salvatore|salvatore\s+pocci|murolo\s+mario|mario\s+murolo|parisi\s+antonio|antonio\s+parisi|capezzuto\s+alessandro|alessandro\s+capezzuto|taiano\s+luigi|luigi\s+taiano|moscato\s+emanuele|emanuele\s+moscato|guarino\s+giuliano|giuliano\s+guarino|lesina\s+angela|angela\s+lesina|russo\s+carmine|carmine\s+russo|vespa\s+vincenzo|vincenzo\s+vespa|carotenuto\s+antonella|antonella\s+carotenuto|sankapala|mutuo\s+n\.|i24\s+agenzia|agenzia\s+entrate|spesa\s+con\s+carta|add\.spe/i;
   // _classificaManuale (impostato da _rimandaADaClassificare, vedi sotto) forza
   // la visibilità in "Da classificare" anche se la descrizione assomiglia a una
   // commissione/voce tecnica — bug corretto 08/08: un movimento spostato
@@ -15597,17 +15965,27 @@ function renderRiconciliazione(){
     if(/\bf24\b|i24\s+agenzia|agenzia\s+entrate/.test(d))        return {key:'f24',      label:'🏛️ F24 / Agenzia Entrate'};
     if(/mutuo/.test(d))                                          return {key:'mutuo',    label:'🏦 Mutuo'};
     if(/leasing|arval|ald\s+automotive|leasys/.test(d))          return {key:'leasing',  label:'🚗 Leasing / Noleggio'};
-    if(/vostro assegno/.test(d))                                 return {key:'assegno',  label:'📝 Assegni'};
+    if(/vostro assegno|prelievo assegno/.test(d))                 return {key:'assegno',  label:'📝 Assegni'};
     if(/sdd\s+core|sdd\s+b2b/.test(d))                            return {key:'sdd',      label:'🔄 Addebiti SDD'};
+    // PayPal in una sezione propria (25/08, richiesta esplicita di
+    // Valerio: prima finiva mescolato in "Altro"/"Commissioni", senza un
+    // posto suo dove riconoscerlo a colpo d'occhio).
+    if(/paypal/.test(d))                                         return {key:'paypal',   label:'💰 PayPal'};
     if(/comm(issioni)?[\s.]|spese\s+e\s+comm|interessi|competenze|add\.spe|imp\.bollo|rilascio\s+carnet/.test(d))
                                                                   return {key:'spese',    label:'💰 Commissioni e spese'};
-    if(/ceraldi\s+valerio|ceraldi\s+vincenzo|ceraldi\s+michele|pocci\s+salvatore|murolo\s+mario|parisi\s+antonio|capezzuto\s+alessandro|taiano\s+luigi|moscato\s+emanuele|guarino\s+giuliano|lesina\s+angela|russo\s+carmine|vespa\s+vincenzo|carotenuto\s+antonella|sankapala/.test(d))
+    // FIX (25/08, bug reale trovato dal proprio screenshot di Valerio):
+    // BPM scrive i nomi come "Vincenzo ceraldi" (nome poi cognome), ma la
+    // lista sotto cercava "ceraldi vincenzo" (cognome poi nome) — ordine
+    // invertito, quindi non scattava mai e questi bonifici finivano in
+    // "Bonifici fornitori" invece che in "Stipendi". Ogni nome ora prova
+    // ENTRAMBI gli ordini, per non dipendere da come la banca li scrive.
+    if(/valerio\s+ceraldi|ceraldi\s+valerio|vincenzo\s+ceraldi|ceraldi\s+vincenzo|michele\s+ceraldi|ceraldi\s+michele|salvatore\s+pocci|pocci\s+salvatore|mario\s+murolo|murolo\s+mario|antonio\s+parisi|parisi\s+antonio|alessandro\s+capezzuto|capezzuto\s+alessandro|luigi\s+taiano|taiano\s+luigi|emanuele\s+moscato|moscato\s+emanuele|giuliano\s+guarino|guarino\s+giuliano|angela\s+lesina|lesina\s+angela|carmine\s+russo|russo\s+carmine|vincenzo\s+vespa|vespa\s+vincenzo|antonella\s+carotenuto|carotenuto\s+antonella|sankapala/.test(d))
                                                                   return {key:'stipendi', label:'👤 Stipendi/collaboratori'};
     if(/vs\.disp\.|favore/.test(d) || m.sottotipo==='Bonifico')    return {key:'bonifico', label:'🏦 Bonifici fornitori'};
     if(m.tipo==='entrata')                                       return {key:'entrata',  label:'↑ Entrate'};
     return {key:'altro', label:'📦 Altro'};
   }
-  var _catOrdine = ['numia','cbill','f24','mutuo','leasing','stipendi','spese','entrata','altro'];
+  var _catOrdine = ['numia','cbill','f24','mutuo','leasing','stipendi','paypal','spese','entrata','altro'];
   var _catCounts = {};
   // "Tutti i movimenti" (ora "Altro") mostra solo le categorie che non hanno
   // mai bisogno di un abbinamento a fattura — bonifici fornitori/assegni/SDD/
@@ -15750,6 +16128,48 @@ function _cercaFatturaPerMovimento(idx){
   _cfRender(false);
 }
 
+// Estrae un possibile numero fattura dalla descrizione di un movimento
+// bancario (25/08, richiesta esplicita di Valerio: "nella colonna
+// descrizione c'è anche generalmente la causale e i numeri fattura" — i
+// bonifici SEPA di BPM spesso includono "fattura FPR 105/26" o simili,
+// stesso identico formato salvato in fatture.numero, verificato su dati
+// reali). Riconosce il prefisso "fattura"/"fatt"/"ft" seguito da un codice
+// con sigla+numero+anno; se non lo trova, prova anche solo il codice nudo
+// (sigla+numero+anno) ovunque nel testo.
+function _estraiNumeroFatturaDaDescrizione(desc){
+  if(!desc) return null;
+  // Solo con prefisso esplicito "fattura"/"fatt"/"ft" — una regex "libera"
+  // senza prefisso è troppo permissiva e cattura falsi positivi (es.
+  // "NUMIA-AMEX DEL 29/06/26" letto come se "DEL 29/06" fosse un numero
+  // fattura). Meglio non suggerire nulla che suggerire qualcosa di sbagliato.
+  var m = desc.match(/(?:fattura|fatt\.?|ft\.?)\s+([A-Za-z]{0,4}\s?\d{1,6}\s?\/\s?\d{2,4})/i);
+  if(m) return m[1].replace(/\s+/g,' ').trim();
+  return null;
+}
+function _normalizzaNumeroFattura(n){
+  return String(n||'').toUpperCase().replace(/\s+/g,' ').trim();
+}
+// Numeri "nudi" (25/08, caso reale Leasys: canone che elenca più numeri
+// fattura di seguito senza scrivere "fattura" davanti a ciascuno, es.
+// "contr 1203652735 fatture 202610239916 202610430648 ..."). Estrae ogni
+// sequenza di almeno 6 cifre — sono comunque usati SOLO incrociati col
+// fornitore (mai da soli), per non generare falsi positivi su un numero
+// lungo casuale.
+function _estraiNumeriNudiDaDescrizione(desc){
+  if(!desc) return [];
+  return desc.match(/\d{6,}/g) || [];
+}
+// Confronta due numeri fattura ignorando zeri iniziali e caratteri non
+// numerici — i numeri Leasys sono salvati con zeri iniziali nel Registro
+// ("0000202610239916") ma compaiono senza nella descrizione bancaria
+// ("202610239916"). Richiede almeno 5 cifre significative per evitare
+// falsi positivi su numeri corti.
+function _numeriFatturaCombaciano(a, b){
+  var na = String(a||'').replace(/\D/g,'').replace(/^0+/,'');
+  var nb = String(b||'').replace(/\D/g,'').replace(/^0+/,'');
+  return na.length>=5 && na===nb;
+}
+
 function _cfRender(mostraTutte, filtro){
   var idx=window._cfaIdx, imp=window._cfaImp, m=window._cfaMov;
   var ov=document.getElementById('_cfOv');
@@ -15762,6 +16182,15 @@ function _cfRender(mostraTutte, filtro){
   var tuttiOrdinati = fatture.filter(function(f){
     return f.tipo!=='ddt' && f.stato!=='annullata';
   }).sort(function(a,b){return (b.data||'').localeCompare(a.data||'');});
+
+  // Match per NUMERO FATTURA letto direttamente dalla descrizione (25/08) —
+  // molto più preciso del solo fornitore+importo, quando c'è. Calcolato una
+  // volta sola, mostrato solo nella prima apertura (non quando l'utente sta
+  // già cercando a mano con "Apri tutto il registro"/filtro).
+  var numFatturaEstratto = _estraiNumeroFatturaDaDescrizione(m.descrizione);
+  var matchNumero = numFatturaEstratto ? tuttiOrdinati.filter(function(f){
+    return f.numero && _normalizzaNumeroFattura(f.numero)===_normalizzaNumeroFattura(numFatturaEstratto);
+  }) : [];
 
   // Candidati: prima fornitore+importo, poi solo importo simile
   var candidatiFornitore = tuttiOrdinati.filter(function(f){
@@ -15785,6 +16214,30 @@ function _cfRender(mostraTutte, filtro){
     if(!mA&&mB) return 1;
     return Math.abs(nettoFattura(a)-imp)-Math.abs(nettoFattura(b)-imp);
   }).slice(0,15);
+
+  // Match per NUMERI "NUDI" (25/08, caso reale Leasys: canoni che elencano
+  // più numeri fattura senza scrivere "fattura" davanti). Solo tra le
+  // fatture del fornitore già riconosciuto nel testo (matchForn sopra) — un
+  // numero lungo che combacia ESATTAMENTE con una fattura di QUEL fornitore
+  // specifico non è quasi mai un caso, anche senza la parola "fattura"
+  // davanti. Può risultare in PIÙ fatture insieme (un canone che copre più
+  // mesi/fatture in un solo addebito) — mostrate come gruppo da abbinare
+  // tutte insieme, riusando la riconciliazione di gruppo già esistente.
+  var numeriNudi = _estraiNumeriNudiDaDescrizione(m.descrizione);
+  var matchNudi = [];
+  if(numeriNudi.length){
+    var candidatiConFornitoreRiconosciuto = tuttiOrdinati.filter(function(f){
+      var forn = (f.fornitore||'').toLowerCase();
+      if(!forn) return false;
+      var parole = forn.split(/\s+/).filter(function(p){ return p.length>3; });
+      return parole.some(function(p){ return descLow.indexOf(p)>=0; });
+    });
+    matchNudi = candidatiConFornitoreRiconosciuto.filter(function(f){
+      if(!f.numero) return false;
+      if(matchNumero.some(function(mf){ return mf.id===f.id; })) return false; // già trovata sopra, non duplicare
+      return numeriNudi.some(function(n){ return _numeriFatturaCombaciano(n, f.numero); });
+    });
+  }
 
   var candidati = candidatiFornitore.length ? candidatiFornitore : tuttiOrdinati.filter(function(f){
     var impF=nettoFattura(f);
@@ -15869,6 +16322,60 @@ function _cfRender(mostraTutte, filtro){
   hh+='<div style="font-size:15px;font-weight:700;margin-bottom:3px">Abbina a una fattura</div>';
   hh+='<div style="font-size:12px;color:var(--ink3);margin-bottom:3px">Banca: <b>'+fmt(imp)+'</b> del '+m.data+'</div>';
   hh+='<div style="font-size:11px;color:var(--ink2);margin-bottom:12px;word-break:break-word;white-space:pre-wrap">'+esc(m.descrizione||'')+'</div>';
+  // Sezione "trovata dal numero fattura" (25/08) — massima priorità visiva,
+  // ma MAI un abbinamento automatico: resta sempre un tap di conferma da
+  // parte tua, solo reso immediato invece di dover cercare a mano.
+  if(!mostraTutte && matchNumero.length){
+    hh+='<div style="background:#eafbf0;border:1.5px solid #34c759;border-radius:10px;padding:10px 12px;margin-bottom:10px">';
+    hh+='<div style="font-size:11px;font-weight:700;color:#1a7a3a;margin-bottom:6px">🎯 Trovato il numero "'+esc(numFatturaEstratto)+'" nella descrizione</div>';
+    matchNumero.forEach(function(f){
+      var impF=nettoFattura(f);
+      var resto=f.stato==='parziale'?Math.max(0,impF-(f.parzPagato||0)):impF;
+      var fid=String(f.id).replace(/'/g,'');
+      hh+='<div style="background:#fff;border-radius:8px;padding:8px 10px;margin-bottom:6px">';
+      hh+='<div style="font-size:13px;font-weight:600">'+esc(f.fornitore||'—')+' — N°'+esc(f.numero||'')+'</div>';
+      hh+='<div style="font-size:11px;color:var(--ink3);margin-bottom:6px">'+f.data+' · '+f.stato+(f.stato==='parziale'?' · resto '+fmt(resto):'')+'</div>';
+      hh+='<button onclick="_cfAbbina('+idx+',\''+fid+'\','+(Math.abs(impF-imp)>0.50?'true':'false')+')" style="width:100%;padding:8px;border:none;border-radius:6px;background:#34c759;color:#fff;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer">✓ Conferma questa fattura ('+fmt(impF)+')</button>';
+      hh+='</div>';
+    });
+    hh+='</div>';
+  }
+  // Sezione "trovati numeri nudi" (25/08, caso Leasys: canone che elenca
+  // più numeri fattura insieme senza dire "fattura" davanti). Se è UNA sola
+  // fattura, stessa conferma diretta di sopra. Se sono PIÙ fatture insieme
+  // (il caso reale), un solo pulsante le abbina tutte in blocco al singolo
+  // movimento — riusa la riconciliazione di gruppo già esistente, verifica
+  // comunque che il totale combaci prima di lasciar confermare.
+  if(!mostraTutte && matchNudi.length){
+    hh+='<div style="background:#eafbf0;border:1.5px solid #34c759;border-radius:10px;padding:10px 12px;margin-bottom:10px">';
+    if(matchNudi.length===1){
+      var fN = matchNudi[0];
+      var impFN=nettoFattura(fN);
+      var restoN=fN.stato==='parziale'?Math.max(0,impFN-(fN.parzPagato||0)):impFN;
+      var fidN=String(fN.id).replace(/'/g,'');
+      hh+='<div style="font-size:11px;font-weight:700;color:#1a7a3a;margin-bottom:6px">🎯 Trovato il numero fattura nella descrizione</div>';
+      hh+='<div style="background:#fff;border-radius:8px;padding:8px 10px">';
+      hh+='<div style="font-size:13px;font-weight:600">'+esc(fN.fornitore||'—')+' — N°'+esc(fN.numero||'')+'</div>';
+      hh+='<div style="font-size:11px;color:var(--ink3);margin-bottom:6px">'+fN.data+' · '+fN.stato+(fN.stato==='parziale'?' · resto '+fmt(restoN):'')+'</div>';
+      hh+='<button onclick="_cfAbbina('+idx+',\''+fidN+'\','+(Math.abs(impFN-imp)>0.50?'true':'false')+')" style="width:100%;padding:8px;border:none;border-radius:6px;background:#34c759;color:#fff;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer">✓ Conferma questa fattura ('+fmt(impFN)+')</button>';
+      hh+='</div>';
+    } else {
+      var totaleNudi = matchNudi.reduce(function(s,f){
+        var iF=nettoFattura(f);
+        return s+(f.stato==='parziale'?Math.max(0,iF-(f.parzPagato||0)):iF);
+      },0);
+      var combaciaTotale = Math.abs(totaleNudi-imp)<0.02;
+      hh+='<div style="font-size:11px;font-weight:700;color:#1a7a3a;margin-bottom:6px">🎯 Trovati '+matchNudi.length+' numeri fattura nella descrizione</div>';
+      matchNudi.forEach(function(f){
+        hh+='<div style="font-size:12px;padding:4px 0;border-bottom:1px solid #d8f3e0">N°'+esc(f.numero||'')+' — '+fmt(nettoFattura(f))+' · '+esc(f.data)+'</div>';
+      });
+      hh+='<div style="font-size:12px;font-weight:700;margin:8px 0;color:'+(combaciaTotale?'#1a7a3a':'#b36a00')+'">Totale: '+fmt(totaleNudi)+(combaciaTotale?' ✓ combacia col movimento':' — il movimento è '+fmt(imp)+', verifica prima di confermare')+'</div>';
+      hh+='<button onclick="_cfAbbinaGruppoNudi('+idx+')" style="width:100%;padding:8px;border:none;border-radius:6px;background:#34c759;color:#fff;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer">✓ Abbina tutte e '+matchNudi.length+' insieme a questo movimento</button>';
+      window._cfMatchNudiCorrente = matchNudi;
+      window._cfMovCorrente = m;
+    }
+    hh+='</div>';
+  }
   hh+='<div style="display:flex;gap:8px;margin-bottom:8px">';
   if(!mostraTutte){
     hh+='<button id="_cfBtnToggle" onclick="_cfRender(true,\'\')" style="flex:1;padding:8px;border:1.5px solid var(--blue);border-radius:8px;background:var(--blue-light);color:var(--blue);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">Apri tutto il registro</button>';
@@ -16489,6 +16996,27 @@ function _cfAbbina(movIdx, fattId, isParziale){
   var _sy = window.pageYOffset || document.documentElement.scrollTop || 0;
   renderRiconciliazione();
   setTimeout(function(){ window.scrollTo(0, _sy); }, 30);
+}
+
+// Applica l'abbinamento di gruppo trovato dai "numeri nudi" (25/08, caso
+// Leasys) — riusa la funzione già esistente per la riconciliazione di
+// gruppo (fatture multiple + movimenti multipli), qui con UN solo movimento
+// e PIÙ fatture. Nessuna sorpresa: mostra sempre una conferma esplicita col
+// totale prima di procedere, esattamente come l'abbinamento singolo sopra.
+async function _cfAbbinaGruppoNudi(movIdx){
+  var m = window._cfMovCorrente;
+  var matchNudi = window._cfMatchNudiCorrente || [];
+  if(!m || !matchNudi.length) return;
+  var totale = matchNudi.reduce(function(s,f){
+    var iF=nettoFattura(f);
+    return s+(f.stato==='parziale'?Math.max(0,iF-(f.parzPagato||0)):iF);
+  },0);
+  var elenco = matchNudi.map(function(f){ return 'N°'+f.numero+' ('+fmt(nettoFattura(f))+')'; }).join('\n');
+  var conf = 'Abbina TUTTE queste '+matchNudi.length+' fatture a questo movimento:\n\n'+elenco+'\n\nTotale: '+fmt(totale)+'\nMovimento banca: '+fmt(Math.abs(m.importo));
+  if(!confirm(conf)) return;
+  var ov=document.getElementById('_cfOv');
+  if(ov) ov.remove();
+  await _applicaGruppoRiconciliazione(matchNudi, [m], {ridisegnaBanca:true});
 }
 
 async function _segnaIgnora(idx){
