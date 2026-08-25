@@ -407,7 +407,7 @@ input#eRiconciliata{width:24px!important;height:24px!important;padding:0!importa
 <div class="ios-header" style="position:relative">
   <h1>&#128196; Fatture</h1>
   <p>Caffetteria Ceraldi</p>
-  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.78</p>
+  <p style="font-size:11px;color:var(--ink3);margin-top:-4px">v9.30.79</p>
   <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;gap:14px">
     <button onclick="sincronizzaOra()" title="Sincronizza con Cloud" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;line-height:1">&#8635;</button>
     <button onclick="apriImpostazioni()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;line-height:1">&#9881;&#65039;</button>
@@ -13630,6 +13630,11 @@ function renderRiconciliazioneCarta(){
         ? '<span style="font-size:12px;font-weight:700;color:var(--blue)">✓ Importi identici</span>'
         : '<span style="font-size:12px;font-weight:700;color:#b36a00">⚠️ Differenza di '+fmt(scostCarta)+' — ricontrolla</span>';
       html += '<div style="display:flex;gap:6px">';
+      // Vedere la fattura vera (XML, stesso visualizzatore del Registro) —
+      // 23/08, richiesta esplicita: prima si vedeva solo nome+numero+importo,
+      // senza modo di controllare il documento originale prima di confermare.
+      var hasDocCons = (d.fatt.fatturaAllegata&&d.fatt.fatturaAllegata.length>0)||(d.fatt.xmlGithubPath&&d.fatt.xmlGithubPath.length>0)||(d.fatt.source==='aruba')||d.fatt.hasAllegata;
+      if(hasDocCons) html += '<button onclick="event.stopPropagation();aprifatturaAllegata('+d.fatt.id+')" style="padding:6px 8px;border:1px solid var(--blue);border-radius:6px;background:var(--blue-light);color:var(--blue);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">📄</button>';
       html += '<button onclick="_confermaCartaConsigliato('+idx+')" style="padding:6px 10px;border:none;border-radius:6px;background:var(--blue);color:#fff;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">✓ Conferma</button>';
       html += '<button onclick="_apriPickerAbbinamentoCarta(_cartaNonAbbinati.indexOf(_cartaConsigliati['+idx+'].mov))" style="padding:6px 10px;border:1px solid var(--ink3);border-radius:6px;background:transparent;color:var(--ink2);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer">Altra</button>';
       html += '</div></div></div>';
@@ -13671,6 +13676,7 @@ function renderRiconciliazioneCarta(){
     Object.keys(gruppi).forEach(function(k){
       gruppi[k].forEach(function(m){
         var f = m.fatturaId!=null ? fatture.find(function(x){ return String(x.id)===String(m.fatturaId); }) : null;
+        var hasDocAbb = f && ((f.fatturaAllegata&&f.fatturaAllegata.length>0)||(f.xmlGithubPath&&f.xmlGithubPath.length>0)||(f.source==='aruba')||f.hasAllegata);
         html += '<div style="padding:8px 0;border-top:1px solid var(--sep);display:flex;justify-content:space-between;align-items:flex-start;gap:8px">';
         html += '<div style="flex:1;min-width:0">';
         html += '<div style="font-size:11px;color:var(--ink3)">'
@@ -13679,7 +13685,12 @@ function renderRiconciliazioneCarta(){
         html += '<div style="font-size:12px;font-weight:600">'+esc(k)+'</div>';
         html += '<div style="font-size:10px;color:var(--ink3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(m.descrizione)+'</div>';
         html += '</div>';
-        html += '<span style="font-size:13px;font-weight:700;flex-shrink:0">'+fmt(m.importo)+'</span></div>';
+        // Vedere la fattura vera (XML, stesso visualizzatore del Registro) —
+        // 23/08, richiesta esplicita di Valerio.
+        html += '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">';
+        if(hasDocAbb) html += '<button onclick="aprifatturaAllegata('+f.id+')" style="border:none;background:var(--blue-light);color:var(--blue);border-radius:6px;padding:5px 8px;font-size:11px;font-weight:600;cursor:pointer">📄</button>';
+        html += '<span style="font-size:13px;font-weight:700">'+fmt(m.importo)+'</span>';
+        html += '</div></div>';
       });
     });
     html += '</div>';
@@ -13822,12 +13833,17 @@ function _apriPickerAbbinamentoCarta(idx){
     candidati.slice(0,50).forEach(function(f){
       var df = f.data?new Date(f.data).toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'numeric'}):'';
       var eStessoImporto = Math.abs((f.importo||0)-m.importo)<0.02;
+      var hasDocPicker = (f.fatturaAllegata&&f.fatturaAllegata.length>0)||(f.xmlGithubPath&&f.xmlGithubPath.length>0)||(f.source==='aruba')||f.hasAllegata;
       var row = document.createElement('div');
       row.style.cssText = 'padding:11px 12px;border-radius:10px;margin-bottom:5px;background:'+(eStessoImporto?'var(--green-light)':'var(--surface2)')+';cursor:pointer;display:flex;justify-content:space-between;align-items:center';
       row.innerHTML = '<div style="flex:1;min-width:0">'
         +'<div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(f.fornitore)+'</div>'
         +'<div style="font-size:12px;color:var(--ink3)">N° '+esc(f.numero||'—')+' · '+df+'</div></div>'
-        +'<div style="font-weight:700;font-size:14px;margin-left:8px;flex-shrink:0">'+fmt(f.importo)+(eStessoImporto?' ✓':'')+'</div>';
+        +'<div style="display:flex;align-items:center;gap:6px;margin-left:8px;flex-shrink:0">'
+        // Controllare il documento PRIMA di scegliere, senza confermare per
+        // sbaglio (stopPropagation, il click sul resto della riga abbina).
+        +(hasDocPicker?'<button onclick="event.stopPropagation();aprifatturaAllegata('+f.id+')" style="border:none;background:var(--blue-light);color:var(--blue);border-radius:6px;padding:4px 7px;font-size:11px;cursor:pointer">📄</button>':'')
+        +'<span style="font-weight:700;font-size:14px">'+fmt(f.importo)+(eStessoImporto?' ✓':'')+'</span></div>';
       row.onclick = function(){ _abbinaCarta(m.id, f.id); mo.remove(); };
       lista.appendChild(row);
     });
