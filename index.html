@@ -14955,6 +14955,32 @@ function renderRiconciliazione(){
   var altri = [];
 
   movMese.forEach(function(m){
+    // FIX 25/08 bis (Valerio ha segnalato: "€8000 SumUp" fantasma il 13/08 e
+    // gli incassi SumUp reali del 4-8/08 che invece NON comparivano affatto).
+    // Due bug distinti, corretti insieme qui:
+    // 1) Il regex /sumup/ generico intercettava ANCHE un bonifico interno
+    //    reale ("Giroconto da Mastercard SumUp" — spostamento di soldi tra
+    //    conti tuoi, non un incasso POS) solo perché la parola "sumup"
+    //    compariva nel testo. Ora serve il pattern esatto dei payout veri
+    //    ("SUMUP PID<numero>"), che un giroconto non ha mai.
+    // 2) I payout SumUp veri in archivio risultano marcati ignorata=true
+    //    (per tenerli fuori dal motore generico di abbinamento fatture, dove
+    //    non c'entrano nulla) — ma questo li faceva saltare ANCHE qui, nel
+    //    confronto POS, dove invece servono. Vanno letti PRIMA del controllo
+    //    "ignorata" qui sotto, che resta valido per tutto il resto.
+    var dPre = (m.descrizione||'').toLowerCase();
+    if(/sumup\s*pid\d/.test(dPre) && m.tipo==='entrata'){
+      var mPayout = m.descrizione.match(/PAYOUT\s+(\d{2})(\d{2})(\d{2})\b/i);
+      var dataPosSU = m.data;
+      if(mPayout){
+        dataPosSU = '20'+mPayout[3]+'-'+mPayout[2]+'-'+mPayout[1];
+      }
+      if(!posNumiaBanca[dataPosSU]) posNumiaBanca[dataPosSU] = 0;
+      posNumiaBanca[dataPosSU] += Math.abs(m.importo);
+      if(!posSumupBancaProv[dataPosSU]) posSumupBancaProv[dataPosSU] = 0;
+      posSumupBancaProv[dataPosSU] += Math.abs(m.importo);
+      return;
+    }
     // Un movimento marcato ignorata (es. storno/duplicato bancario già chiarito,
     // vedi caso S.Passalacqua 06/08) non deve MAI rientrare nel giro di
     // auto-match: prima non veniva escluso qui, quindi bastava riaprire la
@@ -14976,25 +15002,6 @@ function renderRiconciliazione(){
       posNumiaBanca[dataPos] += Math.abs(m.importo);
       if(!posNumiaBancaProv[dataPos]) posNumiaBancaProv[dataPos] = 0;
       posNumiaBancaProv[dataPos] += Math.abs(m.importo);
-    } else if(/sumup/.test(d) && m.tipo==='entrata'){
-      // FIX 25/08 (Valerio ha 2 aziende di pagamenti elettronici da agosto):
-      // gli accrediti SumUp ("SUMUP PIDxxxx PAYOUT DDMMYY") non contengono
-      // "numia" e prima finivano IGNORATI da questo confronto — il totale
-      // "Banca" mostrato era quindi SOLO Numia, mai SumUp, e la differenza
-      // col fiscale (che invece somma entrambi) sembrava un errore reale
-      // quando in realtà mancava semplicemente un intero canale di incasso.
-      // Non esiste un "DEL" nel testo SumUp: usiamo la data di PAYOUT come
-      // approssimazione migliore disponibile (stesso limite del "DEL" Numia,
-      // che è comunque data di sportello/valuta, non incasso istantaneo).
-      var mPayout = m.descrizione.match(/PAYOUT\s+(\d{2})(\d{2})(\d{2})\b/i);
-      var dataPosSU = m.data;
-      if(mPayout){
-        dataPosSU = '20'+mPayout[3]+'-'+mPayout[2]+'-'+mPayout[1];
-      }
-      if(!posNumiaBanca[dataPosSU]) posNumiaBanca[dataPosSU] = 0;
-      posNumiaBanca[dataPosSU] += Math.abs(m.importo);
-      if(!posSumupBancaProv[dataPosSU]) posSumupBancaProv[dataPosSU] = 0;
-      posSumupBancaProv[dataPosSU] += Math.abs(m.importo);
     } else if(m.tipo==='uscita'){
       // Usa lo stesso criterio di _escludiMatch per coerenza
       // (viene rivalutato sotto con la regex completa, questo è solo pre-classificazione)
@@ -16490,6 +16497,9 @@ function _cfRender(mostraTutte, filtro){
       hh+='<div style="font-size:11px;color:var(--ink3);margin-bottom:6px">'+fN.data+' · '+fN.stato+(fN.stato==='parziale'?' · resto '+fmt(restoN):'')+'</div>';
       hh+='<button onclick="_cfAbbina('+idx+',\''+fidN+'\','+(Math.abs(impFN-imp)>0.50?'true':'false')+')" style="width:100%;padding:8px;border:none;border-radius:6px;background:#34c759;color:#fff;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer">✓ Conferma questa fattura ('+fmt(impFN)+')</button>';
       hh+='</div>';
+      window._cfMatchNudiCorrente = [fN];
+      window._cfMovCorrente = m;
+      hh+='<button onclick="_cfMultiplo()" style="width:100%;padding:7px;margin-top:6px;border:1.5px solid #1a7a3a;border-radius:6px;background:#eafbf0;color:#1a7a3a;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">➕ Aggiungi un\'altra fattura a questo gruppo</button>';
     } else {
       var totaleNudi = matchNudi.reduce(function(s,f){
         var iF=nettoFattura(f);
@@ -16501,9 +16511,15 @@ function _cfRender(mostraTutte, filtro){
         hh+='<div style="font-size:12px;padding:4px 0;border-bottom:1px solid #d8f3e0">N°'+esc(f.numero||'')+' — '+fmt(nettoFattura(f))+' · '+esc(f.data)+'</div>';
       });
       hh+='<div style="font-size:12px;font-weight:700;margin:8px 0;color:'+(combaciaTotale?'#1a7a3a':'#b36a00')+'">Totale: '+fmt(totaleNudi)+(combaciaTotale?' ✓ combacia col movimento':' — il movimento è '+fmt(imp)+', verifica prima di confermare')+'</div>';
-      hh+='<button onclick="_cfAbbinaGruppoNudi('+idx+')" style="width:100%;padding:8px;border:none;border-radius:6px;background:#34c759;color:#fff;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer">✓ Abbina tutte e '+matchNudi.length+' insieme a questo movimento</button>';
+      hh+='<button onclick="_cfAbbinaGruppoNudi('+idx+')" style="width:100%;padding:8px;border:none;border-radius:6px;background:#34c759;color:#fff;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;margin-bottom:6px">✓ Abbina tutte e '+matchNudi.length+' insieme a questo movimento</button>';
       window._cfMatchNudiCorrente = matchNudi;
       window._cfMovCorrente = m;
+      // FIX 25/08 (Valerio: "se voglio aggiungere SOLO una fattura alla lista
+      // non posso farlo, devo ripartire da 0") — questo pulsante apre lo
+      // stesso picker manuale del "+2" qui sotto, ma GIÀ PRECOMPILATO con
+      // queste stesse fatture trovate in automatico (vedi _cfMultiplo): non
+      // riparte da zero, permette solo di aggiungerne/toglierne una.
+      hh+='<button onclick="_cfMultiplo()" style="width:100%;padding:7px;border:1.5px solid #1a7a3a;border-radius:6px;background:#eafbf0;color:#1a7a3a;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">➕ Aggiungi un\'altra fattura a questo gruppo</button>';
     }
     hh+='</div>';
   }
