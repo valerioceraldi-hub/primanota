@@ -1505,7 +1505,7 @@ details[open] summary span.rot-arrow{transform:rotate(90deg);display:inline-bloc
         <button class="action-btn" onclick="esportaExcel()"><span class="action-ico">&#128209;</span><span class="action-lbl">Excel</span></button>
         <button class="action-btn" onclick="esportaPDF()"><span class="action-ico">&#128196;</span><span class="action-lbl">PDF</span></button>
       </div>
-      <button onclick="apriEsportazioneAvanzata()" style="width:100%;margin-top:8px;padding:12px;border:1.5px solid var(--blue);border-radius:var(--radius-sm);background:var(--blue-light);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:var(--blue);text-align:left">&#128228; Esportazione avanzata (Prima Nota, banca, carta, chiusure...)</button>
+      <button onclick="apriEsportazioneAvanzata()" style="width:100%;margin-top:8px;padding:12px;border:1.5px solid var(--blue);border-radius:var(--radius-sm);background:var(--blue-light);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;color:var(--blue);text-align:left">&#128202; Esportazione analitica (fatture, pagamenti per metodo, parziali, scaduti...)</button>
     </div>
   </div>
 
@@ -7536,37 +7536,49 @@ function apriEsportazioneAvanzata(){
   sheet.style.cssText = 'background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:88vh;overflow-y:auto;animation:slideUp .3s cubic-bezier(.32,.72,0,1)';
   sheet.innerHTML = `
     <div style="padding:16px 20px 8px;border-bottom:1px solid var(--sep);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:var(--bg);z-index:1">
-      <span style="font-size:17px;font-weight:700">📤 Esportazione avanzata</span>
+      <span style="font-size:17px;font-weight:700">📊 Esportazione analitica</span>
       <button onclick="document.getElementById('expAvMo').remove()" style="background:var(--surface2);border:none;border-radius:99px;width:30px;height:30px;font-size:17px;cursor:pointer">&times;</button>
     </div>
     <div style="padding:16px 20px 28px">
 
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">Sezioni da includere</div>
-      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
-        ${['fatture:🧾 Fatture (registro)','primanota:📒 Prima Nota (movimenti cassa)','banca:🏦 Riconciliazione bancaria','carta:💳 Carta di credito Nexi','chiusure:📊 Chiusure giornaliere e incassi POS','versamenti:🏦 Versamenti in banca'].map(s=>{
-          const [id,label]=s.split(':');
-          return `<label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer"><input type="checkbox" id="expSec_${id}" checked style="width:18px;height:18px">${label}</label>`;
-        }).join('')}
+      <div style="font-size:12px;color:var(--ink3);line-height:1.5;margin-bottom:16px;background:var(--surface2);border-radius:8px;padding:10px 12px">
+        Genera un unico Excel professionale con riepilogo esecutivo, dettaglio fatture, un foglio dedicato per ciascun metodo di pagamento (contanti, assegni, bonifici, carta), pagamenti parziali, scaduti, e analisi per fornitore/mese.
       </div>
 
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">Periodo</div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">Periodo (fatture)</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
         <input type="date" id="expDal" style="padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface2);-webkit-appearance:none">
         <input type="date" id="expAl" style="padding:10px;border:1.5px solid var(--sep);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface2);-webkit-appearance:none">
       </div>
       <div style="font-size:10px;color:var(--ink3);margin-top:-10px;margin-bottom:16px">Lascia vuoto per includere tutto lo storico</div>
 
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">Fornitore / descrizione contiene</div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">Fornitore contiene</div>
       <input type="text" id="expForn" placeholder="Es. Kimbo (lascia vuoto per tutti)" style="width:100%;padding:10px 12px;border:1.5px solid var(--sep);border-radius:8px;font-size:14px;background:var(--surface2);box-sizing:border-box;margin-bottom:16px">
 
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">Metodo di pagamento (solo Fatture)</div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">Stato fattura</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
-        ${['contanti:Contanti','bonifico:Bonifico','assegno:Assegno','carta:Carta'].map(s=>{
+        ${['dapagare:Da pagare:1','parziale:Parziale:1','pagata:Pagata:1','annullata:Annullata:0'].map(s=>{
+          const [id,label,def]=s.split(':');
+          return `<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;background:var(--surface2);padding:6px 10px;border-radius:8px"><input type="checkbox" id="expStato_${id}" ${def==='1'?'checked':''} style="width:16px;height:16px">${label}</label>`;
+        }).join('')}
+      </div>
+
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">Metodo di pagamento</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
+        ${['contanti:Contanti','bonifico:Bonifico','assegno:Assegno','carta:Carta','altro:Non specificato'].map(s=>{
           const [id,label]=s.split(':');
           return `<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;background:var(--surface2);padding:6px 10px;border-radius:8px"><input type="checkbox" id="expPag_${id}" style="width:16px;height:16px">${label}</label>`;
         }).join('')}
       </div>
       <div style="font-size:10px;color:var(--ink3);margin-top:-10px;margin-bottom:16px">Nessuno selezionato = tutti i metodi</div>
+
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">Fogli extra opzionali (oltre all'analisi fatture/pagamenti, sempre inclusa)</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+        ${['primanota:📒 Prima Nota (movimenti cassa completi)','banca:🏦 Estratto conto banca grezzo','cartagrezza:💳 Estratto Nexi grezzo','chiusure:📊 Chiusure giornaliere e incassi POS','versamenti:🏦 Versamenti in banca'].map(s=>{
+          const [id,label]=s.split(':');
+          return `<label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer"><input type="checkbox" id="expSec_${id}" style="width:18px;height:18px">${label}</label>`;
+        }).join('')}
+      </div>
 
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">Fonte (solo Prima Nota)</div>
       <div style="display:flex;gap:8px;margin-bottom:16px">
@@ -7574,7 +7586,7 @@ function apriEsportazioneAvanzata(){
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;background:var(--surface2);padding:6px 10px;border-radius:8px"><input type="checkbox" id="expFonte_fondo" style="width:16px;height:16px">💰 Fondo</label>
       </div>
 
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">Riconciliato (solo Banca/Carta)</div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">Riconciliato (solo estratti grezzi)</div>
       <div style="display:flex;gap:8px;margin-bottom:16px" id="expRiconGroup">
         <button type="button" class="pag-btn sc" id="expRicon-tutti" onclick="_setExpRicon('tutti')" style="flex:1;font-size:12px;padding:9px 4px">Tutti</button>
         <button type="button" class="pag-btn" id="expRicon-si" onclick="_setExpRicon('si')" style="flex:1;font-size:12px;padding:9px 4px">Solo riconciliati</button>
@@ -7583,12 +7595,11 @@ function apriEsportazioneAvanzata(){
 
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-bottom:8px">Formato</div>
       <div style="display:flex;gap:8px;margin-bottom:20px" id="expFormatGroup">
-        <button type="button" class="pag-btn sc" id="expFmt-xlsx" onclick="_setExpFormato('xlsx')" style="flex:1">📗 Excel</button>
-        <button type="button" class="pag-btn" id="expFmt-csv" onclick="_setExpFormato('csv')" style="flex:1">📄 CSV</button>
+        <button type="button" class="pag-btn sc" id="expFmt-xlsx" onclick="_setExpFormato('xlsx')" style="flex:1">📗 Excel (1 file, un foglio per sezione)</button>
+        <button type="button" class="pag-btn" id="expFmt-csv" onclick="_setExpFormato('csv')" style="flex:1">📄 CSV (un file per sezione)</button>
       </div>
-      <div style="font-size:10px;color:var(--ink3);margin-top:-14px;margin-bottom:16px">Excel: un file con un foglio per sezione. CSV: un file separato per ogni sezione selezionata.</div>
 
-      <button class="btn btn-p" onclick="_eseguiEsportazioneAvanzata()" style="width:100%;font-size:16px;padding:14px">📤 Esporta</button>
+      <button class="btn btn-p" onclick="_eseguiEsportazioneAvanzata()" style="width:100%;font-size:16px;padding:14px">📥 Genera esportazione</button>
     </div>`;
   mo.appendChild(sheet);
   mo.onclick = e=>{ if(e.target===mo) mo.remove(); };
@@ -7616,77 +7627,324 @@ function _expContiene(testo, filtro){
   return (testo||'').toLowerCase().includes(filtro.toLowerCase());
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// ESPORTAZIONE ANALITICA — riscritta da zero (25/08, richiesta esplicita
+// di Valerio: la vecchia esportazione era un dump grezzo tabella-per-tabella,
+// utile ma "basilare" — qui invece si costruisce un'analisi vera e propria
+// di fatture e pagamenti: chi ha pagato cosa, con quale metodo, quando,
+// quanto resta da pagare, e con quale grado di dettaglio è davvero
+// ricostruibile per ciascun metodo.
+//
+// LIMITE REALE DEL MODELLO DATI (dichiarato esplicitamente nel foglio
+// "ℹ️ Note metodologiche" dell'export, non nascosto): il campo
+// f.riconciliazione salva SOLO L'ULTIMO movimento bancario agganciato a
+// una fattura, non uno storico di ogni versamento parziale — quindi per
+// un pagamento a rate su più bonifici/assegni/carta, qui si vede sempre e
+// solo l'ultimo evento noto, mai l'intera sequenza. Fa eccezione il
+// CONTANTE: la Prima Nota registra ogni singolo movimento senza mai
+// sovrascriverlo, quindi SOLO per i pagamenti in contanti l'export
+// ricostruisce lo storico completo di tutti i versamenti parziali nel
+// tempo (foglio "💵 Pagamenti — Contanti").
+// ═══════════════════════════════════════════════════════════════════
+
+function _fatturaPagatoResiduo(f){
+  var tot = nettoFattura(f);
+  var pagato = f.stato==='pagata' ? tot : (f.stato==='parziale' ? (f.parzPagato||0) : 0);
+  var residuo = Math.max(0, Math.round((tot-pagato)*100)/100);
+  var pct = tot>0 ? Math.round((pagato/tot)*1000)/10 : 0;
+  return {tot:tot, pagato:Math.round(pagato*100)/100, residuo:residuo, pct:pct};
+}
+function _metodoLabel(f){
+  var p = (f.pagamento||'').toLowerCase();
+  if(p==='contanti') return 'Contanti';
+  if(p==='bonifico') return 'Bonifico';
+  if(p==='assegno')  return 'Assegno';
+  if(p==='carta')    return 'Carta';
+  return 'Non specificato';
+}
+function _riferimentoBanca(f){
+  var r = f.riconciliazione;
+  if(!r) return '';
+  return (r.descrizione||'')+' — '+(r.data||'')+(r.banca?' ('+r.banca+')':'')+(r.parziale?' [parziale: '+fmt(r.importo||0)+']':' ['+fmt(r.importo||0)+']');
+}
+function _giorniTra(d1,d2){
+  if(!d1||!d2) return '';
+  var t1=new Date(d1+'T12:00:00'), t2=new Date(d2+'T12:00:00');
+  if(isNaN(t1)||isNaN(t2)) return '';
+  return Math.round((t2-t1)/86400000);
+}
+
 async function _eseguiEsportazioneAvanzata(){
   const dal = gv('expDal'), al = gv('expAl');
   const forn = (gv('expForn')||'').trim();
-  const metodi = ['contanti','bonifico','assegno','carta'].filter(m=>document.getElementById('expPag_'+m).checked);
+  const statiAttivi = ['dapagare','parziale','pagata','annullata'].filter(s=>document.getElementById('expStato_'+s).checked);
+  const statoMap = {dapagare:'da_pagare', parziale:'parziale', pagata:'pagata', annullata:'annullata'};
+  const statiVeri = statiAttivi.map(s=>statoMap[s]);
+  const metodiSel = ['contanti','bonifico','assegno','carta','altro'].filter(m=>document.getElementById('expPag_'+m).checked);
   const fonti = ['cassetto','fondo'].filter(f=>document.getElementById('expFonte_'+f).checked);
-  const sezioni = {
-    fatture: document.getElementById('expSec_fatture').checked,
+  const sezioniExtra = {
     primanota: document.getElementById('expSec_primanota').checked,
     banca: document.getElementById('expSec_banca').checked,
-    carta: document.getElementById('expSec_carta').checked,
+    cartagrezza: document.getElementById('expSec_cartagrezza').checked,
     chiusure: document.getElementById('expSec_chiusure').checked,
     versamenti: document.getElementById('expSec_versamenti').checked
   };
-  if(!Object.values(sezioni).some(Boolean)){ toast('⚠️ Seleziona almeno una sezione'); return; }
-  toast('⏳ Preparo l\'esportazione...');
+  toast('⏳ Preparo l\'esportazione analitica...');
+  if(typeof pnSyncCloud==='function'){ try{ await pnSyncCloud(); }catch(e){} }
 
-  const fogli = []; // {nome, righe: [[...]]}
-
-  if(sezioni.fatture){
-    let rows = fatture.filter(f=>_expInRange(f.data,dal,al) && _expContiene(f.fornitore,forn));
-    if(metodi.length) rows = rows.filter(f=>metodi.includes(f.pagamento));
-    const head = ['Data','Fornitore','Numero','Importo','Pagamento','Stato','Scadenza','Note'];
-    const body = rows.map(f=>[f.data||'', f.fornitore||'', f.numero||'', f.importo||0, f.pagamento||'', f.stato||'', f.scadenza||'', f.note||'']);
-    fogli.push({nome:'Fatture', righe:[head, ...body]});
+  // ── Base fatture filtrate (esclude sempre DDT e note di credito dall'analisi pagamenti) ──
+  var base = fatture.filter(function(f){
+    if(f.tipo==='ddt' || f.tipo==='nota_credito') return false;
+    if(!_expInRange(f.data,dal,al)) return false;
+    if(!_expContiene(f.fornitore,forn)) return false;
+    if(statiVeri.length && !statiVeri.includes(f.stato)) return false;
+    return true;
+  });
+  if(metodiSel.length){
+    base = base.filter(function(f){
+      var m = (f.pagamento||'').toLowerCase();
+      if(!m) return metodiSel.includes('altro');
+      return metodiSel.includes(m);
+    });
   }
 
-  if(sezioni.primanota){
-    if(typeof pnSyncCloud==='function') await pnSyncCloud();
-    let movi = (pnMovimenti||[]).filter(m=>_expInRange(m.data,dal,al) && _expContiene(m.descrizione,forn));
+  const fogli = []; // {nome, righe:[[...]]}
+
+  // ═══ 1. RIEPILOGO ESECUTIVO ═══
+  (function(){
+    var righe = [];
+    righe.push(['RIEPILOGO ESECUTIVO — Caffetteria Ceraldi']);
+    righe.push(['Periodo', (dal||'inizio storico')+' → '+(al||'oggi')]);
+    righe.push(['Generato il', new Date().toISOString().slice(0,16).replace('T',' ')]);
+    righe.push([]);
+    var totFatt=0, totPag=0, totRes=0, nFatt=base.length;
+    base.forEach(function(f){ var r=_fatturaPagatoResiduo(f); totFatt+=r.tot; totPag+=r.pagato; totRes+=r.residuo; });
+    righe.push(['TOTALI GENERALI']);
+    righe.push(['N. fatture', nFatt]);
+    righe.push(['Totale fatturato (netto NC)', Math.round(totFatt*100)/100]);
+    righe.push(['Totale pagato', Math.round(totPag*100)/100]);
+    righe.push(['Totale da pagare (residuo)', Math.round(totRes*100)/100]);
+    righe.push([]);
+    righe.push(['PER STATO', 'N. fatture', 'Importo totale', 'Importo pagato', 'Residuo']);
+    ['da_pagare','parziale','pagata','annullata'].forEach(function(st){
+      var sub = base.filter(function(f){return f.stato===st;});
+      if(!sub.length) return;
+      var t=0,p=0,r=0;
+      sub.forEach(function(f){ var rr=_fatturaPagatoResiduo(f); t+=rr.tot; p+=rr.pagato; r+=rr.residuo; });
+      righe.push([st, sub.length, Math.round(t*100)/100, Math.round(p*100)/100, Math.round(r*100)/100]);
+    });
+    righe.push([]);
+    righe.push(['PER METODO DI PAGAMENTO', 'N. fatture', 'Importo totale', 'Importo pagato', 'Residuo']);
+    ['contanti','bonifico','assegno','carta',''].forEach(function(m){
+      var sub = base.filter(function(f){ return (f.pagamento||'')===m; });
+      if(!sub.length) return;
+      var t=0,p=0,r=0;
+      sub.forEach(function(f){ var rr=_fatturaPagatoResiduo(f); t+=rr.tot; p+=rr.pagato; r+=rr.residuo; });
+      righe.push([m||'Non specificato', sub.length, Math.round(t*100)/100, Math.round(p*100)/100, Math.round(r*100)/100]);
+    });
+    righe.push([]);
+    var oggi = new Date().toISOString().slice(0,10);
+    var scadute = base.filter(function(f){ return (f.stato==='da_pagare'||f.stato==='parziale') && f.scadenza && f.scadenza<oggi; });
+    righe.push(['SCADUTE NON SALDATE (aging)', 'N. fatture', 'Residuo totale']);
+    var bucket = {'0-30':[0,0], '31-60':[0,0], '61-90':[0,0], '90+':[0,0]};
+    scadute.forEach(function(f){
+      var gg = _giorniTra(f.scadenza, oggi);
+      var r = _fatturaPagatoResiduo(f).residuo;
+      var k = gg<=30?'0-30':(gg<=60?'31-60':(gg<=90?'61-90':'90+'));
+      bucket[k][0]++; bucket[k][1]+=r;
+    });
+    Object.keys(bucket).forEach(function(k){ if(bucket[k][0]) righe.push([k+' giorni', bucket[k][0], Math.round(bucket[k][1]*100)/100]); });
+    righe.push([]);
+    righe.push(['ℹ️ NOTE METODOLOGICHE']);
+    righe.push(['— Per i pagamenti in CONTANTI lo storico di ogni singolo versamento parziale è completo (fonte: Prima Nota, che non sovrascrive mai). Vedi foglio "Pagamenti - Contanti".']);
+    righe.push(['— Per BONIFICO, ASSEGNO e CARTA il sistema conserva solo l\'ULTIMO movimento bancario agganciato a ciascuna fattura: se una fattura è stata pagata con più versamenti nel tempo su questi metodi, qui si vede solo l\'evento più recente noto, non l\'intera sequenza.']);
+    fogli.push({nome:'Riepilogo esecutivo', righe:righe});
+  })();
+
+  // ═══ 2. FATTURE — DETTAGLIO COMPLETO ═══
+  (function(){
+    var head = ['Data fattura','Fornitore','Numero','Numero DDT','Importo totale','Imponibile','IVA','Metodo pagamento','Stato','Pagato','Residuo','% pagato','Data pagamento','Scadenza','Giorni ritardo (se scaduta)','Riferimento movimento bancario','Documento allegato'];
+    var body = base.slice().sort(function(a,b){return (a.data||'').localeCompare(b.data||'');}).map(function(f){
+      var r = _fatturaPagatoResiduo(f);
+      var oggi = new Date().toISOString().slice(0,10);
+      var ritardo = (f.stato!=='pagata' && f.scadenza && f.scadenza<oggi) ? _giorniTra(f.scadenza,oggi) : '';
+      var hasDoc = (f.fatturaAllegata&&f.fatturaAllegata.length>0)||(f.xmlGithubPath&&f.xmlGithubPath.length>0)||(f.source==='aruba');
+      return [f.data||'', f.fornitore||'', f.numero||'', f.numDdt||'', r.tot, f.totaleImponibile||'', f.totaleImposta||'',
+        _metodoLabel(f), f.stato||'', r.pagato, r.residuo, r.pct+'%', f.dataPagamento||'', f.scadenza||'', ritardo,
+        _riferimentoBanca(f), hasDoc?'Sì':'No'];
+    });
+    fogli.push({nome:'Fatture - Dettaglio', righe:[head, ...body]});
+  })();
+
+  // ═══ 3. PAGAMENTI — CONTANTI (storico completo da Prima Nota) ═══
+  (function(){
+    var fattContanti = base.filter(function(f){ return (f.pagamento||'')==='contanti'; });
+    var idSet = {}; fattContanti.forEach(function(f){ idSet[f.id]=f; });
+    var head = ['Data versamento','Fornitore','Numero fattura','Importo fattura','Fonte (cassetto/fondo)','Importo versato questa volta','Descrizione movimento Prima Nota'];
+    var body = [];
+    (pnMovimenti||[]).filter(function(m){ return m.fatturaId && idSet[m.fatturaId] && !m.deletedAt; })
+      .sort(function(a,b){ return (a.data||'').localeCompare(b.data||''); })
+      .forEach(function(m){
+        var f = idSet[m.fatturaId];
+        body.push([m.data||'', f.fornitore||'', f.numero||'', nettoFattura(f), m.fonte||'', m.importo||0, m.descrizione||'']);
+      });
+    // Fatture "contanti" senza nessun movimento Prima Nota collegato — segnalate a parte,
+    // per non far sembrare complete liste in realtà vuote.
+    var idConMov = {}; (pnMovimenti||[]).forEach(function(m){ if(m.fatturaId) idConMov[m.fatturaId]=true; });
+    var senzaStorico = fattContanti.filter(function(f){ return !idConMov[f.id]; });
+    fogli.push({nome:'Pagamenti - Contanti', righe:[head, ...body]});
+    if(senzaStorico.length){
+      var head2 = ['Fornitore','Numero fattura','Importo','Stato','Pagato','Residuo','Data pagamento (dalla fattura)'];
+      var body2 = senzaStorico.map(function(f){ var r=_fatturaPagatoResiduo(f); return [f.fornitore||'', f.numero||'', r.tot, f.stato||'', r.pagato, r.residuo, f.dataPagamento||'']; });
+      fogli.push({nome:'Contanti - senza storico PN', righe:[head2, ...body2]});
+    }
+  })();
+
+  // ═══ 4. PAGAMENTI — ASSEGNI ═══
+  (function(){
+    var sub = base.filter(function(f){ return (f.pagamento||'')==='assegno'; });
+    var head = ['Data fattura','Fornitore','Numero fattura','Importo totale','Pagato','Residuo','Stato','Numero assegno','Intestatario','Banca assegno','Data incasso','Riferimento movimento bancario'];
+    var body = sub.sort(function(a,b){return (a.dataPagamento||a.data||'').localeCompare(b.dataPagamento||b.data||'');}).map(function(f){
+      var r = _fatturaPagatoResiduo(f);
+      return [f.data||'', f.fornitore||'', f.numero||'', r.tot, r.pagato, r.residuo, f.stato||'', f.assegno||'', f.assInt||'', f.assBanca||'', f.dataPagamento||'', _riferimentoBanca(f)];
+    });
+    fogli.push({nome:'Pagamenti - Assegni', righe:[head, ...body]});
+  })();
+
+  // ═══ 5. PAGAMENTI — BONIFICI ═══
+  (function(){
+    var sub = base.filter(function(f){ return (f.pagamento||'')==='bonifico'; });
+    var head = ['Data fattura','Fornitore','Numero fattura','Importo totale','Pagato','Residuo','Stato','IBAN beneficiario','Causale','Data bonifico','Riferimento/CRO','Riferimento movimento bancario'];
+    var body = sub.sort(function(a,b){return (a.bonData||a.dataPagamento||a.data||'').localeCompare(b.bonData||b.dataPagamento||b.data||'');}).map(function(f){
+      var r = _fatturaPagatoResiduo(f);
+      return [f.data||'', f.fornitore||'', f.numero||'', r.tot, r.pagato, r.residuo, f.stato||'', f.bonIban||'', f.bonCaus||'', f.bonData||f.dataPagamento||'', f.bonRif||'', _riferimentoBanca(f)];
+    });
+    fogli.push({nome:'Pagamenti - Bonifici', righe:[head, ...body]});
+  })();
+
+  // ═══ 6. PAGAMENTI — CARTA (incrocio con estratto Nexi quando disponibile) ═══
+  (function(){
+    var sub = base.filter(function(f){ return (f.pagamento||'')==='carta'; });
+    var idSet = {}; sub.forEach(function(f){ idSet[f.id]=f; });
+    var movPerFatt = {};
+    (_cartaMovimenti||[]).filter(function(m){ return m.fatturaId && idSet[m.fatturaId]; }).forEach(function(m){
+      (movPerFatt[m.fatturaId] = movPerFatt[m.fatturaId]||[]).push(m);
+    });
+    var head = ['Data fattura','Fornitore','Numero fattura','Importo totale','Pagato','Residuo','Stato','Titolare carta (da estratto Nexi)','Ultime 4 cifre','Data addebito (da estratto Nexi)','Riferimento movimento bancario'];
+    var body = sub.sort(function(a,b){return (a.data||'').localeCompare(b.data||'');}).map(function(f){
+      var r = _fatturaPagatoResiduo(f);
+      var movs = movPerFatt[f.id]||[];
+      var titolari = movs.map(function(m){return m.titolare;}).filter(Boolean).join(', ');
+      var ultime4 = movs.map(function(m){return m.cartaUltime4;}).filter(Boolean).join(', ');
+      var dateAdd = movs.map(function(m){return m.data;}).filter(Boolean).join(', ');
+      return [f.data||'', f.fornitore||'', f.numero||'', r.tot, r.pagato, r.residuo, f.stato||'', titolari, ultime4, dateAdd, _riferimentoBanca(f)];
+    });
+    fogli.push({nome:'Pagamenti - Carta', righe:[head, ...body]});
+  })();
+
+  // ═══ 7. PAGAMENTI PARZIALI — dettaglio e grado di tracciabilità ═══
+  (function(){
+    var sub = base.filter(function(f){ return f.stato==='parziale'; });
+    var head = ['Data fattura','Fornitore','Numero fattura','Importo totale','Pagato finora','Residuo','% pagato','Metodo','Ultimo movimento noto','Storico completo disponibile?'];
+    var body = sub.sort(function(a,b){return (b.parzPagato||0)/(nettoFattura(b)||1) - (a.parzPagato||0)/(nettoFattura(a)||1);}).map(function(f){
+      var r = _fatturaPagatoResiduo(f);
+      var completo = (f.pagamento||'')==='contanti' ? 'Sì — vedi foglio Contanti' : 'No — solo ultimo movimento';
+      return [f.data||'', f.fornitore||'', f.numero||'', r.tot, r.pagato, r.residuo, r.pct+'%', _metodoLabel(f), _riferimentoBanca(f), completo];
+    });
+    fogli.push({nome:'Pagamenti parziali', righe:[head, ...body]});
+  })();
+
+  // ═══ 8. FATTURE SCADUTE / INSOLUTE ═══
+  (function(){
+    var oggi = new Date().toISOString().slice(0,10);
+    var sub = base.filter(function(f){ return (f.stato==='da_pagare'||f.stato==='parziale') && f.scadenza && f.scadenza<oggi; });
+    var head = ['Fornitore','Numero fattura','Data fattura','Scadenza','Giorni di ritardo','Importo totale','Pagato','Residuo','Metodo abituale'];
+    var body = sub.sort(function(a,b){return (a.scadenza||'').localeCompare(b.scadenza||'');}).map(function(f){
+      var r = _fatturaPagatoResiduo(f);
+      return [f.fornitore||'', f.numero||'', f.data||'', f.scadenza||'', _giorniTra(f.scadenza,oggi), r.tot, r.pagato, r.residuo, _metodoLabel(f)];
+    });
+    fogli.push({nome:'Scadute - insolute', righe:[head, ...body]});
+  })();
+
+  // ═══ 9. ANALISI PER FORNITORE ═══
+  (function(){
+    var map = {};
+    base.forEach(function(f){
+      var k = f.fornitore||'(senza nome)';
+      if(!map[k]) map[k] = {n:0, tot:0, pagato:0, residuo:0, metodi:{}, giorniPag:[]};
+      var r = _fatturaPagatoResiduo(f);
+      map[k].n++; map[k].tot+=r.tot; map[k].pagato+=r.pagato; map[k].residuo+=r.residuo;
+      var m = _metodoLabel(f); map[k].metodi[m] = (map[k].metodi[m]||0)+1;
+      if(f.stato==='pagata' && f.dataPagamento && f.data){
+        var gg = _giorniTra(f.data, f.dataPagamento);
+        if(typeof gg==='number' && gg>=0) map[k].giorniPag.push(gg);
+      }
+    });
+    var head = ['Fornitore','N. fatture','Totale fatturato','Totale pagato','Residuo aperto','Metodo prevalente','Giorni medi per pagare (solo pagate)'];
+    var body = Object.keys(map).sort(function(a,b){return map[b].tot-map[a].tot;}).map(function(k){
+      var v = map[k];
+      var metodoPrev = Object.keys(v.metodi).sort(function(a,b){return v.metodi[b]-v.metodi[a];})[0]||'';
+      var mediaGG = v.giorniPag.length ? Math.round(v.giorniPag.reduce(function(s,x){return s+x;},0)/v.giorniPag.length) : '';
+      return [k, v.n, Math.round(v.tot*100)/100, Math.round(v.pagato*100)/100, Math.round(v.residuo*100)/100, metodoPrev, mediaGG];
+    });
+    fogli.push({nome:'Analisi per fornitore', righe:[head, ...body]});
+  })();
+
+  // ═══ 10. ANALISI MENSILE ═══
+  (function(){
+    var map = {};
+    base.forEach(function(f){
+      var k = (f.data||'').slice(0,7); if(!k) return;
+      if(!map[k]) map[k] = {tot:0, pagato:0, residuo:0, contanti:0, bonifico:0, assegno:0, carta:0, altro:0};
+      var r = _fatturaPagatoResiduo(f);
+      map[k].tot+=r.tot; map[k].pagato+=r.pagato; map[k].residuo+=r.residuo;
+      var mk = (f.pagamento||'altro')||'altro'; if(!map[k][mk]) mk='altro';
+      map[k][mk]+=r.tot;
+    });
+    var head = ['Mese','Fatturato totale','Pagato','Residuo','di cui Contanti','di cui Bonifico','di cui Assegno','di cui Carta','di cui Non specificato'];
+    var body = Object.keys(map).sort().map(function(k){
+      var v = map[k];
+      return [k, Math.round(v.tot*100)/100, Math.round(v.pagato*100)/100, Math.round(v.residuo*100)/100,
+        Math.round(v.contanti*100)/100, Math.round(v.bonifico*100)/100, Math.round(v.assegno*100)/100, Math.round(v.carta*100)/100, Math.round(v.altro*100)/100];
+    });
+    fogli.push({nome:'Analisi mensile', righe:[head, ...body]});
+  })();
+
+  // ═══ SEZIONI EXTRA OPZIONALI (estratti grezzi, invariati rispetto a prima) ═══
+  if(sezioniExtra.primanota){
+    let movi = (pnMovimenti||[]).filter(m=>_expInRange(m.data,dal,al) && _expContiene(m.descrizione,forn) && !m.deletedAt);
     if(fonti.length) movi = movi.filter(m=>fonti.includes(m.fonte));
     const headM = ['Data','Categoria','Fonte','Importo','Descrizione'];
     const bodyM = movi.map(m=>[m.data||'', m.categoria||'', m.fonte||'', m.importo||0, m.descrizione||'']);
     fogli.push({nome:'Prima Nota - Movimenti', righe:[headM, ...bodyM]});
-
-    let cont = (pnConteggi||[]).filter(c=>_expInRange(c.data,dal,al));
-    const headC = ['Data','Contanti contati','Pos SumUp','Pos Numia','Pos totale','Note'];
-    const bodyC = cont.map(c=>[c.data||'', c.contantiContati||0, c.posSumUp||0, c.posNumia||0, c.pos||0, c.note||'']);
-    fogli.push({nome:'Prima Nota - Conteggi', righe:[headC, ...bodyC]});
   }
-
-  if(sezioni.banca){
+  if(sezioniExtra.banca){
     let rows = (_bancaMovimenti||[]).filter(m=>_expInRange(m.data,dal,al) && _expContiene(m.descrizione,forn));
     if(_expRicon==='si') rows = rows.filter(m=>m.abbinata);
     if(_expRicon==='no') rows = rows.filter(m=>!m.abbinata);
     const head = ['Data','Descrizione','Importo','Tipo','Banca','Riconciliato'];
     const body = rows.map(m=>[m.data||'', m.descrizione||'', m.importo||0, m.tipo||'', m.banca||'', m.abbinata?'Sì':'No']);
-    fogli.push({nome:'Riconciliazione bancaria', righe:[head, ...body]});
+    fogli.push({nome:'Estratto banca grezzo', righe:[head, ...body]});
   }
-
-  if(sezioni.carta){
+  if(sezioniExtra.cartagrezza){
     let rows = (_cartaMovimenti||[]).filter(m=>_expInRange(m.data,dal,al) && (_expContiene(m.descrizione,forn) || _expContiene(m.titolare,forn)));
     if(_expRicon==='si') rows = rows.filter(m=>m.abbinata);
     if(_expRicon==='no') rows = rows.filter(m=>!m.abbinata);
     const head = ['Data','Descrizione','Importo','Titolare','Riconciliato'];
     const body = rows.map(m=>[m.data||'', m.descrizione||'', m.importo||0, m.titolare||'', m.abbinata?'Sì':'No']);
-    fogli.push({nome:'Carta di credito Nexi', righe:[head, ...body]});
+    fogli.push({nome:'Estratto Nexi grezzo', righe:[head, ...body]});
   }
-
-  if(sezioni.chiusure){
+  if(sezioniExtra.chiusure){
     let rowsCh = (chiusure||[]).filter(c=>_expInRange(c.data,dal,al));
-    const headCh = ['Data','Cassa (fiscale)','Pos fiscale','Pos banca','Totale corrispettivi','Non riscosso'];
-    const bodyCh = rowsCh.map(c=>[c.data||'', c.cassa||0, c.pos||0, c.pos_banca||0, c.totale_corrispettivi||c.totaleCorrispettivi||0, c.non_riscosso||0]);
+    const headCh = ['Data','Cassa (fiscale)','Pos fiscale','Pos banca','Pos Numia','Pos SumUp','Totale corrispettivi','Non riscosso'];
+    const bodyCh = rowsCh.map(c=>[c.data||'', c.cassa||0, c.pos||0, c.pos_banca||0, c.pos_numia||0, c.pos_sumup||0, c.totale_corrispettivi||c.totaleCorrispettivi||0, c.non_riscosso||0]);
     fogli.push({nome:'Chiusure giornaliere', righe:[headCh, ...bodyCh]});
-
     let rowsInc = (incassi||[]).filter(i=>_expInRange(i.data,dal,al));
     const headInc = ['Data','Importo','Fonte','Tipo'];
     const bodyInc = rowsInc.map(i=>[i.data||'', i.importo||0, i.source||'', i.tipo||'']);
     fogli.push({nome:'Incassi POS', righe:[headInc, ...bodyInc]});
   }
-
-  if(sezioni.versamenti){
+  if(sezioniExtra.versamenti){
     let rows = (versamenti||[]).filter(v=>_expInRange(v.data,dal,al));
     const head = ['Data','Importo','Note'];
     const body = rows.map(v=>[v.data||'', v.importo||0, v.note||'']);
@@ -7705,7 +7963,7 @@ async function _eseguiEsportazioneAvanzata(){
       XLSX.utils.book_append_sheet(wb, ws, f.nome.slice(0,31));
     });
     const buf = XLSX.write(wb,{type:'array',bookType:'xlsx'});
-    condividi(buf, 'export_ceraldi'+suffisso+'.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    condividi(buf, 'analisi_pagamenti_ceraldi'+suffisso+'.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   } else {
     fogli.forEach((f,i)=>{
       const csv = '\ufeff'+f.righe.map(r=>r.map(c=>{
