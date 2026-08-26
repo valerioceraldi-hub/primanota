@@ -3218,7 +3218,7 @@ async function _applicaMetodoMassa(metodo){
 // Registro, senza un "mese corrente" di riferimento) — usa solo lo stesso
 // filtro di esclusione voci tecniche, su tutto lo storico libero.
 function _movimentiDaClassificare(){
-  var _escludiClassifica = /commissioni?\s*(numia|pagobancomat|internazionale|carta)|^commissioni$|comm\.sdd|comm\.bon|telematico\s+sct|ns\s+rif\.|rif\.[a-z0-9]+\s+comm|rif\.[a-z0-9]+\s+perc|spese\s+e\s+comm|imp\.bollo|rilascio\s+carnet|interessi\s+e\s+comp|interessi|^competenze$|worldpay|boll\.cbill|pag\.to\s+telematico|fattura\s+numia|numia-|sdd\s+core:\s+49rj2252|paypal\s+europe|ceraldi\s+valerio|valerio\s+ceraldi|ceraldi\s+vincenzo|vincenzo\s+ceraldi|ceraldi\s+michele|michele\s+ceraldi|pocci\s+salvatore|salvatore\s+pocci|murolo\s+mario|mario\s+murolo|parisi\s+antonio|antonio\s+parisi|capezzuto\s+alessandro|alessandro\s+capezzuto|taiano\s+luigi|luigi\s+taiano|moscato\s+emanuele|emanuele\s+moscato|guarino\s+giuliano|giuliano\s+guarino|lesina\s+angela|angela\s+lesina|russo\s+carmine|carmine\s+russo|vespa\s+vincenzo|vincenzo\s+vespa|carotenuto\s+antonella|antonella\s+carotenuto|sankapala|mutuo\s+n\.|i24\s+agenzia|agenzia\s+entrate|spesa\s+con\s+carta|add\.spe/i;
+  var _escludiClassifica = /commissioni?\s*(numia|pagobancomat|internazionale|carta)|^commissioni$|comm\.sdd|comm\.bon|telematico\s+sct|ns\s+rif\.|rif\.[a-z0-9]+\s+comm|rif\.[a-z0-9]+\s+perc|spese\s+e\s+comm|imp\.bollo|rilascio\s+carnet|interessi\s+e\s+comp|interessi|^competenze$|worldpay|boll\.cbill|pag\.to\s+telematico|fattura\s+numia|numia-|sdd\s+core:\s+49rj2252|paypal\s+europe|ceraldi\s+valerio|valerio\s+ceraldi|ceraldi\s+vincenzo|vincenzo\s+ceraldi|ceraldi\s+michele|michele\s+ceraldi|pocci\s+salvatore|salvatore\s+pocci|murolo\s+mario|mario\s+murolo|parisi\s+antonio|antonio\s+parisi|capezzuto\s+alessandro|alessandro\s+capezzuto|taiano\s+luigi|luigi\s+taiano|moscato\s+emanuele|emanuele\s+moscato|guarino\s+giuliano|giuliano\s+guarino|lesina\s+angela|angela\s+lesina|russo\s+carmine|carmine\s+russo|vespa\s+vincenzo|vincenzo\s+vespa|carotenuto\s+antonella|antonella\s+carotenuto|sankapala|mutuo\s+n\.|i24\s+agenzia|agenzia\s+entrate|spesa\s+con\s+carta|add\.spe|\bstip(\.|endio)?\b|\btfr\b|\bstraordinari\b|\b1[34]\s*[aª]\b|acconto\s+stipendio|busta\s+paga|american\s+express/i;
   return (_bancaMovimenti||[]).filter(function(m){
     if(m.abbinata || m.ignorata) return false;
     return m._classificaManuale || !_escludiClassifica.test((m.descrizione||'').toLowerCase());
@@ -14948,7 +14948,9 @@ function renderRiconciliazione(){
 
   // ═══ 1. ANALISI: classifica i movimenti ═══
   var versamentiBanca = []; // VERSAMENTO CONTANTI dall'estratto
-  var posNumiaBanca = {};   // {data: totale POS}
+  var posNumiaBanca = {};   // {data: totale POS, Numia+SumUp sommati}
+  var posNumiaBancaProv = {}; // {data: solo Numia} — per salvare pos_numia separatamente
+  var posSumupBancaProv = {}; // {data: solo SumUp} — per salvare pos_sumup separatamente
   var pagamentiFatture = []; // bonifici/sdd → uscite verso fornitori
   var altri = [];
 
@@ -14972,6 +14974,27 @@ function renderRiconciliazione(){
       }
       if(!posNumiaBanca[dataPos]) posNumiaBanca[dataPos] = 0;
       posNumiaBanca[dataPos] += Math.abs(m.importo);
+      if(!posNumiaBancaProv[dataPos]) posNumiaBancaProv[dataPos] = 0;
+      posNumiaBancaProv[dataPos] += Math.abs(m.importo);
+    } else if(/sumup/.test(d) && m.tipo==='entrata'){
+      // FIX 25/08 (Valerio ha 2 aziende di pagamenti elettronici da agosto):
+      // gli accrediti SumUp ("SUMUP PIDxxxx PAYOUT DDMMYY") non contengono
+      // "numia" e prima finivano IGNORATI da questo confronto — il totale
+      // "Banca" mostrato era quindi SOLO Numia, mai SumUp, e la differenza
+      // col fiscale (che invece somma entrambi) sembrava un errore reale
+      // quando in realtà mancava semplicemente un intero canale di incasso.
+      // Non esiste un "DEL" nel testo SumUp: usiamo la data di PAYOUT come
+      // approssimazione migliore disponibile (stesso limite del "DEL" Numia,
+      // che è comunque data di sportello/valuta, non incasso istantaneo).
+      var mPayout = m.descrizione.match(/PAYOUT\s+(\d{2})(\d{2})(\d{2})\b/i);
+      var dataPosSU = m.data;
+      if(mPayout){
+        dataPosSU = '20'+mPayout[3]+'-'+mPayout[2]+'-'+mPayout[1];
+      }
+      if(!posNumiaBanca[dataPosSU]) posNumiaBanca[dataPosSU] = 0;
+      posNumiaBanca[dataPosSU] += Math.abs(m.importo);
+      if(!posSumupBancaProv[dataPosSU]) posSumupBancaProv[dataPosSU] = 0;
+      posSumupBancaProv[dataPosSU] += Math.abs(m.importo);
     } else if(m.tipo==='uscita'){
       // Usa lo stesso criterio di _escludiMatch per coerenza
       // (viene rivalutato sotto con la regex completa, questo è solo pre-classificazione)
@@ -15118,6 +15141,7 @@ function renderRiconciliazione(){
     // solo al testo tipico BPM.
     var isBonifico = /vs\.disp\.|favore/i.test(m.descrizione) || m.sottotipo==='Bonifico';
     var isSDD      = /sdd\s+core|sdd\s+b2b/i.test(m.descrizione);
+    var isPaypal   = /paypal/i.test(m.descrizione);
     var numAssStr  = '';
     var mAssNum    = m.descrizione.match(/assegno\s+n\.?\s*(\d+)/i);
     if(mAssNum) numAssStr = mAssNum[1];
@@ -15427,6 +15451,69 @@ function renderRiconciliazione(){
           ? '⚠️ Questa fattura risulta GIÀ agganciata a un altro movimento — verifica prima di confermare (potrebbe essere una seconda fattura mancante, non un doppione)'
           : (_assDiscrP || (_defP ? ('⚠️ Di solito paghi "'+matchProbabile.fornitore+'" con '+_defP+', ma questo sembra un '+metodoMovimento) : null))});
 
+    } else if(isAssegno){
+      // FIX 25/08 (Valerio, caso reale: assegno da €2.300 mai proposto,
+      // nemmeno "da confermare"). Un assegno non riporta MAI il nome del
+      // fornitore nel testo bancario (vedi sopra) e viene spesso incassato
+      // settimane o mesi dopo l'emissione della fattura — quindi i punteggi
+      // sopra (che premiano nome+data vicina) restano quasi sempre a 0,
+      // anche quando l'importo coincide esattamente con una fattura precisa.
+      // Qui, SOLO per gli assegni, l'importo identico (±0,50€) basta da solo
+      // per proporre una conferma manuale — mai un abbinamento automatico —
+      // su tutte le fatture con quell'importo, con un avviso se sono più di
+      // una (caso reale trovato: due fatture N°113-FE da 2.300€ registrate
+      // su due fornitori diversi alla stessa data — quasi certamente un
+      // doppione da controllare in anagrafica).
+      var _assegnoCandidati = fattCandidatiMov.filter(function(f){
+        if(fattIdUsate.has(f.id)) return false;
+        if((m._rifiutati||[]).indexOf(f.id) !== -1) return false;
+        if(_rifiutatiSet.has(_chiaveDesc+'|'+f.id)) return false;
+        return Math.abs(nettoFattura(f)-imp) <= 0.50;
+      });
+      if(_assegnoCandidati.length){
+        var _ambiguoAss = _assegnoCandidati.length > 1;
+        _assegnoCandidati.forEach(function(fc){
+          daConfermare.push({mov:m, fatt:fc, score:40,
+            isAssegno:true, isBonifico:false, numAssStr:numAssStr,
+            avviso: _ambiguoAss
+              ? '⚠️ Importo identico a '+_assegnoCandidati.length+' fatture diverse (stesso numero/importo in anagrafica?) — verifica bene quale prima di confermare.'
+              : '📝 Assegno — importo identico, ma nessun nome fornitore leggibile nel testo bancario: verifica manualmente prima di confermare.'});
+        });
+      } else {
+        nonAbbinati.push(m);
+      }
+
+    } else if(isPaypal){
+      // FIX 25/08 (Valerio: "Gli addebiti PayPal non mostrano il destinatario
+      // della fattura"). Un addebito SDD PayPal riporta in causale solo
+      // "PayPal Europe S.a.r.l. et Cie S.C.A" — cioè PayPal stesso, MAI il
+      // vero beneficiario reale (Amazon, Google Ads, ecc.) — quindi il match
+      // per nome fornitore sopra non può funzionare per definizione. Qui,
+      // SOLO per PayPal, si propone come "da confermare" ogni fattura con
+      // importo identico e data entro ±3 giorni dall'addebito (richiesta
+      // esplicita di Valerio) — mai un abbinamento automatico, proprio
+      // perché il beneficiario reale resta da verificare a mano.
+      var _paypalCandidati = fattCandidatiMov.filter(function(f){
+        if(fattIdUsate.has(f.id)) return false;
+        if((m._rifiutati||[]).indexOf(f.id) !== -1) return false;
+        if(_rifiutatiSet.has(_chiaveDesc+'|'+f.id)) return false;
+        if(Math.abs(nettoFattura(f)-imp) > 0.50) return false;
+        if(!f.data) return false;
+        var dF = new Date(f.data+'T12:00:00'), dM = new Date(m.data+'T12:00:00');
+        return Math.abs(dF-dM)/86400000 <= 3;
+      });
+      if(_paypalCandidati.length){
+        var _ambiguoPP = _paypalCandidati.length > 1;
+        _paypalCandidati.forEach(function(fc){
+          daConfermare.push({mov:m, fatt:fc, score:40,
+            isAssegno:false, isBonifico:false, numAssStr:'',
+            avviso: '💰 PayPal non mostra il vero beneficiario in causale — importo e data ('+fc.data+') compatibili con questa fattura, ma verifica manualmente.'
+              + (_ambiguoPP ? ' ⚠️ Attenzione: '+_paypalCandidati.length+' fatture diverse hanno importo/data compatibili.' : '')});
+        });
+      } else {
+        nonAbbinati.push(m);
+      }
+
     } else {
       nonAbbinati.push(m);
     }
@@ -15562,18 +15649,26 @@ function renderRiconciliazione(){
     var totBanca = Math.round(posNumiaBanca[data]*100)/100;
     if(typeof chiusure==='undefined') return;
     var ch = chiusure.find(function(c){return c.data===data;});
+    var posNumiaSola = Math.round((posNumiaBancaProv[data]||0)*100)/100;
+    var posSumupSola = Math.round((posSumupBancaProv[data]||0)*100)/100;
     if(!ch){
-      posDaCompilare.push({data:data, totBanca:totBanca});
+      posDaCompilare.push({data:data, totBanca:totBanca, posNumia:posNumiaSola, posSumup:posSumupSola});
       return;
     }
     var posBancaSalvato = Math.round((ch.pos_banca||0)*100)/100;
     var posFiscale = Math.round((ch.pos||0)*100)/100;
     if(posBancaSalvato === 0){
       // POS banca non ancora registrato: mostra come da compilare
-      posDaCompilare.push({data:data, totBanca:totBanca, chiusura:ch});
+      posDaCompilare.push({data:data, totBanca:totBanca, posNumia:posNumiaSola, posSumup:posSumupSola, chiusura:ch});
     } else if(Math.abs(posBancaSalvato - totBanca) > 0.50){
-      // POS banca già registrato ma diverso dall'estratto attuale
-      posDiscrepanze.push({data:data, totBanca:totBanca, posApp:posBancaSalvato, posFiscale:posFiscale, chiusura:ch});
+      // ATTENZIONE: qui si confronta il valore di pos_banca già salvato in
+      // precedenza con quello ricalcolato ORA dall'estratto conto — NON è
+      // un confronto banca-vs-fiscale (il fiscale, ch.pos, è riportato solo
+      // come riferimento in più). Una differenza qui significa che sono
+      // arrivate righe nuove/diverse sull'estratto rispetto a quando è
+      // stato salvato l'ultima volta (es. un canale — Numia o SumUp — non
+      // ancora incluso al momento del salvataggio precedente).
+      posDiscrepanze.push({data:data, totBanca:totBanca, posApp:posBancaSalvato, posFiscale:posFiscale, posNumia:posNumiaSola, posSumup:posSumupSola, chiusura:ch});
     }
   });
 
@@ -15655,17 +15750,24 @@ function renderRiconciliazione(){
       html += '</div></div></div>';
     });
     posDiscrepanze.forEach(function(p, i){
+      // FIX 25/08: qui NON si confronta banca-vs-fiscale (il vecchio label
+      // "Fiscale" era sbagliato — mostrava il valore banca già salvato in
+      // precedenza, non il registro di cassa). Si confronta il totale banca
+      // già salvato con quello appena ricalcolato dall'estratto — utile per
+      // scoprire che è arrivato un canale nuovo (es. SumUp) o righe in ritardo.
       var diff = p.totBanca - p.posApp;
       var diffColor = diff > 0 ? '#1a7a3a' : 'var(--red)';
-      var diffLabel = diff > 0 ? '🟢 Banca accredita di più' : '🔴 Banca accredita di meno';
+      var diffLabel = diff > 0 ? '🟢 Nuovo totale più alto' : '🔴 Nuovo totale più basso';
+      var breakdown = (p.posNumia>0 && p.posSumup>0) ? ' (Numia '+fmt(p.posNumia)+' + SumUp '+fmt(p.posSumup)+')' : '';
       html += '<div style="padding:10px 0;border-top:1px solid var(--sep);font-size:13px">';
       html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
       html += '<div style="flex:1"><div style="font-weight:600">'+p.data+'</div>';
-      html += '<div style="font-size:11px;margin-top:3px;display:flex;gap:10px">';
-      html += '<span>📠 Fiscale: <b>'+fmt(p.posApp)+'</b></span>';
-      html += '<span style="color:#0066cc">🏦 Banca: <b>'+fmt(p.totBanca)+'</b></span>';
+      html += '<div style="font-size:11px;margin-top:3px;display:flex;flex-wrap:wrap;gap:10px">';
+      html += '<span>🏦 Banca già salvata: <b>'+fmt(p.posApp)+'</b></span>';
+      html += '<span style="color:#0066cc">🏦 Banca ora nell\'estratto: <b>'+fmt(p.totBanca)+'</b>'+breakdown+'</span>';
+      html += '<span style="color:var(--ink3)">📠 Registro di cassa (fiscale): <b>'+fmt(p.posFiscale)+'</b></span>';
       html += '</div>';
-      html += '<div style="font-size:11px;color:'+diffColor+';font-weight:600;margin-top:2px">'+diffLabel+' · Scostamento: '+(diff>0?'+':'')+fmt(diff)+'</div>';
+      html += '<div style="font-size:11px;color:'+diffColor+';font-weight:600;margin-top:2px">'+diffLabel+' rispetto a quanto già salvato · Scostamento: '+(diff>0?'+':'')+fmt(diff)+'</div>';
       html += '</div>';
       html += '<button onclick="_correggiPOS('+i+')" style="padding:5px 10px;border:1px solid #0066cc;border-radius:6px;background:#e8f4fd;color:#0066cc;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;flex-shrink:0">💾 Salva POS banca</button>';
       html += '</div></div>';
@@ -15859,7 +15961,7 @@ function renderRiconciliazione(){
   }
 
   // ═══ Classificazione movimenti non abbinati: visibili vs filtrati automaticamente ═══
-  var _escludiClassifica = /commissioni?\s*(numia|pagobancomat|internazionale|carta)|^commissioni$|comm\.sdd|comm\.bon|telematico\s+sct|ns\s+rif\.|rif\.[a-z0-9]+\s+comm|rif\.[a-z0-9]+\s+perc|spese\s+e\s+comm|imp\.bollo|rilascio\s+carnet|interessi\s+e\s+comp|interessi|^competenze$|worldpay|boll\.cbill|pag\.to\s+telematico|fattura\s+numia|numia-|sdd\s+core:\s+49rj2252|paypal\s+europe|ceraldi\s+valerio|valerio\s+ceraldi|ceraldi\s+vincenzo|vincenzo\s+ceraldi|ceraldi\s+michele|michele\s+ceraldi|pocci\s+salvatore|salvatore\s+pocci|murolo\s+mario|mario\s+murolo|parisi\s+antonio|antonio\s+parisi|capezzuto\s+alessandro|alessandro\s+capezzuto|taiano\s+luigi|luigi\s+taiano|moscato\s+emanuele|emanuele\s+moscato|guarino\s+giuliano|giuliano\s+guarino|lesina\s+angela|angela\s+lesina|russo\s+carmine|carmine\s+russo|vespa\s+vincenzo|vincenzo\s+vespa|carotenuto\s+antonella|antonella\s+carotenuto|sankapala|mutuo\s+n\.|i24\s+agenzia|agenzia\s+entrate|spesa\s+con\s+carta|add\.spe/i;
+  var _escludiClassifica = /commissioni?\s*(numia|pagobancomat|internazionale|carta)|^commissioni$|comm\.sdd|comm\.bon|telematico\s+sct|ns\s+rif\.|rif\.[a-z0-9]+\s+comm|rif\.[a-z0-9]+\s+perc|spese\s+e\s+comm|imp\.bollo|rilascio\s+carnet|interessi\s+e\s+comp|interessi|^competenze$|worldpay|boll\.cbill|pag\.to\s+telematico|fattura\s+numia|numia-|sdd\s+core:\s+49rj2252|paypal\s+europe|ceraldi\s+valerio|valerio\s+ceraldi|ceraldi\s+vincenzo|vincenzo\s+ceraldi|ceraldi\s+michele|michele\s+ceraldi|pocci\s+salvatore|salvatore\s+pocci|murolo\s+mario|mario\s+murolo|parisi\s+antonio|antonio\s+parisi|capezzuto\s+alessandro|alessandro\s+capezzuto|taiano\s+luigi|luigi\s+taiano|moscato\s+emanuele|emanuele\s+moscato|guarino\s+giuliano|giuliano\s+guarino|lesina\s+angela|angela\s+lesina|russo\s+carmine|carmine\s+russo|vespa\s+vincenzo|vincenzo\s+vespa|carotenuto\s+antonella|antonella\s+carotenuto|sankapala|mutuo\s+n\.|i24\s+agenzia|agenzia\s+entrate|spesa\s+con\s+carta|add\.spe|\bstip(\.|endio)?\b|\btfr\b|\bstraordinari\b|\b1[34]\s*[aª]\b|acconto\s+stipendio|busta\s+paga|american\s+express/i;
   // _classificaManuale (impostato da _rimandaADaClassificare, vedi sotto) forza
   // la visibilità in "Da classificare" anche se la descrizione assomiglia a una
   // commissione/voce tecnica — bug corretto 08/08: un movimento spostato
@@ -15966,6 +16068,11 @@ function renderRiconciliazione(){
     if(/mutuo/.test(d))                                          return {key:'mutuo',    label:'🏦 Mutuo'};
     if(/leasing|arval|ald\s+automotive|leasys/.test(d))          return {key:'leasing',  label:'🚗 Leasing / Noleggio'};
     if(/vostro assegno|prelievo assegno/.test(d))                 return {key:'assegno',  label:'📝 Assegni'};
+    // FIX 25/08 (Valerio: gli addebiti SDD American Express sono commissioni
+    // di incasso carte, non fatture fornitore — vanno riconosciuti PRIMA del
+    // controllo SDD generico qui sotto, altrimenti finiscono in "Addebiti SDD"
+    // e l'app propone inutilmente di cercargli una fattura).
+    if(/american\s+express/.test(d))                             return {key:'spese',    label:'💰 Commissioni e spese'};
     if(/sdd\s+core|sdd\s+b2b/.test(d))                            return {key:'sdd',      label:'🔄 Addebiti SDD'};
     // PayPal in una sezione propria (25/08, richiesta esplicita di
     // Valerio: prima finiva mescolato in "Altro"/"Commissioni", senza un
@@ -15980,6 +16087,14 @@ function renderRiconciliazione(){
     // "Bonifici fornitori" invece che in "Stipendi". Ogni nome ora prova
     // ENTRAMBI gli ordini, per non dipendere da come la banca li scrive.
     if(/valerio\s+ceraldi|ceraldi\s+valerio|vincenzo\s+ceraldi|ceraldi\s+vincenzo|michele\s+ceraldi|ceraldi\s+michele|salvatore\s+pocci|pocci\s+salvatore|mario\s+murolo|murolo\s+mario|antonio\s+parisi|parisi\s+antonio|alessandro\s+capezzuto|capezzuto\s+alessandro|luigi\s+taiano|taiano\s+luigi|emanuele\s+moscato|moscato\s+emanuele|giuliano\s+guarino|guarino\s+giuliano|angela\s+lesina|lesina\s+angela|carmine\s+russo|russo\s+carmine|vincenzo\s+vespa|vespa\s+vincenzo|antonella\s+carotenuto|carotenuto\s+antonella|sankapala/.test(d))
+                                                                  return {key:'stipendi', label:'👤 Stipendi/collaboratori'};
+    // FIX 25/08: oltre alla lista fissa di nomi sopra (che va aggiornata a
+    // mano ad ogni nuova assunzione — fragile), riconosce ANCHE un bonifico
+    // di stipendio dalla causale stessa quando contiene un termine tipico
+    // di busta paga (es. "stip 2026", "TFR", "13a/14a", "straordinari") —
+    // caso reale: bonifico a Iazzetta Francesco non incluso nella lista,
+    // ma con "stip 2026" in causale, finiva in "Bonifici fornitori".
+    if((/vs\.disp\.|favore/.test(d)) && /\bstip(\.|endio)?\b|\btfr\b|\bstraordinari\b|\b1[34]\s*[aª]\b|acconto\s+stipendio|busta\s+paga/i.test(d))
                                                                   return {key:'stipendi', label:'👤 Stipendi/collaboratori'};
     if(/vs\.disp\.|favore/.test(d) || m.sottotipo==='Bonifico')    return {key:'bonifico', label:'🏦 Bonifici fornitori'};
     if(m.tipo==='entrata')                                       return {key:'entrata',  label:'↑ Entrate'};
@@ -16169,6 +16284,22 @@ function _numeriFatturaCombaciano(a, b){
   var nb = String(b||'').replace(/\D/g,'').replace(/^0+/,'');
   return na.length>=5 && na===nb;
 }
+// FIX 25/08 (caso reale Leasys: nella causale bancaria uno dei numeri fattura
+// risultava TRONCATO di 1 cifra rispetto a quello salvato in anagrafica —
+// "20261102570" nel testo vs "0000202611025701" in archivio — probabilmente
+// un campo a larghezza fissa della banca che taglia l'ultima cifra). Un
+// confronto ESATTO non lo trova mai. Qui si accetta anche il caso in cui uno
+// dei due numeri sia un PREFISSO dell'altro, ma solo per numeri lunghi
+// (10+ cifre, tipici di Leasys/canoni) e con al massimo 2 cifre di differenza,
+// per non generare falsi positivi su numeri corti o casuali.
+function _numeriFatturaPrefissoTroncato(a, b){
+  var na = String(a||'').replace(/\D/g,'').replace(/^0+/,'');
+  var nb = String(b||'').replace(/\D/g,'').replace(/^0+/,'');
+  if(na.length<10 || nb.length<10) return false;
+  var corto = na.length<=nb.length ? na : nb;
+  var lungo = na.length<=nb.length ? nb : na;
+  return (lungo.length-corto.length)<=2 && lungo.indexOf(corto)===0;
+}
 
 function _cfRender(mostraTutte, filtro){
   var idx=window._cfaIdx, imp=window._cfaImp, m=window._cfaMov;
@@ -16235,7 +16366,7 @@ function _cfRender(mostraTutte, filtro){
     matchNudi = candidatiConFornitoreRiconosciuto.filter(function(f){
       if(!f.numero) return false;
       if(matchNumero.some(function(mf){ return mf.id===f.id; })) return false; // già trovata sopra, non duplicare
-      return numeriNudi.some(function(n){ return _numeriFatturaCombaciano(n, f.numero); });
+      return numeriNudi.some(function(n){ return _numeriFatturaCombaciano(n, f.numero) || _numeriFatturaPrefissoTroncato(n, f.numero); });
     });
   }
 
@@ -16699,6 +16830,23 @@ function _cfMultiplo(){
   var selezionate=[];
   var filtro='';
 
+  // FIX 25/08 (Valerio: "se voglio aggiungere io una fattura a quelle che tu
+  // hai abbinato non posso farlo ma devo partire da 0") — se l'app aveva già
+  // trovato in automatico un gruppo di fatture per QUESTO STESSO movimento
+  // (i "numeri nudi" tipo caso Leasys), il picker manuale riparte da qui
+  // invece che da una lista vuota: puoi solo aggiungere/togliere quello che
+  // manca, non ricostruire tutto da capo.
+  if(window._cfMovCorrente === m && window._cfMatchNudiCorrente && window._cfMatchNudiCorrente.length){
+    selezionate = window._cfMatchNudiCorrente.map(function(f){
+      var impF = nettoFattura(f);
+      var resto = f.stato==='parziale' ? Math.max(0, impF-(f.parzPagato||0)) : impF;
+      return {fatt:f, importoPagato: resto};
+    });
+  }
+  // Consumato: non deve ripresentarsi se si riapre il picker per un altro movimento
+  window._cfMatchNudiCorrente = null;
+  window._cfMovCorrente = null;
+
   function _buildFattureLista(){
     var lista = fatture.filter(function(f){
       if(f.tipo==='ddt') return false;
@@ -16899,6 +17047,7 @@ function _cfMultiplo(){
   };
 
   _buildOverlay();
+  if(selezionate.length) _updateDynamic();
 }
 function _impostaDatiRiconciliazione(f, mov, isParziale, importoSpecifico){
   // Prima questi dati finivano come testo tra parentesi quadre dentro le note
@@ -17117,12 +17266,16 @@ async function _compilaPOS(idx){
   var nuovaChiusuraCreata = false;
   if(p.chiusura){
     // Scrive su pos_banca — NON tocca pos fiscale
+    // (25/08: salviamo ANCHE la scomposizione Numia/SumUp, così il confronto
+    // futuro può distinguere i due canali invece di vederli come un blocco unico)
     p.chiusura.pos_banca = p.totBanca;
-    p.chiusura.pos_riconciliata = true; // confermato contro i movimenti Numia reali dell'estratto
+    p.chiusura.pos_numia = p.posNumia||0;
+    p.chiusura.pos_sumup = p.posSumup||0;
+    p.chiusura.pos_riconciliata = true; // confermato contro i movimenti Numia+SumUp reali dell'estratto
     p.chiusura.updated_at = new Date().toISOString();
     if(typeof sbFetch==='function'){
       try{
-        var upsertRow2 = Object.assign({}, p.chiusura, {pos_banca: p.totBanca, pos_riconciliata: true, updated_at: p.chiusura.updated_at});
+        var upsertRow2 = Object.assign({}, p.chiusura, {pos_banca: p.totBanca, pos_numia: p.posNumia||0, pos_sumup: p.posSumup||0, pos_riconciliata: true, updated_at: p.chiusura.updated_at});
         await sbFetch('chiusure_giornaliere', {method:'POST', headers:Object.assign({}, SB_H, {'Prefer':'resolution=merge-duplicates,return=minimal'}), body: JSON.stringify(upsertRow2)});
       }catch(e){ console.warn('SB POS banca:', e); }
     }
@@ -17131,6 +17284,8 @@ async function _compilaPOS(idx){
       id: Date.now() + idx,
       data: p.data,
       pos_banca: p.totBanca,
+      pos_numia: p.posNumia||0,
+      pos_sumup: p.posSumup||0,
       pos_riconciliata: true,
       pos: 0,
       cassa: 0,
@@ -17259,13 +17414,15 @@ async function _compilaPOSItem(p){
   var nuovaChiusuraCreata = false;
   if(p.chiusura){
     p.chiusura.pos_banca = p.totBanca;
-    p.chiusura.pos_riconciliata = true; // confermato contro i movimenti Numia reali dell'estratto
+    p.chiusura.pos_numia = p.posNumia||0;
+    p.chiusura.pos_sumup = p.posSumup||0;
+    p.chiusura.pos_riconciliata = true; // confermato contro i movimenti Numia+SumUp reali dell'estratto
     p.chiusura.updated_at = new Date().toISOString();
     if(typeof sbFetch==='function'){
       // Con merge-duplicates Postgres fa INSERT...ON CONFLICT DO UPDATE.
       // Se l'id non esiste su DB (chiusura solo locale), l'INSERT scatta su tutta
       // la riga: serve inviare tutti i campi NOT NULL, non solo {id, pos_banca}.
-      var upsertRow = Object.assign({}, p.chiusura, {pos_banca: p.totBanca, pos_riconciliata: true, updated_at: p.chiusura.updated_at});
+      var upsertRow = Object.assign({}, p.chiusura, {pos_banca: p.totBanca, pos_numia: p.posNumia||0, pos_sumup: p.posSumup||0, pos_riconciliata: true, updated_at: p.chiusura.updated_at});
       await sbFetch('chiusure_giornaliere', {
         method:'POST',
         headers:Object.assign({}, SB_H, {'Prefer':'resolution=merge-duplicates,return=minimal'}),
@@ -17277,6 +17434,8 @@ async function _compilaPOSItem(p){
       id: Date.now() + Math.floor(Math.random()*9999),
       data: p.data,
       pos_banca: p.totBanca,
+      pos_numia: p.posNumia||0,
+      pos_sumup: p.posSumup||0,
       pos_riconciliata: true,
       pos: 0,
       cassa: 0,
@@ -17306,11 +17465,13 @@ async function _correggiPOS(idx){
   var vecchio = p.posApp;
   // Scrive su pos_banca — NON tocca pos fiscale
   p.chiusura.pos_banca = p.totBanca;
-  p.chiusura.pos_riconciliata = true; // confermato contro i movimenti Numia reali dell'estratto
+  p.chiusura.pos_numia = p.posNumia||0;
+  p.chiusura.pos_sumup = p.posSumup||0;
+  p.chiusura.pos_riconciliata = true; // confermato contro i movimenti Numia+SumUp reali dell'estratto
   p.chiusura.updated_at = new Date().toISOString();
   if(typeof sbFetch==='function'){
     try{
-      await sbFetch('chiusure_giornaliere?id=eq.'+p.chiusura.id, {method:'PATCH', headers:Object.assign({}, SB_H, {'Prefer':'return=minimal'}), body: JSON.stringify({pos_banca:p.totBanca, pos_riconciliata:true, updated_at:p.chiusura.updated_at})});
+      await sbFetch('chiusure_giornaliere?id=eq.'+p.chiusura.id, {method:'PATCH', headers:Object.assign({}, SB_H, {'Prefer':'return=minimal'}), body: JSON.stringify({pos_banca:p.totBanca, pos_numia:p.posNumia||0, pos_sumup:p.posSumup||0, pos_riconciliata:true, updated_at:p.chiusura.updated_at})});
     }catch(e){ console.warn('SB POS banca:', e); }
   }
   if(typeof salvaChiusureLocale==='function') salvaChiusureLocale();
